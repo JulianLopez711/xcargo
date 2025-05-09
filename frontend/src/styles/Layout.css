@@ -1,0 +1,18 @@
+.layout-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.layout-content {
+  flex-grow: 1;
+  padding: 1.5rem;
+  background-color: #f7f9f9;
+  overflow-y: auto;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .layout-content {
+    padding: 1rem;
+  }
+}

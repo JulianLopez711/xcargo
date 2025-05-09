@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "../context/authContext";
 
 // Layout y protección
-import Layout from "../components/Layout";
+import Layout from "../components/layout";
 import ProtectedRoute from "../components/ProtectedRoute";
 import Login from "../pages/login/Login";
 
@@ -18,7 +18,6 @@ import CrucesAdmin from "../pages/admin/Cruces";
 import RoleManagement from "../pages/admin/RoleManagement";
 
 // Conductor
-import DashboardConductor from "../pages/conductor/Dashboard";
 import PagosPendientes from "../pages/conductor/PagosPendientes";
 import FormularioPagoConductor from "../pages/conductor/FormularioPagoConductor";
 
@@ -76,7 +75,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<DashboardConductor />} />
+        <Route index element={<PagosPendientes />} />
         <Route path="pagos-pendientes" element={<PagosPendientes />} />
         <Route path="formulario-pago" element={<FormularioPagoConductor />} />
       </Route>

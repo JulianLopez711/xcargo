@@ -4,10 +4,10 @@ import { useAuth } from "../context/authContext";
 import logo from "../assets/LogoXcargo.png";
 import "../styles/Navbar.css";
 
-import { adminRoutes } from "../../adminRoutes/adminRoutes";
-import { conductorRoutes } from "../routes/conductorRoutes";
-import { contabilidadRoutes } from "../routes/contabilidadRoutes";
-import { clientRoutes } from "../routes/clientRoutes/clientRoutess
+import { adminRoutes } from "../routes/adminRoutes/adminRoutes";
+import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
+import { contabilidadRoutes } from "../routes/contabilidadRoutes/contabilidadRoutes";
+import { clientRoutes } from "../routes/clientRoutes/clientRoutes"
 
 export default function Navbar() {
   const { rol, nombre, logout } = useAuth();

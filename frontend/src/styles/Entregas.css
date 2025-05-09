@@ -1,0 +1,44 @@
+.entregas-page {
+  padding: 1rem;
+  background-color: #f9fbfb;
+  border-radius: 10px;
+}
+
+.entregas-title {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #2e7d32;
+  margin-bottom: 1rem;
+}
+
+.entregas-filtros {
+  margin-bottom: 1rem;
+}
+
+.entregas-filtros input {
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  margin-left: 0.5rem;
+}
+
+.entregas-tabla-container {
+  overflow-x: auto;
+}
+
+.entregas-tabla {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.entregas-tabla th,
+.entregas-tabla td {
+  padding: 0.75rem;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+}
+
+.entregas-tabla th {
+  background-color: #e8f5e9;
+  color: #2e7d32;
+}
