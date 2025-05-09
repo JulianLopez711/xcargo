@@ -8,3 +8,4 @@ dist/
 .vite/
 app/credentials/" > .gitignore
 backend/app/credentials/
+
