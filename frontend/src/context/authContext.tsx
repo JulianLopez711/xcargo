@@ -1,64 +1,52 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 
-// Definimos el tipo de datos que tendrá nuestro contexto
+interface User {
+  email: string;
+  role: string;
+}
+
 interface AuthContextType {
-  nombre: string;
-  rol: string;
-  login: (rol: string, nombre: string) => void;
+  user: User | null;
+  login: (user: User) => void;
   logout: () => void;
   isLoading: boolean;
 }
 
-// Creamos el contexto
 const AuthContext = createContext<AuthContextType>({
-  nombre: "",
-  rol: "",
+  user: null,
   login: () => {},
   logout: () => {},
   isLoading: true,
 });
 
-// Hook personalizado para usar el contexto
-export const useAuth = () => useContext(AuthContext);
-
-// Componente proveedor del contexto
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [nombre, setNombre] = useState("");
-  const [rol, setRol] = useState("");
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Cargamos datos del localStorage al montar
   useEffect(() => {
-    const nombreGuardado = localStorage.getItem("nombre");
-    const rolGuardado = localStorage.getItem("rol");
-    if (nombreGuardado && rolGuardado) {
-      setNombre(nombreGuardado);
-      setRol(rolGuardado);
+    // Cargar usuario desde localStorage al iniciar
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
     }
     setIsLoading(false);
   }, []);
 
-  // Función de login
-  const login = (nuevoRol: string, nuevoNombre: string) => {
-    setNombre(nuevoNombre);
-    setRol(nuevoRol);
-    localStorage.setItem("nombre", nuevoNombre);
-    localStorage.setItem("rol", nuevoRol);
+  const login = (userData: User) => {
+    localStorage.setItem("user", JSON.stringify(userData));
+    setUser(userData);
   };
 
-  // Función de logout
   const logout = () => {
-    setNombre("");
-    setRol("");
-    localStorage.removeItem("nombre");
-    localStorage.removeItem("rol");
-    window.location.href = "/";
+    localStorage.removeItem("user");
+    setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ nombre, rol, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
-}
+};
+
+export const useAuth = () => useContext(AuthContext);

@@ -1,25 +1,8 @@
-.cruces-admin {
-  padding: 1rem;
-}
-
-.cruces-header h1 {
-  font-size: 1.5rem;
-  color: #10b981;
-  margin-bottom: 0.25rem;
-}
-
-.cruces-header p {
-  color: #6b7280;
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-
-.cruces-table-container {
+.pagos-table-container {
   overflow-x: auto;
 }
 
-.cruces-table {
+.pagos-table {
   width: 100%;
   border-collapse: collapse;
   background-color: white;
@@ -28,21 +11,21 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
 
-.cruces-table th,
-.cruces-table td {
+.pagos-table th,
+.pagos-table td {
   padding: 0.75rem 1rem;
   text-align: left;
   border-bottom: 1px solid #e5e7eb;
 }
 
-.cruces-table th {
+.pagos-table th {
   background-color: #f9fafb;
   color: #374151;
   font-weight: 600;
   font-size: 0.875rem;
 }
 
-.cruces-table td {
+.pagos-table td {
   color: #4b5563;
   font-size: 0.875rem;
 }
@@ -52,7 +35,7 @@
   font-weight: 600;
 }
 
-.estado-error {
-  color: #f59e0b;
+.estado-pendiente {
+  color: #ef4444;
   font-weight: 600;
 }

@@ -1,0 +1,48 @@
+.admin-configuracion {
+  padding: 20px;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.admin-configuracion h2 {
+  margin-bottom: 20px;
+  color: #2e7d32;
+}
+
+.form-config {
+  background-color: #f1f8f4;
+  padding: 20px;
+  border-radius: 12px;
+  max-width: 600px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+.form-config label {
+  display: block;
+  margin-top: 12px;
+  font-weight: bold;
+  color: #2e7d32;
+}
+
+.form-config input,
+.form-config textarea {
+  width: 100%;
+  padding: 8px;
+  margin-top: 4px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.form-config button {
+  margin-top: 20px;
+  padding: 10px 20px;
+  background-color: #2e7d32;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.form-config button:hover {
+  background-color: #1b5e20;
+}

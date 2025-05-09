@@ -1,4 +1,4 @@
-export default function Entregas() {
+export default function Historial() {
   return (
     <div className="historial-page">
       <h2>Historial de Operaciones</h2>
@@ -6,4 +6,4 @@ export default function Entregas() {
       {/* Aquí puedes agregar un componente para mostrar el historial */}
     </div>
   );
-}
+}   

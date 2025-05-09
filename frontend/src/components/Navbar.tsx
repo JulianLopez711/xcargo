@@ -1,58 +1,67 @@
-import { useState, useRef, useEffect } from "react";
+// src/components/Navbar.tsx
+import { useRef, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/authContext";
+import { useAuth } from "../context/authContext"; // Asegúrate de tener este contexto
 import logo from "../assets/LogoXcargo.png";
 import "../styles/Navbar.css";
 
 import { adminRoutes } from "../routes/adminRoutes/adminRoutes";
-import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
 import { contabilidadRoutes } from "../routes/contabilidadRoutes/contabilidadRoutes";
-import { clientRoutes } from "../routes/clientRoutes/clientRoutes"
+import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
+import { clientRoutes } from "../routes/operadorRoutes/clientRoutes";
 
 export default function Navbar() {
-  const { rol, nombre, logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [menuAbierto, setMenuAbierto] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const rutasPorRol: Record<string, { name: string; path: string }[]> = {
+  const rutasPorRol: Record<string, { name: string; path: string; icon?: string }[]> = {
     admin: adminRoutes,
-    conductor: conductorRoutes,
     contabilidad: contabilidadRoutes,
-    operador: clientRoutes,
+    conductor: conductorRoutes,
+    cliente: clientRoutes,
   };
 
-  const rutas = rutasPorRol[rol] || [];
+  const handleClickOutside = (e: MouseEvent) => {
+    if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      setMenuAbierto(false);
+    }
+  };
 
   useEffect(() => {
-    const manejarClicFuera = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuAbierto(false);
-      }
-    };
-    document.addEventListener("mousedown", manejarClicFuera);
-    return () => document.removeEventListener("mousedown", manejarClicFuera);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  if (!user) return null;
+
+  const rutas = rutasPorRol[user.role] || [];
 
   return (
     <nav className="navbar">
       <div className="navbar-logo" onClick={() => navigate("/")}>
-        <img src={logo} alt="Logo Xcargo" />
-        <span>XCARGO</span>
+        <img src={logo} alt="Logo XCargo" />
+        <span className="navbar-title">XCargo</span>
       </div>
 
-      <div className="navbar-toggle" onClick={() => setMenuAbierto(!menuAbierto)}>
-        ☰
-      </div>
-
-      <div className={`navbar-menu ${menuAbierto ? "abierto" : ""}`} ref={menuRef}>
-        {rutas.map((ruta, i) => (
-          <a key={i} onClick={() => navigate(ruta.path)}>
+      <div className="navbar-links">
+        {rutas.map((ruta) => (
+          <button
+            key={ruta.path}
+            className="navbar-link"
+            onClick={() => navigate(ruta.path)}
+          >
             {ruta.name}
-          </a>
+          </button>
         ))}
-        <span className="navbar-usuario">👤 {nombre}</span>
-        <a onClick={logout}>Cerrar sesión</a>
+      </div>
+
+      <div className="navbar-user">
+        <span className="navbar-username">{user.email}</span>
+        <button className="logout-button" onClick={logout}>
+          Cerrar sesión
+        </button>
       </div>
     </nav>
   );

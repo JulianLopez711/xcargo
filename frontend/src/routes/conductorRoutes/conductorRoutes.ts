@@ -1,10 +1,11 @@
+// src/routes/conductorRoutes.ts
 export const conductorRoutes = [
   {
-    name: "Pagos Pendientes",
-    path: "/conductor",
+    name: "Pagos pendientes",
+    path: "/conductor/pagos",
   },
   {
-    name: "Registrar Pago",
-    path: "/conductor/formulario-pago",
+    name: "Registrar pago",
+    path: "/conductor/pago",
   },
 ];

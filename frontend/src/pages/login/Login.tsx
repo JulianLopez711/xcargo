@@ -1,56 +1,135 @@
-import { useState } from "react";
+import React, { useState, useEffect } from "react";
+import "../../styles/Login.css";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/authContext";
-import "../../styles/Login.css";
+import LogoXcargo from "../../assets/LogoXcargo.png";
 
-export default function Login() {
-  const [nombre, setNombre] = useState("");
-  const [rol, setRol] = useState("");
+const XCargoLogin: React.FC = () => {
   const { login } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!nombre || !rol) {
-      alert("Por favor completa todos los campos.");
+    if (!selectedRole) {
+      alert("Por favor selecciona un rol");
       return;
     }
 
-    login(rol, nombre);
+    login({ email, role: selectedRole }); // ✅ se hace login aquí
 
-    const rutasInicio: Record<string, string> = {
-      admin: "/admin",
-      conductor: "/conductor",
-      contabilidad: "/contabilidad",
-      operador: "/operador",
-    };
-
-    navigate(rutasInicio[rol] || "/");
+    setIsSubmitted(true);
   };
+
+  useEffect(() => {
+    if (isSubmitted && selectedRole) {
+      const rutasPorRol: Record<string, string> = {
+        administrador: "/admin/dashboard",
+        contabilidad: "/contabilidad/dashboard",
+        conductor: "/conductor/pagos",
+        cliente: "/operador/dashboard",
+        operador: "/operador/dashboard",
+      };
+
+      navigate(rutasPorRol[selectedRole] || "/");
+    }
+  }, [isSubmitted, selectedRole, navigate]);
 
   return (
     <div className="login-container">
-      <h2>Inicio de Sesión</h2>
-      <form className="login-form" onSubmit={handleSubmit}>
-        <label>Nombre:</label>
-        <input
-          type="text"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
-        />
+      <div className="login-card">
+        <div className="logo-container">
+          <div className="logo-background">
+            <div className="logo">
+              <img src={LogoXcargo} alt="XCargo Logo" width="100" height="30" />
+            </div>
+          </div>
+        </div>
 
-        <label>Rol:</label>
-        <select value={rol} onChange={(e) => setRol(e.target.value)}>
-          <option value="">Selecciona tu rol</option>
-          <option value="admin">Administrador</option>
-          <option value="conductor">Conductor</option>
-          <option value="contabilidad">Contabilidad</option>
-          <option value="operador">Operador</option>
-        </select>
+        <p className="welcome-text">Ingresa con tu cuenta para continuar</p>
 
-        <button type="submit">Ingresar</button>
-      </form>
+        <form onSubmit={handleSubmit}>
+          {/* Email */}
+          <div className="input-group">
+            <label className="input-label">
+              {/* SVG ICON */}
+              <svg width="20" height="20" viewBox="0 0 24 24">
+                <path d="M20 4H4C2.9 4 2 4.9 2 6v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z" stroke="#10B981" strokeWidth="2" />
+                <path d="M22 6L12 13 2 6" stroke="#10B981" strokeWidth="2" />
+              </svg>
+              <span>Correo electrónico</span>
+            </label>
+            <input
+              type="email"
+              className="input-field"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="tucorreo@empresa.com"
+              required
+            />
+          </div>
+
+          {/* Password */}
+          <div className="input-group">
+            <label className="input-label">
+              {/* SVG ICON */}
+              <svg width="20" height="20" viewBox="0 0 24 24">
+                <path d="M19 11H5V21H19V11Z" stroke="#10B981" strokeWidth="2" />
+                <path d="M17 7V9C17 10.1 16.1 11 15 11H9C7.9 11 7 10.1 7 9V7" stroke="#10B981" strokeWidth="2" />
+                <path d="M12 14V18" stroke="#10B981" strokeWidth="2" />
+              </svg>
+              <span>Contraseña</span>
+            </label>
+            <div className="password-container">
+              <input
+                type={showPassword ? "text" : "password"}
+                className="input-field"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="********"
+                required
+              />
+              <button
+                type="button"
+                className="toggle-password"
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? "Ocultar" : "Ver"}
+              </button>
+            </div>
+          </div>
+
+          {/* Roles */}
+          <div className="input-group">
+            <p className="role-label">Selecciona tu rol</p>
+            <div className="role-grid">
+              {["cliente", "conductor", "contabilidad", "administrador"].map((rol) => (
+                <button
+                  key={rol}
+                  type="button"
+                  className={`role-button ${selectedRole === rol ? "active" : ""}`}
+                  onClick={() => setSelectedRole(rol)}
+                >
+                  <span>{rol.charAt(0).toUpperCase() + rol.slice(1)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button type="submit" className="submit-button">
+            Iniciar sesión
+          </button>
+        </form>
+
+        <div className="footer">© 2025 XCargo. Todos los derechos reservados.</div>
+      </div>
     </div>
   );
-}
+};
+
+export default XCargoLogin;

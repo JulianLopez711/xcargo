@@ -1,0 +1,44 @@
+/* src/styles/AdminDashboard.css */
+.admin-dashboard {
+  padding: 20px;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.admin-dashboard h2 {
+  margin-bottom: 20px;
+  color: #2e7d32;
+}
+
+.resumen-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+}
+
+.card-resumen {
+  background-color: #e8f5e9;
+  border-left: 5px solid #2e7d32;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.card-resumen h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: #2e7d32;
+}
+
+.card-resumen p {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.card-icono {
+  font-size: 2rem;
+  color: #388e3c;
+}

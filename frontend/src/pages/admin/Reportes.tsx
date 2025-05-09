@@ -1,4 +1,4 @@
-import "../../styles/Reportes.css";
+import "../../styles/admin/Reporte.css";
 
 export default function Reportes() {
   return (
