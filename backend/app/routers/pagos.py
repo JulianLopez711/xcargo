@@ -1,9 +1,8 @@
 from fastapi import APIRouter
-from app.models.pago import PagoRequest
-from app.services.pago_service import registrar_pago
+from app.services.bigquery_service import obtener_pagos_pendientes
 
-router = APIRouter(prefix="/api/pagos", tags=["Pagos"])
+router = APIRouter(prefix="/pagos", tags=["Pagos"])
 
-@router.post("/registrar")
-def registrar(pago: PagoRequest):
-    return registrar_pago(pago)
+@router.get("/pendientes")
+def listar_pagos_pendientes():
+    return obtener_pagos_pendientes()

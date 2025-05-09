@@ -1,6 +1,15 @@
 .pagos-pendientes {
   padding: 1rem;
+  margin-top: 50rem;
 }
+
+@media (max-width: 600px) {
+  .pagos-pendientes {
+    margin-top: 5rem; /* un poco más para móviles si tu navbar crece */
+  }
+}
+
+
 
 .pagos-pendientes h1 {
   font-size: 1.5rem;
@@ -83,3 +92,52 @@
   font-weight: 700;
 }
 
+/* Estilo general para la paginación */
+.paginacion {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 1rem;
+  gap: 1rem;
+}
+
+.paginacion button {
+  background-color: #10b981;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.paginacion button:disabled {
+  background-color: #a7f3d0;
+  cursor: not-allowed;
+}
+
+.paginacion span {
+  font-weight: bold;
+  color: #374151;
+}
+
+/* Panel de resumen financiero */
+.resumen-financiero {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.saldo-total,
+.bono-favor {
+  background-color: #ecfdf5;
+  color: #065f46;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: bold;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  flex: 1;
+  text-align: center;
+}

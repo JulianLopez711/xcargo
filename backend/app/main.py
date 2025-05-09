@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import guias, ocr, pagos, operador
 
 
+
 app = FastAPI()
 
 # Middleware CORS
