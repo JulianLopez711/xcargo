@@ -9,11 +9,12 @@ Extrae los siguientes campos del texto escaneado de un comprobante de pago:
 
 - valor (con símbolo $ si aplica)
 - fecha (formato YYYY-MM-DD)
+- hora (formato HH:MM)
 - tipo_pago (Nequi, Transferencia, Consignación)
 - entidad (Nequi, Daviplata, Bancolombia, etc.)
 - referencia (código único del pago)
 
-Usa solo lo que aparece explícitamente. Si algo falta, deja el campo vacío.
+Usa solo lo que aparece explícitamente. Si algo falta, deja el campo no reconocido.
 
 Texto OCR:
 \"\"\"{texto_ocr}\"\"\"

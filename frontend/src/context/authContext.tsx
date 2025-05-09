@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+// src/context/authContext.tsx
+import { createContext, useContext, useEffect, useState } from "react";
 
 interface User {
   email: string;
@@ -19,12 +20,11 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
 });
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Cargar usuario desde localStorage al iniciar
     const storedUser = localStorage.getItem("user");
     if (storedUser) {
       setUser(JSON.parse(storedUser));
@@ -32,9 +32,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
   }, []);
 
-  const login = (userData: User) => {
-    localStorage.setItem("user", JSON.stringify(userData));
-    setUser(userData);
+  const login = (user: User) => {
+    localStorage.setItem("user", JSON.stringify(user));
+    setUser(user);
   };
 
   const logout = () => {

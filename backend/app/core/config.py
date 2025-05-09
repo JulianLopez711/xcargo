@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Ruta del archivo de credenciales de Google Cloud
-GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "app/credentials/clave-gcp.json")
+GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "app/credentials/datos-clientes-441216-e0f1e3740f41.json")
 
 # Clave de API de OpenAI (segura)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

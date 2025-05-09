@@ -42,7 +42,6 @@ export default function Navbar() {
     <nav className="navbar">
       <div className="navbar-logo" onClick={() => navigate("/")}>
         <img src={logo} alt="Logo XCargo" />
-        <span className="navbar-title">XCargo</span>
       </div>
 
       <div className="navbar-links">

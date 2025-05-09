@@ -14,17 +14,18 @@ const XCargoLogin: React.FC = () => {
   const navigate = useNavigate();
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  e.preventDefault();
 
-    if (!selectedRole) {
-      alert("Por favor selecciona un rol");
-      return;
-    }
+  if (!selectedRole) {
+    alert("Selecciona un rol");
+    return;
+  }
 
-    login({ email, role: selectedRole }); // ✅ se hace login aquí
+  login({ email, role: selectedRole }); // ✅ esto guarda en contexto y localStorage
 
-    setIsSubmitted(true);
-  };
+  setIsSubmitted(true); // luego permite la navegación
+};
+
 
   useEffect(() => {
     if (isSubmitted && selectedRole) {

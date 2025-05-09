@@ -30,7 +30,7 @@ import RegistrarPagoOperador from "../pages/operador/RegistrarPago";
 
 // Conductor
 import PagosPendientes from "../pages/conductor/PagosPendientes";
-import FormularioPagoConductor from "../pages/conductor/FormularioPagoConductor";
+import FormularioPagoConductor from "../pages/conductor/RegistrarPago";
 
 export default function AppRoutes() {
   const { user, isLoading } = useAuth();
