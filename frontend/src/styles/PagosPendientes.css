@@ -1,0 +1,98 @@
+.pagos-pendientes {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: auto;
+}
+
+.pagos-pendientes h2 {
+  font-size: 1.8rem;
+  color: #1e5128;
+  margin-bottom: 1.2rem;
+}
+
+.contabilidad-cards {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+
+.card.resumen {
+  flex: 1;
+  background-color: #f0f8f3;
+  border: 1px solid #cde6ce;
+  border-radius: 10px;
+  padding: 1.2rem;
+  box-shadow: 0 0 5px rgba(0,0,0,0.05);
+}
+
+.card-metric {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.card-metric.verde-oscuro {
+  color: #1e5128;
+}
+
+.tabla-pagos {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+
+.tabla-pagos th,
+.tabla-pagos td {
+  border: 1px solid #d0e2d0;
+  padding: 12px 10px;
+  text-align: left;
+}
+
+.tabla-pagos th {
+  background-color: #e5f3e7;
+  color: #1e5128;
+}
+
+.tabla-pagos tr:nth-child(even) {
+  background-color: #f8f8f8;
+}
+
+.resumen-pago {
+  margin-top: 1rem;
+  font-weight: bold;
+}
+
+.resumen-pago button {
+  background-color: #1e5128;
+  color: white;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.resumen-pago button:disabled {
+  background-color: #a5b7a8;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .contabilidad-cards {
+    flex-direction: column;
+  }
+
+  .card.resumen {
+    width: 100%;
+  }
+
+  .tabla-pagos th,
+  .tabla-pagos td {
+    font-size: 0.85rem;
+    padding: 8px;
+  }
+
+  .resumen-pago button {
+    width: 100%;
+  }
+}

@@ -1,0 +1,86 @@
+.pagos-pendientes {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.pagos-pendientes h2 {
+  font-size: 1.8rem;
+  color: #1e5128;
+  margin-bottom: 1rem;
+}
+
+.filtro-input {
+  padding: 10px;
+  width: 100%;
+  max-width: 400px;
+  border: 1px solid #cfcfcf;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  font-size: 1rem;
+}
+
+.tabla-pagos {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+  font-size: 0.95rem;
+}
+
+.tabla-pagos th,
+.tabla-pagos td {
+  border: 1px solid #d8e3d7;
+  padding: 12px 10px;
+  text-align: left;
+}
+
+.tabla-pagos th {
+  background-color: #eaf4ec;
+  color: #1e5128;
+}
+
+.tabla-pagos tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+.resumen-pago {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.resumen-pago p {
+  font-weight: bold;
+  font-size: 1rem;
+}
+
+.resumen-pago button {
+  background-color: #1e5128;
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.resumen-pago button:hover {
+  background-color: #357a38;
+}
+
+@media (max-width: 768px) {
+  .tabla-pagos th,
+  .tabla-pagos td {
+    font-size: 0.85rem;
+    padding: 8px;
+  }
+
+  .resumen-pago {
+    align-items: stretch;
+  }
+
+  .resumen-pago button {
+    width: 100%;
+  }
+}

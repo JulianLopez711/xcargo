@@ -1,0 +1,64 @@
+.contabilidad-page {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: auto;
+}
+
+.contabilidad-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.contabilidad-title {
+  font-size: 2rem;
+  color: #1e5128;
+}
+
+.contabilidad-cards {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.card.resumen {
+  flex: 1;
+  background-color: #f0f8f3;
+  border: 1px solid #cde6ce;
+  border-radius: 10px;
+  padding: 1.2rem;
+  text-align: center;
+}
+
+.card.resumen h2 {
+  font-size: 1rem;
+  color: #1e5128;
+  margin-bottom: 0.5rem;
+}
+
+.card-metric {
+  font-size: 2rem;
+  font-weight: bold;
+}
+
+.verde {
+  color: #2f7e3e;
+}
+
+.verde-claro {
+  color: #59a868;
+}
+
+.verde-oscuro {
+  color: #1e5128;
+}
+
+@media (max-width: 768px) {
+  .contabilidad-cards {
+    flex-direction: column;
+  }
+
+  .card.resumen {
+    width: 100%;
+  }
+}

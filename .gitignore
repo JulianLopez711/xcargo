@@ -1,0 +1,10 @@
+echo "__pycache__/
+*.pyc
+.env
+*.env
+*.json
+node_modules/
+dist/
+.vite/
+app/credentials/" > .gitignore
+backend/app/credentials/
