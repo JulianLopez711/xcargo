@@ -1,64 +1,55 @@
-.contabilidad-page {
+.dashboard-contabilidad {
   padding: 2rem;
-  max-width: 1200px;
-  margin: auto;
 }
 
-.contabilidad-container {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-.contabilidad-title {
-  font-size: 2rem;
-  color: #1e5128;
-}
-
-.contabilidad-cards {
-  display: flex;
+.tarjetas-resumen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1.5rem;
-  flex-wrap: wrap;
+  margin: 2rem 0;
 }
 
-.card.resumen {
-  flex: 1;
-  background-color: #f0f8f3;
-  border: 1px solid #cde6ce;
-  border-radius: 10px;
-  padding: 1.2rem;
+.tarjeta {
+  background-color: white;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
   text-align: center;
 }
 
-.card.resumen h2 {
-  font-size: 1rem;
-  color: #1e5128;
+.tarjeta h3 {
   margin-bottom: 0.5rem;
+  font-size: 1rem;
+  color: #4b5563;
 }
 
-.card-metric {
-  font-size: 2rem;
+.tarjeta p {
+  font-size: 1.25rem;
   font-weight: bold;
 }
 
-.verde {
-  color: #2f7e3e;
+.tarjeta-verde { border-left: 6px solid #10b981; }
+.tarjeta-azul { border-left: 6px solid #3b82f6; }
+.tarjeta-amarilla { border-left: 6px solid #facc15; }
+.tarjeta-roja { border-left: 6px solid #ef4444; }
+
+.ultimos-movimientos h3 {
+  margin-bottom: 1rem;
 }
 
-.verde-claro {
-  color: #59a868;
+.ultimos-movimientos table {
+  width: 100%;
+  border-collapse: collapse;
 }
 
-.verde-oscuro {
-  color: #1e5128;
+.ultimos-movimientos th,
+.ultimos-movimientos td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
 }
 
-@media (max-width: 768px) {
-  .contabilidad-cards {
-    flex-direction: column;
-  }
-
-  .card.resumen {
-    width: 100%;
-  }
+.ultimos-movimientos th {
+  background-color: #f3f4f6;
+  color: #374151;
 }

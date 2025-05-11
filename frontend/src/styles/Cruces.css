@@ -1,31 +1,63 @@
-.cruces-admin {
-  padding: 1rem;
+.cruces-contabilidad {
+  padding: 1.5rem;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-.cruces-header h1 {
-  font-size: 1.5rem;
+.cruces-contabilidad h1 {
+  font-size: 1.8rem;
   color: #10b981;
-  margin-bottom: 0.25rem;
+  margin-bottom: 1rem;
+  text-align: center;
 }
 
-.cruces-header p {
-  color: #6b7280;
-  font-size: 0.9rem;
+.cruces-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
   margin-bottom: 1.5rem;
+  align-items: center;
+  justify-content: center;
 }
 
+.cruces-filtros input,
+.cruces-filtros select {
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  width: 200px;
+}
 
+/* Botón de acción */
+.boton-accion {
+  padding: 0.5rem 1rem;
+  background-color: #10b981;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+.boton-accion:hover {
+  background-color: #059669;
+}
+
+/* Tabla contenedor para scroll horizontal */
 .cruces-table-container {
+  width: 100%;
   overflow-x: auto;
 }
 
+/* Tabla */
 .cruces-table {
   width: 100%;
   border-collapse: collapse;
-  background-color: white;
+  background-color: #ffffff;
   border-radius: 0.75rem;
   overflow: hidden;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  min-width: 700px;
 }
 
 .cruces-table th,
@@ -47,23 +79,46 @@
   font-size: 0.875rem;
 }
 
-.estado-conciliado {
+/* Estado de pagos */
+.estado {
+  font-weight: 600;
+}
+.estado.conciliado {
   color: #10b981;
-  font-weight: 600;
 }
-
-.estado-error {
+.estado.pendiente {
   color: #f59e0b;
-  font-weight: 600;
-}
-.thumb-img {
-  width: 60px;
-  height: auto;
-  border-radius: 0.25rem;
-  object-fit: cover;
-  cursor: pointer;
 }
 
+/* Botones */
+.btn-img-preview,
+.btn-detalle {
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.5rem;
+  border: none;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  white-space: nowrap;
+}
+
+.btn-img-preview {
+  background-color: #3b82f6;
+  color: white;
+}
+.btn-img-preview:hover {
+  background-color: #2563eb;
+}
+
+.btn-detalle {
+  background-color: #6b7280;
+  color: white;
+}
+.btn-detalle:hover {
+  background-color: #4b5563;
+}
+
+/* Modal para comprobante */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -105,13 +160,87 @@
   cursor: pointer;
   color: #6b7280;
 }
-.estado.conciliado {
+
+/* RESPONSIVE: para pantallas pequeñas */
+@media screen and (max-width: 768px) {
+  .cruces-filtros {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cruces-filtros input,
+  .cruces-filtros select {
+    width: 100%;
+  }
+
+  .cruces-table {
+    font-size: 0.8rem;
+  }
+
+  .btn-img-preview,
+  .btn-detalle {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.5rem;
+  }
+}
+
+.thumb-img {
+  width: 60px;
+  height: auto;
+  border-radius: 0.25rem;
+  object-fit: cover;
+  cursor: pointer;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal-content {
+  position: relative;
+  background-color: #1f2937; /* fondo oscuro */
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #ffffff; /* texto blanco */
+}
+
+.modal-content img {
+  width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.cerrar-modal {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #ffffff;
+  cursor: pointer;
+  transition: color 0.3s ease;
+}
+
+.cerrar-modal:hover {
   color: #10b981;
-  font-weight: 600;
 }
-
-.estado.pendiente {
-  color: #f59e0b;
-  font-weight: 600;
-}
-

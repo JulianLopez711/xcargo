@@ -1,5 +1,6 @@
 .registrar-pago {
   padding: 1rem;
+  color: #1f2937;
 }
 
 .registrar-pago h1 {
@@ -10,6 +11,7 @@
 
 .tabla-guias {
   margin-bottom: 2rem;
+  overflow-x: auto;
 }
 
 .tabla-guias h2 {
@@ -96,4 +98,91 @@
 
 .boton-registrar:hover {
   background-color: #059669;
+}
+
+/* 🌙 Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .registrar-pago {
+    color: #f3f4f6;
+  }
+
+  .tabla-guias table {
+    background-color: #1f2937;
+    border: 1px solid #374151;
+  }
+
+  .tabla-guias th {
+    background-color: #374151;
+    color: #f9fafb;
+  }
+
+  .tabla-guias td {
+    color: #e5e7eb;
+  }
+
+  .formulario-pago {
+    background-color: #1f2937;
+  }
+
+  .input-group label {
+    color: #d1d5db;
+  }
+
+  .input-group input,
+  .input-group select {
+    background-color: #374151;
+    color: #f9fafb;
+    border: 1px solid #4b5563;
+  }
+}
+
+/* 📱 Responsive */
+@media (max-width: 600px) {
+  .tabla-guias table {
+    font-size: 0.8rem;
+  }
+
+  .formulario-pago {
+    padding: 1rem;
+  }
+
+  .boton-registrar {
+    font-size: 0.9rem;
+    padding: 0.6rem;
+  }
+}
+
+/* Animación de carga */
+.loader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  color: #10b981;
+}
+
+.loader::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border: 2px solid #d1fae5;
+  border-top-color: #10b981;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Alerta personalizada */
+.alert {
+  padding: 0.75rem 1rem;
+  background-color: #fef3c7;
+  color: #92400e;
+  border-left: 4px solid #facc15;
+  margin-bottom: 1rem;
+  border-radius: 0.375rem;
 }

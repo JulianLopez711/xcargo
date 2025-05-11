@@ -1,4 +1,3 @@
-// src/pages/conductor/RegistrarPago.tsx
 import { useLocation } from "react-router-dom";
 import { useState } from "react";
 import "../../styles/RegistrarPago.css";
@@ -6,10 +5,13 @@ import "../../styles/RegistrarPago.css";
 const tipoPagoOpciones = ["Nequi", "Transferencia", "Consignación"];
 type GuiaPago = { referencia: string; valor: number };
 
-
 export default function RegistrarPago() {
   const location = useLocation();
-  const { guias, total }: { guias: GuiaPago[]; total: number } = location.state || { guias: [], total: 0 };
+  const { guias, total }: { guias: GuiaPago[]; total: number } = location.state || {
+    guias: [],
+    total: 0,
+  };
+
   const [archivo, setArchivo] = useState<File | null>(null);
   const [manual, setManual] = useState(false);
   const [datosManuales, setDatosManuales] = useState({
@@ -21,27 +23,64 @@ export default function RegistrarPago() {
     referencia: "",
   });
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    setArchivo(file);
+
+    if (file && !manual) {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const response = await fetch("http://localhost:8000/ocr/extraer", {
+          method: "POST",
+          body: formData,
+        });
+
+        const result = await response.json();
+        if (result?.datos_extraidos) {
+          const data = JSON.parse(result.datos_extraidos);
+          setDatosManuales({
+            valor: data.valor || "",
+            fecha: data.fecha_transaccion || "",
+            hora: data.hora_transaccion || "",
+            tipo_pago: data.entidad_financiera || "",
+            entidad: data.entidad_financiera || "",
+            referencia: data.referencia_pago || "",
+          });
+        }
+      } catch (err) {
+        console.error("Error al extraer datos:", err);
+        alert("No se pudo leer el comprobante. Intenta ingresarlos manualmente.");
+      }
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (manual) {
-      const campos = Object.entries(datosManuales);
-      for (const [key, val] of campos) {
-        if (!val.trim()) {
-          alert(`El campo "${key}" es obligatorio`);
-          return;
-        }
-      }
-      console.log("Datos manuales:", datosManuales);
-    } else {
-      if (!archivo) {
-        alert("Debes subir un comprobante de pago.");
+    const campos = Object.entries(datosManuales);
+    for (const [key, val] of campos) {
+      if (!val.trim()) {
+        alert(`El campo "${key}" es obligatorio`);
         return;
       }
-      console.log("Archivo cargado:", archivo.name);
     }
 
-    console.log("Guías:", guias);
+    const valorNumerico = parseFloat(datosManuales.valor.replace(/[^\d.-]/g, ""));
+    if (isNaN(valorNumerico)) {
+      alert("El valor ingresado no es válido.");
+      return;
+    }
+
+    if (valorNumerico !== total) {
+      alert(
+        `El valor ingresado ($${valorNumerico.toLocaleString()}) debe ser igual al total de las guías: $${total.toLocaleString()}`
+      );
+      return;
+    }
+
+    console.log("Pago registrado:", datosManuales, archivo);
     alert("Pago registrado correctamente.");
   };
 
@@ -52,28 +91,26 @@ export default function RegistrarPago() {
       <div className="tabla-guias">
         <h2>Guías seleccionadas</h2>
         <table>
-  <thead>
-    <tr>
-      <th>#</th>
-      <th>Referencia</th>
-      <th>Valor</th>
-    </tr>
-  </thead>
-  <tbody>
-    {guias.map((g: { referencia: string; valor: number }, idx: number) => (
-      <tr key={idx}>
-        <td>{idx + 1}</td>
-        <td>{g.referencia}</td>
-        <td>
-  {g.valor !== undefined ? `$${g.valor.toLocaleString()}` : "Valor no disponible"}
-</td>
-
-      </tr>
-    ))}
-  </tbody>
-</table>
-
-        <p className="total-pago">Total: <strong>${total.toLocaleString()}</strong></p>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Referencia</th>
+              <th>Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {guias.map((g: GuiaPago, idx: number) => (
+              <tr key={idx}>
+                <td>{idx + 1}</td>
+                <td>{g.referencia}</td>
+                <td>${g.valor.toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="total-pago">
+          Total: <strong>${total.toLocaleString()}</strong>
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="formulario-pago">
@@ -90,40 +127,28 @@ export default function RegistrarPago() {
 
         {manual ? (
           <>
-            <div className="input-group">
-              <label>Valor del pago</label>
-              <input
-                type="text"
-                value={datosManuales.valor}
-                onChange={(e) =>
-                  setDatosManuales({ ...datosManuales, valor: e.target.value })
-                }
-                placeholder="$ 0.00"
-                required
-              />
-            </div>
-            <div className="input-group">
-              <label>Fecha</label>
-              <input
-                type="date"
-                value={datosManuales.fecha}
-                onChange={(e) =>
-                  setDatosManuales({ ...datosManuales, fecha: e.target.value })
-                }
-                required
-              />
-            </div>
-            <div className="input-group">
-              <label>Hora</label>
-              <input
-                type="time"
-                value={datosManuales.hora}
-                onChange={(e) =>
-                  setDatosManuales({ ...datosManuales, hora: e.target.value })
-                }
-                required
-              />
-            </div>
+            {/* Campos manuales */}
+            {[
+              ["valor", "Valor del pago", "$ 0.00"],
+              ["fecha", "Fecha", ""],
+              ["hora", "Hora", ""],
+              ["entidad", "Entidad", ""],
+              ["referencia", "Referencia", ""],
+            ].map(([key, label, placeholder]) => (
+              <div className="input-group" key={key}>
+                <label>{label}</label>
+                <input
+                  type={key === "fecha" ? "date" : key === "hora" ? "time" : "text"}
+                  value={datosManuales[key as keyof typeof datosManuales]}
+                  onChange={(e) =>
+                    setDatosManuales({ ...datosManuales, [key]: e.target.value })
+                  }
+                  placeholder={placeholder}
+                  required
+                />
+              </div>
+            ))}
+
             <div className="input-group">
               <label>Tipo de pago</label>
               <select
@@ -141,28 +166,6 @@ export default function RegistrarPago() {
                 ))}
               </select>
             </div>
-            <div className="input-group">
-              <label>Entidad</label>
-              <input
-                type="text"
-                value={datosManuales.entidad}
-                onChange={(e) =>
-                  setDatosManuales({ ...datosManuales, entidad: e.target.value })
-                }
-                required
-              />
-            </div>
-            <div className="input-group">
-              <label>Referencia</label>
-              <input
-                type="text"
-                value={datosManuales.referencia}
-                onChange={(e) =>
-                  setDatosManuales({ ...datosManuales, referencia: e.target.value })
-                }
-                required
-              />
-            </div>
           </>
         ) : (
           <div className="input-group">
@@ -170,7 +173,7 @@ export default function RegistrarPago() {
             <input
               type="file"
               accept="image/*,application/pdf"
-              onChange={(e) => setArchivo(e.target.files?.[0] || null)}
+              onChange={handleFileChange}
               required
             />
           </div>

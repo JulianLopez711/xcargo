@@ -1,15 +1,17 @@
-// src/components/Layout.tsx
 import { Outlet } from "react-router-dom";
 import Navbar from "./Navbar";
-import "../styles/Layout.css";
+import { useLoading } from "../context/loadingContext";
+import LoadingSpinner from "./LoadingSpinner";
 
 export default function Layout() {
+  const { isLoading } = useLoading();
+
   return (
     <div className="layout">
       <Navbar />
-      <main className="main-content">
-        <Outlet />
-      </main>
+      <div className="main-content">
+        {isLoading ? <LoadingSpinner /> : <Outlet />}
+      </div>
     </div>
   );
 }

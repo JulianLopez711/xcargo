@@ -1,7 +1,7 @@
 // src/components/Navbar.tsx
 import { useRef, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/authContext"; // Asegúrate de tener este contexto
+import { useAuth } from "../context/authContext";
 import logo from "../assets/LogoXcargo.png";
 import "../styles/Navbar.css";
 
@@ -40,7 +40,7 @@ export default function Navbar() {
 
   return (
     <nav className="navbar">
-      <div className="navbar-logo" >
+      <div className="navbar-logo" onClick={() => navigate("/")}>
         <img src={logo} alt="Logo XCargo" />
       </div>
 
@@ -56,11 +56,17 @@ export default function Navbar() {
         ))}
       </div>
 
-      <div className="navbar-user">
-        <span className="navbar-username">{user.email}</span>
-        <button className="logout-button" onClick={logout}>
-          Cerrar sesión
-        </button>
+      <div className="navbar-user" ref={menuRef}>
+        <span className="navbar-username" onClick={() => setMenuAbierto(!menuAbierto)}>
+          {user.email}
+        </span>
+
+        {menuAbierto && (
+          <div className="user-dropdown">
+            <button onClick={() => alert("Ir a perfil")} className="dropdown-item">Perfil</button>
+            <button onClick={logout} className="dropdown-item logout">Cerrar sesión</button>
+          </div>
+        )}
       </div>
     </nav>
   );

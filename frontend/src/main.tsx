@@ -1,17 +1,19 @@
-// src/main.tsx
 import React from "react";
 import ReactDOM from "react-dom/client";
+import App from "./App";
 import { BrowserRouter } from "react-router-dom";
-import AppRoutes from "./routes/AppRoutes";
 import { AuthProvider } from "./context/authContext";
+import { LoadingProvider } from "./context/loadingContext";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <AuthProvider>
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
-    </AuthProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <LoadingProvider>
+          <App />
+        </LoadingProvider>
+      </AuthProvider>
+    </BrowserRouter>
   </React.StrictMode>
 );

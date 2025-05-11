@@ -5,8 +5,11 @@
   align-items: center;
   justify-content: center;
   padding: 2rem;
+  min-height: 50vh;
   color: #10b981;
   font-weight: 500;
+  font-size: 1.1rem;
+  text-align: center;
 }
 
 .spinner {
@@ -22,5 +25,18 @@
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Responsive tweak */
+@media (max-width: 480px) {
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border-width: 3px;
+  }
+
+  .spinner-container {
+    font-size: 1rem;
   }
 }

@@ -1,6 +1,6 @@
 .pagos-pendientes {
   padding: 1rem;
-  margin-top: 50rem;
+  margin-top: 1rem;
 }
 
 @media (max-width: 600px) {
@@ -8,8 +8,6 @@
     margin-top: 5rem; /* un poco más para móviles si tu navbar crece */
   }
 }
-
-
 
 .pagos-pendientes h1 {
   font-size: 1.5rem;
