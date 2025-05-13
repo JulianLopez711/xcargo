@@ -13,7 +13,7 @@ const XCargoLogin: React.FC = () => {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+const handleSubmit = (e: React.FormEvent) => {
   e.preventDefault();
 
   if (!selectedRole) {
@@ -21,10 +21,25 @@ const XCargoLogin: React.FC = () => {
     return;
   }
 
-  login({ email, role: selectedRole }); // ✅ esto guarda en contexto y localStorage
+  // Mapear los roles a los permitidos por el sistema
+  const rolMapeo: Record<string, string> = {
+    administrador: "admin",
+    contabilidad: "contabilidad",
+    conductor: "conductor",
+    cliente: "cliente",
+    operador: "cliente", // si estás unificando cliente/operador
+  };
 
-  setIsSubmitted(true); // luego permite la navegación
+  const rolSistema = rolMapeo[selectedRole.toLowerCase()];
+  if (!rolSistema) {
+    alert("Rol no válido");
+    return;
+  }
+
+  login({ email, role: rolSistema });
+  setIsSubmitted(true);
 };
+
 
 
   useEffect(() => {
@@ -54,7 +69,7 @@ const XCargoLogin: React.FC = () => {
 
         <p className="welcome-text">Ingresa con tu cuenta para continuar</p>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} autoComplete="on">
           {/* Email */}
           <div className="input-group">
             <label className="input-label">
@@ -67,10 +82,12 @@ const XCargoLogin: React.FC = () => {
             </label>
             <input
               type="email"
+              name="email"
+              autoComplete="email"
               className="input-field"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="tucorreo@empresa.com"
+              placeholder="tucorreo@x-cargo.co.com"
               required
             />
           </div>
@@ -89,6 +106,8 @@ const XCargoLogin: React.FC = () => {
             <div className="password-container">
               <input
                 type={showPassword ? "text" : "password"}
+                name="password"
+                autoComplete="current-password"
                 className="input-field"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -109,7 +128,7 @@ const XCargoLogin: React.FC = () => {
           <div className="input-group">
             <p className="role-label">Selecciona tu rol</p>
             <div className="role-grid">
-              {["cliente", "conductor", "contabilidad", "administrador"].map((rol) => (
+              {["Operador", "conductor", "contabilidad", "administrador"].map((rol) => (
                 <button
                   key={rol}
                   type="button"

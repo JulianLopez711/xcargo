@@ -20,13 +20,13 @@ import DashboardContabilidad from "../pages/contabilidad/Dashboard";
 import PagosContabilidad from "../pages/contabilidad/Pagos";
 import EntregasContabilidad from "../pages/contabilidad/Entregas";
 import CrucesContabilidad from "../pages/contabilidad/Cruces";
+import PagoEntregas from "../pages/contabilidad/PagoEntregas";
 
 // Operador
 import DashboardOperador from "../pages/operador/Dashboard";
 import HistorialOperador from "../pages/operador/historial";
 import PagoOperador from "../pages/operador/PagoOperador";
 import RegistrarPagoOperador from "../pages/operador/RegistrarPago";
-
 
 // Conductor
 import PagosPendientes from "../pages/conductor/PagosPendientes";
@@ -43,7 +43,11 @@ export default function AppRoutes() {
 
       {/* ADMIN */}
       <Route
-        element={<ProtectedRoute allowedRoles={["admin"]}><Layout /></ProtectedRoute>}
+        element={
+          <ProtectedRoute allowedRoles={["admin"]}>
+            <Layout />
+          </ProtectedRoute>
+        }
       >
         <Route path="/admin/dashboard" element={<DashboardAdmin />} />
         <Route path="/admin/usuarios" element={<UserManagement />} />
@@ -56,29 +60,54 @@ export default function AppRoutes() {
         <Route path="/admin/configuracion" element={<GeneralSettings />} />
       </Route>
       {/* CONTABILIDAD */}
-<Route
-  element={<ProtectedRoute allowedRoles={["contabilidad"]}><Layout /></ProtectedRoute>}
->
-  <Route path="/contabilidad/dashboard" element={<DashboardContabilidad />} />
-  <Route path="/contabilidad/pagos" element={<PagosContabilidad />} />
-  <Route path="/contabilidad/entregas" element={<EntregasContabilidad />} />
-  <Route path="/contabilidad/cruces" element={<CrucesContabilidad />} />
-</Route>
+      <Route
+        element={
+          <ProtectedRoute allowedRoles={["contabilidad"]}>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
+        <Route
+          path="/contabilidad/dashboard"
+          element={<DashboardContabilidad />}
+        />
+        <Route
+          path="/contabilidad/pago-entregas"
+          element={
+            <ProtectedRoute allowedRoles={["contabilidad"]}>
+              <PagoEntregas />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/contabilidad/pagos" element={<PagosContabilidad />} />
+        <Route
+          path="/contabilidad/entregas"
+          element={<EntregasContabilidad />}
+        />
+        <Route path="/contabilidad/cruces" element={<CrucesContabilidad />} />
+      </Route>
 
-{/* OPERADOR */}
-<Route
-  element={<ProtectedRoute allowedRoles={["cliente", "operador"]}><Layout /></ProtectedRoute>}
->
-  <Route path="/operador/dashboard" element={<DashboardOperador />} />
-  <Route path="/operador/historial" element={<HistorialOperador />} />
-  <Route path="/operador/registrar" element={<RegistrarPagoOperador />} />
-  <Route path="/operador/pago" element={<PagoOperador />} />
-</Route>
-
+      {/* OPERADOR */}
+      <Route
+        element={
+          <ProtectedRoute allowedRoles={["cliente", "operador"]}>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/operador/dashboard" element={<DashboardOperador />} />
+        <Route path="/operador/historial" element={<HistorialOperador />} />
+        <Route path="/operador/registrar" element={<RegistrarPagoOperador />} />
+        <Route path="/operador/pago" element={<PagoOperador />} />
+      </Route>
 
       {/* CONDUCTOR */}
       <Route
-        element={<ProtectedRoute allowedRoles={["conductor"]}><Layout /></ProtectedRoute>}
+        element={
+          <ProtectedRoute allowedRoles={["conductor"]}>
+            <Layout />
+          </ProtectedRoute>
+        }
       >
         <Route path="/conductor/pagos" element={<PagosPendientes />} />
         <Route path="/conductor/pago" element={<FormularioPagoConductor />} />

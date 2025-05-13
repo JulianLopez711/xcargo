@@ -11,20 +11,24 @@ interface Pago {
   valor: number;
 }
 
-// ... imports
 export default function PagosPendientes() {
   const [pagos, setPagos] = useState<Pago[]>([]);
   const [seleccionados, setSeleccionados] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [bonoAFavor, setBonoAFavor] = useState(0);
   const navigate = useNavigate();
   const itemsPorPagina = 20;
 
+  // Cargar pagos
   useEffect(() => {
     fetch("http://localhost:8000/api/operador/guias-pendientes")
       .then((res) => res.json())
       .then((data) => {
-        const pagosConId = data.map((p: Omit<Pago, "id">, i: number) => ({ id: i + 1, ...p }));
+        const pagosConId = data.map((p: Omit<Pago, "id">, i: number) => ({
+          id: i + 1,
+          ...p,
+        }));
         setPagos(pagosConId);
         setIsLoading(false);
       })
@@ -32,6 +36,12 @@ export default function PagosPendientes() {
         console.error("Error cargando pagos:", err);
         setIsLoading(false);
       });
+  }, []);
+
+  // Cargar bono del localStorage
+  useEffect(() => {
+    const bono = localStorage.getItem("bonoAFavor");
+    if (bono) setBonoAFavor(parseFloat(bono));
   }, []);
 
   if (isLoading) return <LoadingSpinner />;
@@ -65,19 +75,26 @@ export default function PagosPendientes() {
       .map((p) => ({ referencia: p.guia, valor: p.valor }));
 
     navigate("/conductor/pago", {
-      state: { guias: guiasSeleccionadas, total: totalSeleccionado },
+      state: {
+        guias: guiasSeleccionadas,
+        total: totalSeleccionado,
+        bono: bonoAFavor,
+      },
     });
   };
 
   return (
     <div className="pagos-pendientes">
       <h1>Pagos Pendientes</h1>
+
       <div className="resumen-cabecera">
         <p className="resumen-total con-fondo">
-          Total pendiente: <strong className="valor-total">${totalGlobal.toLocaleString()}</strong>
+          Total pendiente:{" "}
+          <strong className="valor-total">${totalGlobal.toLocaleString()}</strong>
         </p>
         <p className="bono-favor">
-          Bono a favor: <strong className="bono-valor">$0</strong>
+          Bono a favor:{" "}
+          <strong className="bono-valor">${bonoAFavor.toLocaleString()}</strong>
         </p>
       </div>
 
@@ -93,21 +110,27 @@ export default function PagosPendientes() {
             </tr>
           </thead>
           <tbody>
-            {paginatedPagos.map((pago) => (
-              <tr key={pago.id}>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={seleccionados.includes(pago.id)}
-                    onChange={() => toggleSeleccion(pago.id)}
-                  />
-                </td>
-                <td>{pago.guia}</td>
-                <td>{pago.conductor}</td>
-                <td>{pago.empresa}</td>
-                <td>${pago.valor.toLocaleString()}</td>
+            {paginatedPagos.length === 0 ? (
+              <tr>
+                <td colSpan={5}>No hay pagos pendientes.</td>
               </tr>
-            ))}
+            ) : (
+              paginatedPagos.map((pago) => (
+                <tr key={pago.id}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={seleccionados.includes(pago.id)}
+                      onChange={() => toggleSeleccion(pago.id)}
+                    />
+                  </td>
+                  <td>{pago.guia}</td>
+                  <td>{pago.conductor}</td>
+                  <td>{pago.empresa}</td>
+                  <td>${pago.valor.toLocaleString()}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -119,7 +142,9 @@ export default function PagosPendientes() {
         >
           ← Anterior
         </button>
-        <span>Página {currentPage} de {totalPaginas}</span>
+        <span>
+          Página {currentPage} de {totalPaginas}
+        </span>
         <button
           disabled={currentPage === totalPaginas}
           onClick={() => setCurrentPage((prev) => prev + 1)}
@@ -129,7 +154,8 @@ export default function PagosPendientes() {
       </div>
 
       <div className="resumen-seleccion">
-        Total seleccionado: <strong>${totalSeleccionado.toLocaleString()}</strong>
+        Total seleccionado:{" "}
+        <strong>${totalSeleccionado.toLocaleString()}</strong><br />
       </div>
 
       <button className="boton-pagar" onClick={handlePagar}>

@@ -1,0 +1,104 @@
+.cruces-admin {
+  padding: 1rem;
+}
+
+.cruces-header h1 {
+  font-size: 1.5rem;
+  color: #10b981;
+}
+
+.filtros-cruces {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.filtros-cruces select,
+.filtros-cruces input {
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid #d1d5db;
+  font-size: 0.9rem;
+}
+
+.btn-exportar {
+  background-color: #10b981;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+
+.btn-exportar:hover {
+  background-color: #059669;
+}
+
+.tabla-cruces table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.tabla-cruces th,
+.tabla-cruces td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+}
+
+.tabla-cruces th {
+  background-color: #f9fafb;
+  font-weight: 600;
+}
+
+.estado.conciliado {
+  color: #10b981;
+  font-weight: 600;
+}
+
+.estado.pendiente {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+  text-align: center;
+}
+
+.modal-content img {
+  max-width: 100%;
+  max-height: 80vh;
+}
+
+.cerrar-modal {
+  position: absolute;
+  top: 0.5rem;
+  right: 1rem;
+  font-size: 1.5rem;
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+}

@@ -1,4 +1,4 @@
-import "../../styles/Cruces.css";
+import "../../styles/contabilidad/Cruces.css";
 import sampleComprobante from "../../assets/comprobantes/4.jpeg";
 import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";

@@ -1,0 +1,54 @@
+.entregas-admin {
+  padding: 1rem;
+}
+
+.entregas-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.filtros {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.filtros select,
+.filtros input[type="date"] {
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  font-size: 0.9rem;
+}
+
+.tabla-container {
+  overflow-x: auto;
+}
+
+.tabla-entregas {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.tabla-entregas th,
+.tabla-entregas td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.tabla-entregas th {
+  background-color: #f9fafb;
+  font-weight: 600;
+  color: #374151;
+}
+
+.tabla-entregas td {
+  color: #4b5563;
+}

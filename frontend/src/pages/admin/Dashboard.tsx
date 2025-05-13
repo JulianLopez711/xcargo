@@ -21,6 +21,7 @@ export default function DashboardAdmin() {
         <div className="dashboard-card">
           <h2>Reportes</h2>
           <p>Visualización y descarga de reportes</p>
+          
         </div>
       </div>
     </div>

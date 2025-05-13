@@ -1,15 +1,14 @@
-import "../../styles/Entregas.css";
+import "../../styles/contabilidad/Entregas.css";
 import { useState, useEffect } from "react";
 import { saveAs } from "file-saver";
+import { useNavigate } from "react-router-dom";
 
 interface Entrega {
   tracking: string;
-  conductor: string;
-  ciudad: string;
   fecha: string;
-  estado: string;
+  tipo: string; // tipo de consignación
   cliente: string;
-  carrier: string;
+  valor: number;
 }
 
 export default function EntregasContabilidad() {
@@ -20,25 +19,41 @@ export default function EntregasContabilidad() {
   const [trackingFiltro, setTrackingFiltro] = useState("");
 
   useEffect(() => {
-    // Aquí iría tu fetch real
     setEntregas([
       {
         tracking: "TRK001",
-        conductor: "Juan Pérez",
-        ciudad: "Bogotá",
         fecha: "2025-05-11",
-        estado: "Entregado",
+        tipo: "Transferencia",
         cliente: "Dropi",
-        carrier: "Servientrega",
+        valor: 150000,
       },
       {
         tracking: "TRK002",
-        conductor: "Laura Gómez",
-        ciudad: "Medellín",
         fecha: "2025-05-10",
-        estado: "En tránsito",
+        tipo: "Consignación",
         cliente: "Dafiti",
-        carrier: "Coordinadora",
+        valor: 200000,
+      },
+      {
+        tracking: "TRK003",
+        fecha: "2025-05-18",
+        tipo: "Consignación",
+        cliente: "Dafiti",
+        valor: 25000,
+      },
+      {
+        tracking: "TRK004",
+        fecha: "2025-05-10",
+        tipo: "Consignación",
+        cliente: "Dafiti",
+        valor: 207800,
+      },
+      {
+        tracking: "TRK005",
+        fecha: "2025-05-10",
+        tipo: "Consignación",
+        cliente: "Tridy",
+        valor: 300000,
       },
     ]);
   }, []);
@@ -47,20 +62,45 @@ export default function EntregasContabilidad() {
     const coincideCliente = !clienteFiltro || e.cliente === clienteFiltro;
     const coincideFechaDesde = !fechaDesde || e.fecha >= fechaDesde;
     const coincideFechaHasta = !fechaHasta || e.fecha <= fechaHasta;
-    const coincideTracking = e.tracking.toLowerCase().includes(trackingFiltro.toLowerCase());
-    return coincideCliente && coincideFechaDesde && coincideFechaHasta && coincideTracking;
+    const coincideTracking = e.tracking
+      .toLowerCase()
+      .includes(trackingFiltro.toLowerCase());
+    return (
+      coincideCliente &&
+      coincideFechaDesde &&
+      coincideFechaHasta &&
+      coincideTracking
+    );
   });
 
+  const navigate = useNavigate();
+
+  const irAPago = () => {
+    if (entregasFiltradas.length === 0) {
+      alert("No hay entregas filtradas para pagar.");
+      return;
+    }
+
+    const total = entregasFiltradas.reduce((sum, e) => sum + e.valor, 0);
+    navigate("/contabilidad/pago-entregas", {
+      state: {
+        entregas: entregasFiltradas,
+        total,
+      },
+    });
+  };
+
+  const valorTotal = entregasFiltradas.reduce((total, e) => total + e.valor, 0);
+
   const descargarCSV = () => {
-    const encabezado = "Tracking,Conductor,Ciudad,Fecha,Estado,Cliente,Carrier\n";
+    const encabezado = "Tracking,Fecha,Tipo,Cliente,Valor\n";
     const filas = entregasFiltradas
-      .map(
-        (e) =>
-          `${e.tracking},${e.conductor},${e.ciudad},${e.fecha},${e.estado},${e.cliente},${e.carrier}`
-      )
+      .map((e) => `${e.tracking},${e.fecha},${e.tipo},${e.cliente},${e.valor}`)
       .join("\n");
 
-    const blob = new Blob([encabezado + filas], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([encabezado + filas], {
+      type: "text/csv;charset=utf-8;",
+    });
     saveAs(blob, `entregas-${new Date().toISOString().split("T")[0]}.csv`);
   };
 
@@ -81,38 +121,58 @@ export default function EntregasContabilidad() {
 
         <label>
           Cliente:
-          <select value={clienteFiltro} onChange={(e) => setClienteFiltro(e.target.value)}>
+          <select
+            value={clienteFiltro}
+            onChange={(e) => setClienteFiltro(e.target.value)}
+          >
             <option value="">Todos</option>
             <option value="Dropi">Dropi</option>
             <option value="Dafiti">Dafiti</option>
-            <option value="Trady">Trady</option>
+            <option value="Tridy">Tridy</option>
           </select>
         </label>
 
         <label>
           Desde:
-          <input type="date" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
+          <input
+            type="date"
+            value={fechaDesde}
+            onChange={(e) => setFechaDesde(e.target.value)}
+          />
         </label>
 
         <label>
           Hasta:
-          <input type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
+          <input
+            type="date"
+            value={fechaHasta}
+            onChange={(e) => setFechaHasta(e.target.value)}
+          />
         </label>
 
-        <button className="boton-accion" onClick={descargarCSV}>📥 Exportar CSV</button>
+        <button className="boton-accion" onClick={descargarCSV}>
+          📥 Exportar CSV
+        </button>
       </div>
+
+      <div className="entregas-total">
+        <strong>Total entregas: </strong>${valorTotal.toLocaleString()}
+      </div>
+      {entregasFiltradas.length > 0 && (
+        <button className="boton-accion" onClick={irAPago}>
+          💸 Pagar total 
+        </button>
+      )}
 
       <div className="entregas-tabla-container">
         <table className="entregas-tabla">
           <thead>
             <tr>
               <th>Tracking</th>
-              <th>Conductor</th>
-              <th>Ciudad</th>
               <th>Fecha</th>
-              <th>Estado</th>
+              <th>Tipo de Consignación</th>
               <th>Cliente</th>
-              <th>Carrier</th>
+              <th>Valor</th>
             </tr>
           </thead>
           <tbody>
@@ -120,17 +180,18 @@ export default function EntregasContabilidad() {
               entregasFiltradas.map((e, idx) => (
                 <tr key={idx}>
                   <td>{e.tracking}</td>
-                  <td>{e.conductor}</td>
-                  <td>{e.ciudad}</td>
                   <td>{e.fecha}</td>
-                  <td>{e.estado}</td>
+                  <td>{e.tipo}</td>
                   <td>{e.cliente}</td>
-                  <td>{e.carrier}</td>
+                  <td>${e.valor.toLocaleString()}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", padding: "1rem" }}>
+                <td
+                  colSpan={5}
+                  style={{ textAlign: "center", padding: "1rem" }}
+                >
                   No hay entregas registradas.
                 </td>
               </tr>

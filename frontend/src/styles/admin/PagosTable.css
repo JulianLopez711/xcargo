@@ -1,41 +1,52 @@
+/* src/styles/admin/PagosTable.css */
 .pagos-table-container {
+  margin-top: 1.5rem;
   overflow-x: auto;
 }
 
 .pagos-table {
   width: 100%;
   border-collapse: collapse;
-  background-color: white;
+  background-color: #fff;
   border-radius: 0.75rem;
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .pagos-table th,
 .pagos-table td {
   padding: 0.75rem 1rem;
-  text-align: left;
   border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  font-size: 0.9rem;
 }
 
 .pagos-table th {
   background-color: #f9fafb;
   color: #374151;
   font-weight: 600;
-  font-size: 0.875rem;
 }
 
 .pagos-table td {
   color: #4b5563;
-  font-size: 0.875rem;
 }
 
-.estado-conciliado {
-  color: #10b981;
-  font-weight: 600;
+.pagos-table tr:hover {
+  background-color: #f0fdf4;
 }
 
-.estado-pendiente {
-  color: #ef4444;
-  font-weight: 600;
+.pagos-filtros {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  align-items: center;
 }
+
+.pagos-filtros select,
+.pagos-filtros input {
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+

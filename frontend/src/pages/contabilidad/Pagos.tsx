@@ -1,4 +1,5 @@
-import "../../styles/Pagos.css";
+// ... importaciones
+import "../../styles/contabilidad/Pagos.css";
 import { useEffect, useState } from "react";
 import { saveAs } from "file-saver";
 
@@ -19,7 +20,6 @@ export default function PagosContabilidad() {
   const [fechaHasta, setFechaHasta] = useState("");
 
   useEffect(() => {
-    // Aquí iría el fetch a tu backend
     setPagos([
       {
         referencia: "REF123",
@@ -50,11 +50,11 @@ export default function PagosContabilidad() {
   });
 
   const descargarCSV = () => {
-    const encabezado = "Referencia,Valor,Fecha,Entidad,Estado,Tipo\n";
+    const encabezado = "ID,Referencia,Valor,Fecha,Entidad,Estado,Tipo\n";
     const filas = pagosFiltrados
       .map(
-        (p) =>
-          `${p.referencia},${p.valor},${p.fecha},${p.entidad},${p.estado},${p.tipo}`
+        (p, idx) =>
+          `${idx + 1},${p.referencia},${p.valor},${p.fecha},${p.entidad},${p.estado},${p.tipo}`
       )
       .join("\n");
 
@@ -64,6 +64,22 @@ export default function PagosContabilidad() {
 
   const verImagen = (src: string) => {
     window.open(src, "_blank");
+  };
+
+  const manejarAprobacion = (referencia: string) => {
+    alert(`✅ Pago con referencia ${referencia} aprobado.`);
+    // Aquí podrías hacer un fetch para notificar al backend
+  };
+
+  const manejarRechazo = (referencia: string) => {
+    const observacion = prompt(`❌ Ingresa el motivo de rechazo del pago con referencia ${referencia}:`);
+    if (observacion && observacion.trim() !== "") {
+      console.log(`Rechazo registrado para ${referencia}: ${observacion}`);
+      alert(`❌ Pago rechazado con observación:\n"${observacion}"`);
+      // Aquí podrías hacer un fetch con { referencia, observacion }
+    } else {
+      alert("Debe ingresar una observación válida para rechazar el pago.");
+    }
   };
 
   return (
@@ -97,13 +113,13 @@ export default function PagosContabilidad() {
           />
         </label>
         <button onClick={descargarCSV} className="boton-accion">📥 Descargar CSV</button>
-
       </div>
 
       <div className="pagos-tabla-container">
         <table className="pagos-tabla">
           <thead>
             <tr>
+              <th>ID</th>
               <th>Referencia</th>
               <th>Valor</th>
               <th>Fecha</th>
@@ -111,12 +127,14 @@ export default function PagosContabilidad() {
               <th>Estado</th>
               <th>Tipo</th>
               <th>Comprobante</th>
+              <th>Novedades</th>
             </tr>
           </thead>
           <tbody>
             {pagosFiltrados.length > 0 ? (
               pagosFiltrados.map((p, idx) => (
                 <tr key={idx}>
+                  <td>{idx + 1}</td>
                   <td>{p.referencia}</td>
                   <td>${p.valor.toLocaleString()}</td>
                   <td>{p.fecha}</td>
@@ -124,14 +142,30 @@ export default function PagosContabilidad() {
                   <td>{p.estado}</td>
                   <td>{p.tipo}</td>
                   <td>
-  <button onClick={() => verImagen(p.imagen)} className="boton-secundario">👁 Ver</button>
+  <button onClick={() => verImagen(p.imagen)} className="btn-ver">
+    Ver
+  </button>
 </td>
 
+                  <td>
+                    <button
+                      onClick={() => manejarAprobacion(p.referencia)}
+                      className="boton-aprobar"
+                    >
+                    Aprobar
+                    </button>
+                    <button
+                      onClick={() => manejarRechazo(p.referencia)}
+                      className="boton-rechazar"
+                    >
+                    Rechazar
+                    </button>
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", padding: "1rem" }}>
+                <td colSpan={9} style={{ textAlign: "center", padding: "1rem" }}>
                   No hay pagos registrados.
                 </td>
               </tr>

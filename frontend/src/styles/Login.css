@@ -100,6 +100,7 @@ body, html {
   width: 100%;
   padding: 0.75rem;
   border: 1px solid #d1d5db;
+  background-color: white;
   border-radius: 0.375rem;
   outline: none;
   transition: border-color 0.2s;
