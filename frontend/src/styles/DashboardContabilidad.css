@@ -1,55 +1,73 @@
 .dashboard-contabilidad {
   padding: 2rem;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-.tarjetas-resumen {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1.5rem;
-  margin: 2rem 0;
-}
-
-.tarjeta {
-  background-color: white;
-  border-radius: 0.75rem;
-  padding: 1.25rem;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+.dashboard-title {
+  font-size: 1.8rem;
+  color: #10b981;
+  margin-bottom: 0.5rem;
   text-align: center;
 }
 
-.tarjeta h3 {
-  margin-bottom: 0.5rem;
-  font-size: 1rem;
-  color: #4b5563;
+.dashboard-subtitle {
+  text-align: center;
+  margin-bottom: 2rem;
+  color: #6b7280;
 }
 
-.tarjeta p {
-  font-size: 1.25rem;
-  font-weight: bold;
+.tablas-fila {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
 }
 
-.tarjeta-verde { border-left: 6px solid #10b981; }
-.tarjeta-azul { border-left: 6px solid #3b82f6; }
-.tarjeta-amarilla { border-left: 6px solid #facc15; }
-.tarjeta-roja { border-left: 6px solid #ef4444; }
-
-.ultimos-movimientos h3 {
-  margin-bottom: 1rem;
+.tabla-cliente {
+  background-color: #ffffff;
+  border-radius: 0.75rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  padding: 1rem;
+  flex: 1 1 300px;
+  max-width: 440px;
+  min-width: 280px;
 }
 
-.ultimos-movimientos table {
+.tabla-cliente table {
   width: 100%;
   border-collapse: collapse;
+  font-size: 0.85rem;
 }
 
-.ultimos-movimientos th,
-.ultimos-movimientos td {
-  padding: 0.75rem 1rem;
-  text-align: left;
+.tabla-cliente th,
+.tabla-cliente td {
+  padding: 0.5rem 0.75rem;
+  text-align: center;
   border-bottom: 1px solid #e5e7eb;
 }
 
-.ultimos-movimientos th {
-  background-color: #f3f4f6;
+.tabla-cliente th {
+  background-color: #f9fafb;
+  color: #111827;
+  font-weight: 600;
+}
+
+.cliente-titulo {
   color: #374151;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  font-size: 1rem;
+}
+
+.fila-total {
+  background-color: #f0fdf4;
+  font-weight: bold;
+}
+
+.total-general {
+  background-color: #ecfdf5;
+  border: 2px solid #10b981;
+  margin: 0 auto;
+  max-width: 500px;
 }

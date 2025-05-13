@@ -3,7 +3,6 @@ import { useState } from "react";
 import "../../styles/RegistrarPago.css";
 import LoadingSpinner from "../../components/LoadingSpinner";
 
-const tipoPagoOpciones = ["Nequi", "Transferencia", "Consignación"];
 
 type GuiaPago = { referencia: string; valor: number };
 type DatosPago = {

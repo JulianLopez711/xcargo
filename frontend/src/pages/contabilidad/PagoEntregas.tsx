@@ -1,6 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { useState } from "react";
 import "../../styles/contabilidad/PagoEntregas.css";
+import LoadingSpinner from "../../components/LoadingSpinner";
 
 type Entrega = {
   tracking: string;
@@ -18,6 +19,7 @@ export default function PagoEntregas() {
   };
 
   const [comprobante, setComprobante] = useState<File | null>(null);
+  const [enviandoCorreo, setEnviandoCorreo] = useState(false);
 
   const handleArchivo = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -25,13 +27,51 @@ export default function PagoEntregas() {
     }
   };
 
-  const registrarPago = () => {
+  const registrarPago = async () => {
     if (!comprobante) {
       alert("Debes adjuntar un comprobante de pago.");
       return;
     }
+
     alert(`✅ Pago registrado por $${total.toLocaleString()} para ${entregas.length} entregas.`);
-    // Aquí iría el POST al backend
+
+    const deseaEnviar = window.confirm("¿Deseas enviar confirmación al cliente por correo?");
+    if (deseaEnviar) {
+      await enviarCorreo();
+    }
+  };
+
+  const enviarCorreo = async () => {
+    if (!comprobante) {
+      alert("Adjunta el comprobante primero.");
+      return;
+    }
+
+    const cliente = entregas[0]?.cliente || "Sin cliente";
+
+    const formData = new FormData();
+    formData.append("cliente", cliente);
+    formData.append("total", total.toString());
+    formData.append("entregas", JSON.stringify(entregas));
+    formData.append("comprobante", comprobante);
+
+    setEnviandoCorreo(true);
+    try {
+      const res = await fetch("http://localhost:8000/enviar-confirmacion-email/", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        alert("📧 Correo enviado con comprobante.");
+      } else {
+        alert("❌ Error al enviar el correo.");
+      }
+    } catch (error) {
+      alert("❌ Error de red al enviar el correo.");
+    } finally {
+      setEnviandoCorreo(false);
+    }
   };
 
   return (
@@ -76,6 +116,8 @@ export default function PagoEntregas() {
       <button className="boton-accion" onClick={registrarPago}>
         ✅ Registrar Pago
       </button>
+
+      {enviandoCorreo && <LoadingSpinner />}
     </div>
   );
 }

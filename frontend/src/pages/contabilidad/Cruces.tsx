@@ -1,6 +1,5 @@
 import "../../styles/contabilidad/Cruces.css";
 import sampleComprobante from "../../assets/comprobantes/4.jpeg";
-import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { saveAs } from "file-saver";
 
@@ -42,7 +41,6 @@ const pagosMock: Pago[] = [
 ];
 
 export default function CrucesContabilidad() {
-  const navigate = useNavigate();
   const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
   const [pagoSeleccionado, setPagoSeleccionado] = useState<Pago | null>(null);
   const [filtros, setFiltros] = useState({ fecha: "", conductor: "", estado: "" });

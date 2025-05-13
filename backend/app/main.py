@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import guias, ocr, pagos, operador
+from app.routers import guias, ocr, pagos, operador,pagoCliente
+
 
 
 
@@ -25,3 +26,4 @@ app.include_router(guias.router)
 app.include_router(ocr.router)
 app.include_router(pagos.router)
 app.include_router(operador.router)
+app.include_router(pagoCliente.router, tags=["Pago Entregas"])
