@@ -1,0 +1,50 @@
+.recuperar-clave-container {
+  max-width: 400px;
+  margin: 3rem auto;
+  background: white;
+  padding: 2rem;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  font-family: 'Segoe UI', sans-serif;
+  text-align: center;
+}
+
+.recuperar-clave-container h2 {
+  color: #10B981;
+  margin-bottom: 1rem;
+}
+
+.recuperar-clave-container input {
+  width: 100%;
+  padding: 0.8rem;
+  margin: 1rem 0;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 1rem;
+}
+
+.recuperar-clave-container button {
+  width: 100%;
+  padding: 0.8rem;
+  background-color: #10B981;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.recuperar-clave-container button:hover {
+  background-color: #059669;
+}
+
+.mensaje-exito {
+  color: #10B981;
+  margin-top: 1rem;
+}
+
+.mensaje-error {
+  color: #ef4444;
+  margin-top: 1rem;
+}

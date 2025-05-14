@@ -217,3 +217,23 @@ body, html {
     padding: 0.5rem 2rem;
   }
 }
+
+.forgot-password {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.forgot-password-link {
+  background: none;
+  border: none;
+  color: #10b981;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  font-family: inherit;
+}
+
+.forgot-password-link:hover {
+  color: #059669;
+}

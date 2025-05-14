@@ -162,11 +162,7 @@ Para cualquier consulta, contacta con nosotros en soporte@tuempresa.com
       <div class="content">
         Este código expirará en 30 minutos. Si no solicitaste este código, puedes ignorar este mensaje.
       </div>
-      
-      <div class="button">
-        <a href="https://tuempresa.com/recuperar-password" style="background-color: #10B981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block;">Recuperar mi contraseña</a>
-      </div>
-      
+
       <div class="footer">
         © 2025 XCARGO. Todos los derechos reservados.<br>
         Si tienes alguna pregunta, contáctanos en <a href="mailto:soporte@tuempresa.com" style="color: #10B981;">soporte@tuempresa.com</a>

@@ -1,4 +1,3 @@
-// src/routes/Routes.tsx
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "../context/authContext";
 import Layout from "../components/layout";
@@ -15,6 +14,7 @@ import Reportes from "../pages/admin/Reportes";
 import Historial from "../pages/admin/Historial";
 import RoleManagement from "../pages/admin/RoleManagement";
 import GeneralSettings from "../pages/admin/GeneralSettings";
+
 // Contabilidad
 import DashboardContabilidad from "../pages/contabilidad/Dashboard";
 import PagosContabilidad from "../pages/contabilidad/Pagos";
@@ -31,6 +31,11 @@ import RegistrarPagoOperador from "../pages/operador/RegistrarPago";
 // Conductor
 import PagosPendientes from "../pages/conductor/PagosPendientes";
 import FormularioPagoConductor from "../pages/conductor/RegistrarPago";
+
+// Recuperación de contraseña
+import RecuperarClave from "../pages/login/RecuperarClave";
+import VerificarCodigo from "../pages/login/VerificarCodigo";
+import NuevaClave from "../pages/login/NuevaClave";
 
 export default function AppRoutes() {
   const { user, isLoading } = useAuth();
@@ -59,6 +64,7 @@ export default function AppRoutes() {
         <Route path="/admin/roles" element={<RoleManagement />} />
         <Route path="/admin/configuracion" element={<GeneralSettings />} />
       </Route>
+
       {/* CONTABILIDAD */}
       <Route
         element={
@@ -67,10 +73,10 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route
-          path="/contabilidad/dashboard"
-          element={<DashboardContabilidad />}
-        />
+        <Route path="/contabilidad/dashboard" element={<DashboardContabilidad />} />
+        <Route path="/contabilidad/pagos" element={<PagosContabilidad />} />
+        <Route path="/contabilidad/entregas" element={<EntregasContabilidad />} />
+        <Route path="/contabilidad/cruces" element={<CrucesContabilidad />} />
         <Route
           path="/contabilidad/pago-entregas"
           element={
@@ -79,12 +85,6 @@ export default function AppRoutes() {
             </ProtectedRoute>
           }
         />
-        <Route path="/contabilidad/pagos" element={<PagosContabilidad />} />
-        <Route
-          path="/contabilidad/entregas"
-          element={<EntregasContabilidad />}
-        />
-        <Route path="/contabilidad/cruces" element={<CrucesContabilidad />} />
       </Route>
 
       {/* OPERADOR */}
@@ -112,6 +112,11 @@ export default function AppRoutes() {
         <Route path="/conductor/pagos" element={<PagosPendientes />} />
         <Route path="/conductor/pago" element={<FormularioPagoConductor />} />
       </Route>
+
+      {/* PÚBLICO - Recuperación de contraseña */}
+      <Route path="/recuperar-clave" element={<RecuperarClave />} />
+      <Route path="/verificar-codigo" element={<VerificarCodigo />} />
+      <Route path="/cambiar-clave" element={<NuevaClave />} />
 
       {/* Redirección genérica */}
       <Route path="*" element={<Navigate to="/" />} />
