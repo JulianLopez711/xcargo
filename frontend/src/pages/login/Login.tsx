@@ -60,7 +60,7 @@ const XCargoLogin: React.FC = () => {
         <div className="logo-container">
           <div className="logo-background">
             <div className="logo">
-              <img src={LogoXcargo} alt="XCargo Logo" width="100" height="30" />
+              <img src={LogoXcargo} alt="XCargo Logo" width="150" height="30" />
             </div>
           </div>
         </div>
@@ -89,7 +89,7 @@ const XCargoLogin: React.FC = () => {
               className="input-field"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="tucorreo@x-cargo.co.com"
+              placeholder="tucorreo@x-cargo.co"
               required
             />
           </div>
