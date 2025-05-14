@@ -43,7 +43,9 @@ export default function PagosContabilidad() {
   }, []);
 
   const pagosFiltrados = pagos.filter((p) => {
-    const cumpleReferencia = p.referencia.toLowerCase().includes(filtroReferencia.toLowerCase());
+    const cumpleReferencia = p.referencia
+      .toLowerCase()
+      .includes(filtroReferencia.toLowerCase());
     const cumpleDesde = !fechaDesde || p.fecha >= fechaDesde;
     const cumpleHasta = !fechaHasta || p.fecha <= fechaHasta;
     return cumpleReferencia && cumpleDesde && cumpleHasta;
@@ -54,16 +56,26 @@ export default function PagosContabilidad() {
     const filas = pagosFiltrados
       .map(
         (p, idx) =>
-          `${idx + 1},${p.referencia},${p.valor},${p.fecha},${p.entidad},${p.estado},${p.tipo}`
+          `${idx + 1},${p.referencia},${p.valor},${p.fecha},${p.entidad},${
+            p.estado
+          },${p.tipo}`
       )
       .join("\n");
 
-    const blob = new Blob([encabezado + filas], { type: "text/csv;charset=utf-8;" });
-    saveAs(blob, `pagos-consolidados-${new Date().toISOString().split("T")[0]}.csv`);
+    const blob = new Blob([encabezado + filas], {
+      type: "text/csv;charset=utf-8;",
+    });
+    saveAs(
+      blob,
+      `pagos-consolidados-${new Date().toISOString().split("T")[0]}.csv`
+    );
   };
+  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(
+    null
+  );
 
   const verImagen = (src: string) => {
-    window.open(src, "_blank");
+    setImagenSeleccionada(src);
   };
 
   const manejarAprobacion = (referencia: string) => {
@@ -72,7 +84,9 @@ export default function PagosContabilidad() {
   };
 
   const manejarRechazo = (referencia: string) => {
-    const observacion = prompt(`❌ Ingresa el motivo de rechazo del pago con referencia ${referencia}:`);
+    const observacion = prompt(
+      `❌ Ingresa el motivo de rechazo del pago con referencia ${referencia}:`
+    );
     if (observacion && observacion.trim() !== "") {
       console.log(`Rechazo registrado para ${referencia}: ${observacion}`);
       alert(`❌ Pago rechazado con observación:\n"${observacion}"`);
@@ -112,7 +126,9 @@ export default function PagosContabilidad() {
             onChange={(e) => setFechaHasta(e.target.value)}
           />
         </label>
-        <button onClick={descargarCSV} className="boton-accion">📥 Descargar CSV</button>
+        <button onClick={descargarCSV} className="boton-accion">
+          📥 Descargar CSV
+        </button>
       </div>
 
       <div className="pagos-tabla-container">
@@ -142,30 +158,36 @@ export default function PagosContabilidad() {
                   <td>{p.estado}</td>
                   <td>{p.tipo}</td>
                   <td>
-  <button onClick={() => verImagen(p.imagen)} className="btn-ver">
-    Ver
-  </button>
-</td>
+                    <button
+                      onClick={() => verImagen(p.imagen)}
+                      className="btn-ver"
+                    >
+                     👁 Ver
+                    </button>
+                  </td>
 
                   <td>
                     <button
                       onClick={() => manejarAprobacion(p.referencia)}
                       className="boton-aprobar"
                     >
-                    Aprobar
+                      Aprobar
                     </button>
                     <button
                       onClick={() => manejarRechazo(p.referencia)}
                       className="boton-rechazar"
                     >
-                    Rechazar
+                      Rechazar
                     </button>
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={9} style={{ textAlign: "center", padding: "1rem" }}>
+                <td
+                  colSpan={9}
+                  style={{ textAlign: "center", padding: "1rem" }}
+                >
                   No hay pagos registrados.
                 </td>
               </tr>
@@ -173,6 +195,22 @@ export default function PagosContabilidad() {
           </tbody>
         </table>
       </div>
+      {imagenSeleccionada && (
+        <div
+          className="modal-overlay"
+          onClick={() => setImagenSeleccionada(null)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <img src={imagenSeleccionada} alt="Vista previa" />
+            <button
+              onClick={() => setImagenSeleccionada(null)}
+              className="cerrar-modal"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

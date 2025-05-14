@@ -10,32 +10,51 @@ def obtener_pagos_pendientes():
     try:
         query = """
             SELECT
-    tracking_number AS guia,
-    Empleado AS conductor,
-    carrier AS empresa,
-    Valor AS valor,
-    Status_Date AS fecha
-    FROM
-    `datos-clientes-441216.pickup_data.COD_Pendiente`
-    WHERE
-    Status_Date IS NOT NULL
-    ORDER BY
-    Status_Date DESC
-    LIMIT 40
+                tracking_number AS guia,
+                Empleado AS conductor,
+                carrier AS empresa,
+                Valor AS valor,
+                Status_Date AS fecha
+            FROM
+                `datos-clientes-441216.pickup_data.COD_Pendiente`
+            WHERE
+                Status_Date IS NOT NULL
+            ORDER BY
+                Status_Date DESC
+            LIMIT 40
         """
         resultados = client.query(query).result()
 
         pagos = []
         for row in resultados:
-                print(dict(row))  # Imprime cada fila
-                pagos.append({
-                    "guia": row.guia,
-                    "conductor": row.conductor,
-                    "empresa": row.empresa,
-                    "valor": row.valor,
-                    "fecha": str(row.fecha)
-                })
+            print(dict(row))  # Imprime cada fila
+            pagos.append({
+                "guia": row.guia,
+                "conductor": row.conductor,
+                "empresa": row.empresa,
+                "valor": row.valor,
+                "fecha": str(row.fecha)
+            })
         return pagos
     except Exception as e:
         print("❌ ERROR EN BIGQUERY:", e)
         return []
+
+# Simulación de base de datos temporal para relaciones de prueba
+db_relaciones_temporal = []
+
+def registrar_relacion_pago_guias(referencia: str, guias: list):
+    try:
+        relacion = {
+            "referencia": referencia,
+            "guias": guias,
+        }
+        db_relaciones_temporal.append(relacion)
+        print(f"✅ Relación registrada en prueba: {relacion}")
+        return {"mensaje": "Relación guardada en memoria temporal"}
+    except Exception as e:
+        print("❌ Error al registrar relación:", e)
+        return {"error": str(e)}
+
+def obtener_relaciones_temporales():
+    return db_relaciones_temporal

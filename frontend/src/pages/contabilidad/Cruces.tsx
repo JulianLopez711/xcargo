@@ -1,5 +1,5 @@
 import "../../styles/contabilidad/Cruces.css";
-import sampleComprobante from "../../assets/comprobantes/4.jpeg";
+import sampleComprobante from "../../../public/comprobantes/4.jpeg";
 import { useState, useEffect } from "react";
 import { saveAs } from "file-saver";
 

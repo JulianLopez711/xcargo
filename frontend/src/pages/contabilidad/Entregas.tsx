@@ -163,6 +163,7 @@ export default function EntregasContabilidad() {
           💸 Pagar total 
         </button>
       )}
+      <div></div>
 
       <div className="entregas-tabla-container">
         <table className="entregas-tabla">
