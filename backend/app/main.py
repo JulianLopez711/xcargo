@@ -1,10 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import guias, ocr, pagos, operador,pagoCliente
-from app.routers import pagos_cruzados
-
-
-
+from app.routers import guias, ocr, pagos, operador,pagoCliente,auth,pagos_cruzados,roles
 
 
 app = FastAPI()
@@ -22,11 +18,11 @@ app.add_middleware(
 def root():
     return {"message": "API XCargo backend funcionando"}
 
-
-
 app.include_router(pagos_cruzados.router)
 app.include_router(guias.router)
 app.include_router(ocr.router)
 app.include_router(pagos.router)
 app.include_router(operador.router)
 app.include_router(pagoCliente.router)
+app.include_router(roles.router)
+app.include_router(auth.router)

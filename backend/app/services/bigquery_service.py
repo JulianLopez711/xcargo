@@ -58,3 +58,14 @@ def registrar_relacion_pago_guias(referencia: str, guias: list):
 
 def obtener_relaciones_temporales():
     return db_relaciones_temporal
+
+def obtener_roles():
+    return [
+        {"id_rol": "1", "nombre_rol": "Administrador", "descripcion": "Control total del sistema"},
+        {"id_rol": "2", "nombre_rol": "Conductor", "descripcion": "Registra pagos y entregas"},
+        {"id_rol": "3", "nombre_rol": "Contabilidad", "descripcion": "Conciliación y reportes"},
+        {"id_rol": "4", "nombre_rol": "Operador", "descripcion": "Carga entregas y pagos"},
+        {"id_rol": "5", "nombre_rol": "Director", "descripcion": "Vista general de datos"},
+    ]
+
+
