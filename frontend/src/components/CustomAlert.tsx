@@ -1,5 +1,6 @@
-import React from "react";
 import "../styles/CustomAlert.css";
+
+
 
 interface CustomAlertProps {
   tipo: "exito" | "error" | "info";
