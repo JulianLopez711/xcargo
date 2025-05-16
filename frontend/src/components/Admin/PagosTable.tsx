@@ -1,5 +1,5 @@
 // src/components/admin/PagosTable.tsx
-import React from "react";
+
 import "../../styles/admin/PagosTable.css";
 
 const samplePagos = [
@@ -14,9 +14,15 @@ type PagosTableProps = {
   fechaFin: string;
 };
 
-export default function PagosTable(props: PagosTableProps) {
+export default function PagosTable({ operador, fechaInicio, fechaFin }: PagosTableProps) {
   return (
     <div className="pagos-table-container">
+      <div className="filtros-activos">
+        <p><strong>Operador:</strong> {operador || "Todos"}</p>
+        <p><strong>Desde:</strong> {fechaInicio || "Sin fecha"}</p>
+        <p><strong>Hasta:</strong> {fechaFin || "Sin fecha"}</p>
+      </div>
+
       <table className="pagos-table">
         <thead>
           <tr>
