@@ -1,4 +1,5 @@
 // src/components/admin/PagosTable.tsx
+import React from "react";
 import "../../styles/admin/PagosTable.css";
 
 const samplePagos = [
@@ -7,7 +8,13 @@ const samplePagos = [
   { id: 3, fecha: "2025-05-03", referencia: "LMN789", valor: 25000, estado: "Conciliado" },
 ];
 
-export default function PagosTable() {
+type PagosTableProps = {
+  operador: string;
+  fechaInicio: string;
+  fechaFin: string;
+};
+
+export default function PagosTable(props: PagosTableProps) {
   return (
     <div className="pagos-table-container">
       <table className="pagos-table">

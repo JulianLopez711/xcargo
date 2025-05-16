@@ -17,9 +17,9 @@ export default function PagosAdmin() {
       <div className="pagos-filtros">
         <select value={filtroOperador} onChange={(e) => setFiltroOperador(e.target.value)}>
           <option value="">Todos los operadores</option>
-          <option value="Dafity">Dafity</option>
+          <option value="Dafiti">Dafiti</option>
           <option value="Dropy">Dropy</option>
-          <option value="tridy">tridy</option>
+          <option value="Tridy">Tridy</option>
         </select>
         <input
           type="date"
