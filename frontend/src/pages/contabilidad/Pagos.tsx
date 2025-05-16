@@ -20,27 +20,15 @@ export default function PagosContabilidad() {
   const [fechaHasta, setFechaHasta] = useState("");
 
   useEffect(() => {
-    setPagos([
-      {
-        referencia: "REF123",
-        valor: 220000,
-        fecha: "2025-05-11",
-        entidad: "Nequi",
-        estado: "Conciliado",
-        tipo: "Transferencia",
-        imagen: "/comprobantes/4.jpeg",
-      },
-      {
-        referencia: "REF456",
-        valor: 180000,
-        fecha: "2025-05-10",
-        entidad: "Bancolombia",
-        estado: "Pendiente",
-        tipo: "Consignación",
-        imagen: "/comprobantes/5.jpeg",
-      },
-    ]);
-  }, []);
+  fetch("http://localhost:8000/pagos/pagos-conductor")
+    .then((res) => res.json())
+    .then((data) => setPagos(data))
+    .catch((err) => {
+      console.error("Error cargando pagos:", err);
+      alert("Error al cargar los pagos desde el servidor.");
+    });
+}, []);
+
 
   const pagosFiltrados = pagos.filter((p) => {
     const cumpleReferencia = p.referencia

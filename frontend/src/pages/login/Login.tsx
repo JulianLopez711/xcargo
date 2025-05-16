@@ -13,7 +13,7 @@ const XCargoLogin: React.FC = () => {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedRole) {
@@ -21,23 +21,60 @@ const XCargoLogin: React.FC = () => {
       return;
     }
 
-    // Mapear los roles a los permitidos por el sistema
-    const rolMapeo: Record<string, string> = {
-      administrador: "admin",
-      contabilidad: "contabilidad",
-      conductor: "conductor",
-      cliente: "cliente",
-      operador: "cliente", // si estás unificando cliente/operador
-    };
+    try {
+      const res = await fetch("http://localhost:8000/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ correo: email, password }),
+      });
 
-    const rolSistema = rolMapeo[selectedRole.toLowerCase()];
-    if (!rolSistema) {
-      alert("Rol no válido");
-      return;
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.detail || "Error al iniciar sesión");
+        return;
+      }
+
+      const rolMapeo: Record<string, string> = {
+        administrador: "admin",
+        contabilidad: "contabilidad",
+        conductor: "conductor",
+        operador: "cliente",
+      };
+
+      const rolEsperado = rolMapeo[selectedRole.toLowerCase()];
+      const rolDesdeBackend = data.rol?.toLowerCase();
+      console.log("Rol esperado:", rolEsperado);
+      console.log("Rol desde backend:", rolDesdeBackend);
+
+      if (rolEsperado !== rolDesdeBackend) {
+        alert("Rol incorrecto. Verifica tu selección.");
+        return;
+      }
+
+      if (data.clave_defecto) {
+        localStorage.setItem("correo_recuperacion", data.correo);
+        alert("Debes cambiar tu contraseña antes de continuar.");
+
+        // Autenticar para que ProtectedRoute permita la navegación
+        login({ email: data.correo, role: data.rol });
+
+        // Cancelar redirección por rol
+        setIsSubmitted(false);
+        setSelectedRole(null);
+
+        navigate("/cambiar-clave");
+        return;
+      }
+
+      // Guardar usuario en contexto
+      login({ email: data.correo, role: data.rol });
+
+      setIsSubmitted(true);
+    } catch (error) {
+      alert("No se pudo conectar con el servidor.");
+      console.error(error);
     }
-
-    login({ email, role: rolSistema });
-    setIsSubmitted(true);
   };
 
   useEffect(() => {
@@ -159,7 +196,7 @@ const XCargoLogin: React.FC = () => {
           <button
             type="button"
             className="forgot-password-link"
-            onClick={() => navigate("/recuperar-clave")}
+            onClick={() => navigate("/cambiar-clave")}
           >
             ¿Olvidaste tu contraseña?
           </button>

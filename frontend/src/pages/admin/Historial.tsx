@@ -30,7 +30,7 @@ const historialMock: HistorialItem[] = [
   },
   {
     id: 3,
-    operador: "Trady",
+    operador: "tridy",
     tipo: "Cruce",
     valor: 80000,
     referencia: "TRA-78901",
@@ -75,7 +75,7 @@ export default function Historial() {
           <option value="">Todos los operadores</option>
           <option value="Dafity">Dafity</option>
           <option value="Dropy">Dropy</option>
-          <option value="Trady">Trady</option>
+          <option value="tridy">tridy</option>
         </select>
         <input
           type="date"

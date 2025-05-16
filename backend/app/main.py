@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import guias, ocr, pagos, operador,pagoCliente,auth,pagos_cruzados,roles
+from fastapi.staticfiles import StaticFiles
 
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 
 # Middleware CORS
 app.add_middleware(

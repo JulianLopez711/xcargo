@@ -73,9 +73,15 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route path="/contabilidad/dashboard" element={<DashboardContabilidad />} />
+        <Route
+          path="/contabilidad/dashboard"
+          element={<DashboardContabilidad />}
+        />
         <Route path="/contabilidad/pagos" element={<PagosContabilidad />} />
-        <Route path="/contabilidad/entregas" element={<EntregasContabilidad />} />
+        <Route
+          path="/contabilidad/entregas"
+          element={<EntregasContabilidad />}
+        />
         <Route path="/contabilidad/cruces" element={<CrucesContabilidad />} />
         <Route
           path="/contabilidad/pago-entregas"
@@ -116,7 +122,22 @@ export default function AppRoutes() {
       {/* PÚBLICO - Recuperación de contraseña */}
       <Route path="/recuperar-clave" element={<RecuperarClave />} />
       <Route path="/verificar-codigo" element={<VerificarCodigo />} />
-      <Route path="/cambiar-clave" element={<NuevaClave />} />
+      <Route
+        path="/cambiar-clave"
+        element={
+          <ProtectedRoute
+            allowedRoles={[
+              "admin",
+              "conductor",
+              "contabilidad",
+              "cliente",
+              "operador",
+            ]}
+          >
+            <NuevaClave />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Redirección genérica */}
       <Route path="*" element={<Navigate to="/" />} />

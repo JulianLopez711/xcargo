@@ -64,7 +64,7 @@ export default function Navbar() {
         {menuAbierto && (
           <div className="user-dropdown">
             <button onClick={() => alert("Ir a perfil")} className="dropdown-item">Perfil</button>
-            <button onClick={() => alert("Ir a perfil")} className="dropdown-item">Cambiar contraseña</button>
+            <button onClick={() => navigate("/cambiar-clave")} className="dropdown-item">Cambiar contraseña</button>
             <button onClick={logout} className="dropdown-item logout">Cerrar sesión</button>
           </div>
         )}

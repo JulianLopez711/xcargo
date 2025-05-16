@@ -3,13 +3,14 @@ import { useState } from "react";
 import "../../styles/RegistrarPago.css";
 import LoadingSpinner from "../../components/LoadingSpinner";
 
+// Tipos de datos
 
 type GuiaPago = { referencia: string; valor: number };
 type DatosPago = {
   valor: string;
   fecha: string;
   hora: string;
-  tipo_pago: string;
+  tipo: string;
   entidad: string;
   referencia: string;
 };
@@ -42,7 +43,7 @@ export default function RegistrarPago() {
     valor: "",
     fecha: "",
     hora: "",
-    tipo_pago: "",
+    tipo: "",
     entidad: "",
     referencia: "",
   });
@@ -86,7 +87,7 @@ export default function RegistrarPago() {
           valor: data.valor || "",
           fecha: data.fecha_transaccion || "",
           hora: data.hora_transaccion || "",
-          tipo_pago: data.entidad_financiera || "",
+          tipo: data.entidad_financiera || "",
           entidad: data.entidad_financiera || "",
           referencia: data.referencia_pago || data.numero_confirmacion || "",
         });
@@ -104,7 +105,7 @@ export default function RegistrarPago() {
   const agregarPago = () => {
     const campos = Object.entries(datosManuales);
     for (const [key, val] of campos) {
-      if (!val.trim()) {
+      if (typeof val !== "string" || val.trim() === "") {
         alert(`El campo "${key}" es obligatorio`);
         return;
       }
@@ -121,11 +122,13 @@ export default function RegistrarPago() {
     const duplicado = pagosCargados.find(
       (p) =>
         p.datos.referencia === referencia ||
-        (`${p.datos.fecha} ${p.datos.hora}` === fechaHora)
+        `${p.datos.fecha} ${p.datos.hora}` === fechaHora
     );
 
     if (duplicado) {
-      alert("Este comprobante ya fue cargado (referencia o fecha/hora duplicada).");
+      alert(
+        "Este comprobante ya fue cargado (referencia o fecha/hora duplicada)."
+      );
       return;
     }
 
@@ -134,7 +137,7 @@ export default function RegistrarPago() {
       valor: "",
       fecha: "",
       hora: "",
-      tipo_pago: "",
+      tipo: "",
       entidad: "",
       referencia: "",
     });
@@ -155,13 +158,50 @@ export default function RegistrarPago() {
 
     setCargando(true);
 
-    setTimeout(() => {
+    try {
+      for (const p of pagosCargados) {
+        const formData = new FormData();
+        formData.append(
+          "correo",
+          JSON.parse(localStorage.getItem("user")!).email
+        );
+        formData.append("valor", parseValorMonetario(p.datos.valor).toString());
+        formData.append("fecha_pago", p.datos.fecha);
+        const horaFormateada =
+          p.datos.hora.length === 5 ? `${p.datos.hora}:00` : p.datos.hora;
+        formData.append("hora_pago", horaFormateada);
+
+        formData.append("tipo", p.datos.tipo); // Puedes mapear tipo si lo necesitas
+        formData.append("entidad", p.datos.entidad);
+        formData.append("referencia", p.datos.referencia);
+        formData.append("comprobante", p.archivo);
+
+        const response = await fetch(
+          "http://localhost:8000/pagos/registrar-conductor",
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        const result = await response.json();
+        if (!response.ok) {
+          console.error("Error del backend:", result);
+          throw new Error(JSON.stringify(result));
+        }
+      }
+
       const excedente = totalAcumulado - totalConBono;
       const nuevoBono = excedente > 0 ? excedente : 0;
       localStorage.setItem("bonoAFavor", nuevoBono.toFixed(2));
       alert("✅ Pagos registrados correctamente.");
       navigate("/conductor/pagos");
-    }, 1500);
+    } catch (error: any) {
+      console.error("Error registrando pagos:", error);
+      alert("❌ Error: " + error.message);
+    } finally {
+      setCargando(false);
+    }
   };
 
   return (
@@ -233,7 +273,10 @@ export default function RegistrarPago() {
             <tbody>
               {pagosCargados.map((p, idx) => (
                 <tr key={idx}>
-                  <td>${parseValorMonetario(p.datos.valor).toLocaleString("es-CO")}</td>
+                  <td>
+                    $
+                    {parseValorMonetario(p.datos.valor).toLocaleString("es-CO")}
+                  </td>
                   <td>{p.datos.fecha}</td>
                   <td>{p.datos.hora}</td>
                   <td>{p.datos.entidad}</td>
@@ -248,7 +291,9 @@ export default function RegistrarPago() {
                     </a>
                   </td>
                   <td>
-                    <button onClick={() => eliminarPago(p.datos.referencia)}>🗑 Eliminar</button>
+                    <button onClick={() => eliminarPago(p.datos.referencia)}>
+                      🗑 Eliminar
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -256,20 +301,28 @@ export default function RegistrarPago() {
           </table>
 
           <div className="resumen-acumulado">
-            <p><strong>Total acumulado:</strong> ${totalAcumulado.toLocaleString("es-CO")}</p>
+            <p>
+              <strong>Total acumulado:</strong> $
+              {totalAcumulado.toLocaleString("es-CO")}
+            </p>
             {totalAcumulado < totalConBono ? (
               <p style={{ color: "crimson" }}>
-                Faltan ${(totalConBono - totalAcumulado).toLocaleString("es-CO")}
+                Faltan $
+                {(totalConBono - totalAcumulado).toLocaleString("es-CO")}
               </p>
             ) : (
               <p style={{ color: "green" }}>
-                ✅ Cubierto. Excedente: ${(totalAcumulado - totalConBono).toLocaleString("es-CO")}
+                ✅ Cubierto. Excedente: $
+                {(totalAcumulado - totalConBono).toLocaleString("es-CO")}
               </p>
             )}
           </div>
 
           {totalAcumulado >= totalConBono && (
-            <button className="boton-registrar" onClick={registrarTodosLosPagos}>
+            <button
+              className="boton-registrar"
+              onClick={registrarTodosLosPagos}
+            >
               ✅ Registrar todos los pagos
             </button>
           )}
@@ -288,9 +341,13 @@ export default function RegistrarPago() {
         </div>
 
         {analizando && (
-          <div style={{ margin: "1rem 0", color: "#2e7d32", fontWeight: "bold" }}>
+          <div
+            style={{ margin: "1rem 0", color: "#2e7d32", fontWeight: "bold" }}
+          >
             <LoadingSpinner />
-            <span style={{ marginLeft: "0.5rem" }}>Comprobando referencia...</span>
+            <span style={{ marginLeft: "0.5rem" }}>
+              Comprobando referencia...
+            </span>
           </div>
         )}
 
@@ -301,22 +358,42 @@ export default function RegistrarPago() {
             ["hora", "Hora", ""],
             ["entidad", "Entidad", ""],
             ["referencia", "Referencia", ""],
-            ["tipo_pago", "Tipo de pago", ""],
+            ["tipo", "Tipo de pago", ""],
           ].map(([key, label, placeholder]) => (
             <div className="input-group" key={key}>
               <label>{label}</label>
-              <input
-                type={key === "fecha" ? "date" : key === "hora" ? "time" : "text"}
-                value={datosManuales[key as keyof DatosPago]}
-                onChange={(e) =>
-                  setDatosManuales((prev) => ({
-                    ...prev,
-                    [key]: e.target.value,
-                  }))
-                }
-                placeholder={placeholder}
-                required
-              />
+              {key === "tipo" ? (
+                <select
+                  value={datosManuales.tipo}
+                  onChange={(e) =>
+                    setDatosManuales((prev) => ({
+                      ...prev,
+                      tipo: e.target.value,
+                    }))
+                  }
+                  required
+                >
+                  <option value="">Seleccione...</option>
+                  <option value="Bancolombia">Bancolombia</option>
+                  <option value="Nequi">Nequi</option>
+                  <option value="Transferencia">Transferencia</option>
+                </select>
+              ) : (
+                <input
+                  type={
+                    key === "fecha" ? "date" : key === "hora" ? "time" : "text"
+                  }
+                  value={datosManuales[key as keyof DatosPago]}
+                  onChange={(e) =>
+                    setDatosManuales((prev) => ({
+                      ...prev,
+                      [key]: e.target.value,
+                    }))
+                  }
+                  placeholder={placeholder}
+                  required
+                />
+              )}
             </div>
           ))}
         </div>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/authContext";
 import "../../styles/login/RecuperarClave.css";
 
 export default function CambiarClave() {
@@ -8,43 +9,49 @@ export default function CambiarClave() {
   const [mensaje, setMensaje] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const { user } = useAuth();
 
-  const correo = localStorage.getItem("correo_recuperacion");
-  const codigo = localStorage.getItem("codigo_recuperacion");
+  const correo =
+    localStorage.getItem("correo_recuperacion") || user?.email || "";
+  const codigo = localStorage.getItem("codigo_recuperacion"); // puede ser null
 
   const cambiar = async () => {
-  if (nueva !== confirmar) {
-    setError("Las contraseñas no coinciden");
-    return;
-  }
+    setMensaje("");
+    setError("");
 
-  if (!correo || !codigo) {
-    setError("Correo o código no encontrados. Por favor reinicia el proceso.");
-    return;
-  }
+    if (nueva !== confirmar) {
+      setError("Las contraseñas no coinciden");
+      return;
+    }
 
-  try {
-    const res = await fetch("http://localhost:8000/auth/cambiar-clave", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        correo,
-        nueva_clave: nueva,
-        codigo,
-      }),
-    });
+    if (!correo) {
+      setError("No se encontró el correo. Por favor reinicia sesión o el proceso.");
+      return;
+    }
 
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Error inesperado");
+    try {
+      const res = await fetch("http://localhost:8000/auth/cambiar-clave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          correo,
+          nueva_clave: nueva,
+          codigo: codigo || null, // solo se envía si existe
+        }),
+      });
 
-    setMensaje("Contraseña actualizada correctamente. Redirigiendo...");
-    localStorage.removeItem("correo_recuperacion");
-    localStorage.removeItem("codigo_recuperacion");
-    setTimeout(() => navigate("/"), 2000);
-  } catch (err: any) {
-    setError(err.message);
-  }
-};
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Error inesperado");
+
+      setMensaje("✅ Contraseña actualizada correctamente. Redirigiendo...");
+      localStorage.removeItem("correo_recuperacion");
+      localStorage.removeItem("codigo_recuperacion");
+
+      setTimeout(() => navigate("/"), 2000);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
 
   return (
     <div className="recuperar-clave-container">

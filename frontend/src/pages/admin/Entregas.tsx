@@ -40,7 +40,7 @@ export default function EntregasAdmin() {
             <option value="">Todos los operadores</option>
             <option value="Dafity">Dafity</option>
             <option value="Dropy">Dropy</option>
-            <option value="Trady">Trady</option>
+            <option value="tridy">tridy</option>
           </select>
           <input
             type="date"

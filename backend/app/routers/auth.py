@@ -1,39 +1,85 @@
 from fastapi import APIRouter, HTTPException
-from app.schemas.auth import SolicitarCodigo, VerificarCodigo, CambiarClave
-from app.core.email_utils import enviar_codigo_verificacion
-from app.services.recovery_service import generar_codigo, guardar_codigo, verificar_codigo
-from app.models.user import get_user, update_password
+from pydantic import BaseModel
+from typing import Optional
+from google.cloud import bigquery
+import bcrypt
 
+# Inicializar router
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
-@router.post("/solicitar-codigo")
-async def solicitar_codigo(data: SolicitarCodigo):
-    user = get_user(data.correo)
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+# ==== MODELOS ====
+
+class LoginRequest(BaseModel):
+    correo: str
+    password: str
+
+class CambiarClaveRequest(BaseModel):
+    correo: str
+    nueva_clave: str
+    codigo: Optional[str] = None  # Opcional, útil si viene de recuperación
+
+# ==== UTILIDADES ====
+
+def hash_clave(plain_password: str) -> str:
+    return bcrypt.hashpw(plain_password.encode(), bcrypt.gensalt()).decode()
+
+# ==== RUTAS ====
+
+@router.post("/login")
+def login(data: LoginRequest):
+    client = bigquery.Client()
     
-    codigo = generar_codigo()
-    guardar_codigo(data.correo, codigo)
-
-    enviado = enviar_codigo_verificacion(data.correo, codigo)
-    if not enviado:
-        raise HTTPException(status_code=500, detail="No se pudo enviar el correo")
-
-    return {"msg": "Código enviado exitosamente"}
-
-@router.post("/verificar-codigo")
-def verificar(data: VerificarCodigo):
-    if not verificar_codigo(data.correo, data.codigo):
-        raise HTTPException(status_code=400, detail="Código inválido o expirado")
-    return {"msg": "Código válido"}
+    query = """
+        SELECT correo, hashed_password, rol, clave_defecto
+        FROM `datos-clientes-441216.Conciliaciones.credenciales`
+        WHERE correo = @correo
+        LIMIT 1
+    """
+    
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("correo", "STRING", data.correo)
+        ]
+    )
+    
+    result = client.query(query, job_config=job_config).result()
+    rows = list(result)
+    
+    if not rows:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+    
+    cred = rows[0]
+    if not bcrypt.checkpw(data.password.encode(), cred["hashed_password"].encode()):
+        raise HTTPException(status_code=401, detail="Contraseña incorrecta")
+    
+    return {
+        "correo": cred["correo"],
+        "rol": cred["rol"],
+        "clave_defecto": cred["clave_defecto"]
+    }
 
 @router.post("/cambiar-clave")
-def cambiar(data: CambiarClave):
-    if not verificar_codigo(data.correo, data.codigo):
-        raise HTTPException(status_code=400, detail="Código inválido o expirado")
-    
-    actualizado = update_password(data.correo, data.nueva_clave)
-    if not actualizado:
-        raise HTTPException(status_code=404, detail="No se pudo actualizar la contraseña")
-    
-    return {"msg": "Contraseña actualizada correctamente"}
+def cambiar_clave(data: CambiarClaveRequest):
+    client = bigquery.Client()
+
+    nueva_hash = hash_clave(data.nueva_clave)
+
+    query = """
+        UPDATE `datos-clientes-441216.Conciliaciones.credenciales`
+        SET hashed_password = @password,
+            clave_defecto = false,
+            actualizado_en = CURRENT_TIMESTAMP()
+        WHERE correo = @correo
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("correo", "STRING", data.correo),
+            bigquery.ScalarQueryParameter("password", "STRING", nueva_hash)
+        ]
+    )
+
+    client.query(query, job_config=job_config).result()
+
+    return {"mensaje": "Contraseña actualizada correctamente"}
+

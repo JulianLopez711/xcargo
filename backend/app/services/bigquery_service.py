@@ -9,36 +9,32 @@ client = bigquery.Client()
 def obtener_pagos_pendientes():
     try:
         query = """
-            SELECT
-                tracking_number AS guia,
+            SELECT 
+                tracking_number AS tracking,
                 Empleado AS conductor,
                 carrier AS empresa,
-                Valor AS valor,
+                Valor,
                 Status_Date AS fecha
-            FROM
-                `datos-clientes-441216.pickup_data.COD_Pendiente`
-            WHERE
-                Status_Date IS NOT NULL
-            ORDER BY
-                Status_Date DESC
-            LIMIT 40
+            FROM `datos-clientes-441216.Conciliaciones.COD_pendiente`
+            WHERE StatusP = 'Pendiente'
         """
+
         resultados = client.query(query).result()
 
         pagos = []
         for row in resultados:
-            print(dict(row))  # Imprime cada fila
             pagos.append({
-                "guia": row.guia,
+                "tracking": row.tracking,
                 "conductor": row.conductor,
                 "empresa": row.empresa,
-                "valor": row.valor,
+                "valor": row.Valor,
                 "fecha": str(row.fecha)
             })
         return pagos
     except Exception as e:
         print("❌ ERROR EN BIGQUERY:", e)
         return []
+
 
 # Simulación de base de datos temporal para relaciones de prueba
 db_relaciones_temporal = []

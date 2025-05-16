@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import "../../styles/PagosPendientes.css";
 
+
 interface Pago {
   id: number;
-  guia: string;
+  tracking: string;
   conductor: string;
   empresa: string;
   valor: number;
@@ -72,15 +73,16 @@ export default function PagosPendientes() {
 
     const guiasSeleccionadas = pagos
       .filter((p) => seleccionados.includes(p.id))
-      .map((p) => ({ referencia: p.guia, valor: p.valor }));
+      .map((p) => ({ referencia: p.tracking, valor: p.valor }));
 
     navigate("/conductor/pago", {
-      state: {
-        guias: guiasSeleccionadas,
-        total: totalSeleccionado,
-        bono: bonoAFavor,
-      },
-    });
+    state: {
+    guias: guiasSeleccionadas, 
+    total: totalSeleccionado,
+    bono: bonoAFavor,
+  },
+});
+
   };
 
   return (
@@ -103,7 +105,7 @@ export default function PagosPendientes() {
           <thead>
             <tr>
               <th></th>
-              <th>Guía</th>
+              <th>tracking</th>
               <th>Conductor</th>
               <th>Empresa</th>
               <th>Valor</th>
@@ -124,7 +126,7 @@ export default function PagosPendientes() {
                       onChange={() => toggleSeleccion(pago.id)}
                     />
                   </td>
-                  <td>{pago.guia}</td>
+                  <td>{pago.tracking}</td>
                   <td>{pago.conductor}</td>
                   <td>{pago.empresa}</td>
                   <td>${pago.valor.toLocaleString()}</td>
