@@ -38,7 +38,7 @@ import VerificarCodigo from "../pages/login/VerificarCodigo";
 import NuevaClave from "../pages/login/NuevaClave";
 
 export default function AppRoutes() {
-  const { user, isLoading } = useAuth();
+  const { isLoading } = useAuth();
 
   if (isLoading) return <div>Cargando...</div>;
 
