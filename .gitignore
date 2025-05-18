@@ -1,5 +1,4 @@
-# Crea un nuevo .gitignore con el contenido correcto
-cat > .gitignore << 'EOF'
+# Archivos y carpetas comunes a ignorar
 __pycache__/
 *.pyc
 .env
@@ -9,9 +8,10 @@ dist/
 .vite/
 app/credentials/
 
-# Ignorar archivos JSON excepto package.json y tsconfig.json
+# Ignorar todos los JSON excepto los necesarios para build
 *.json
 !package.json
 !tsconfig.json
-!vite.config.json
-EOF
+!tsconfig.app.json
+!tsconfig.node.json
+!vite.config.ts
