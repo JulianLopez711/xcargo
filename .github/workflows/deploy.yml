@@ -7,7 +7,7 @@ on:
 
 jobs:
   deploy:
-    name: Desplegar frontend a VPS
+    name: Desplegar Frontend
     runs-on: ubuntu-latest
 
     steps:
@@ -19,14 +19,10 @@ jobs:
         with:
           node-version: 18
 
-      - name: Instalar dependencias
+      - name: Instalar dependencias y construir
+        working-directory: ./xcargo/frontend
         run: |
-          cd frontend
           npm install
-
-      - name: Construir frontend
-        run: |
-          cd frontend
           npm run build
 
       - name: Configurar conexión SSH
@@ -36,10 +32,10 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H 72.167.223.67 >> ~/.ssh/known_hosts
 
-      - name: Subir archivos al VPS (carpeta dist)
+      - name: Subir build al VPS
         run: |
-          scp -r frontend/dist devxcargo@72.167.223.67:/home/devxcargo/xcargo/frontend/
+          scp -r ./xcargo/frontend/dist devxcargo@72.167.223.67:/home/devxcargo/xcargo/frontend/
 
-      - name: Reiniciar NGINX (opcional si cambió algo)
+      - name: Recargar NGINX en el servidor
         run: |
-          ssh devxcargo@72.167.223.67 'sudo systemctl reload nginx'
+          ssh devxcargo@72.167.223.67 "sudo systemctl reload nginx"
