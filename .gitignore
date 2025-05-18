@@ -1,11 +1,17 @@
-echo "__pycache__/
+# Crea un nuevo .gitignore con el contenido correcto
+cat > .gitignore << 'EOF'
+__pycache__/
 *.pyc
 .env
 *.env
-*.json
 node_modules/
 dist/
 .vite/
-app/credentials/" > .gitignore
-backend/app/credentials/
+app/credentials/
 
+# Ignorar archivos JSON excepto package.json y tsconfig.json
+*.json
+!package.json
+!tsconfig.json
+!vite.config.json
+EOF
