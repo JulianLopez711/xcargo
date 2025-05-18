@@ -72,7 +72,7 @@ const XCargoLogin: React.FC = () => {
 
       setIsSubmitted(true);
     } catch (error) {
-      alert("No se pudo conectar con el servidor.");
+      alert("No se pudo conectar con el servidor, Comunicate con el admin.");
       console.error(error);
     }
   };
