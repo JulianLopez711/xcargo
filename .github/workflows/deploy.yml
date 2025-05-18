@@ -14,14 +14,26 @@ jobs:
       - name: Clonar repositorio
         uses: actions/checkout@v3
 
+      - name: Verificar estructura de directorios
+        run: |
+          echo "Contenido del directorio actual:"
+          ls -la
+          echo "Buscando carpeta frontend:"
+          find . -type d -name "frontend" | xargs -I{} echo "Encontrado: {}"
+          echo "Verificando package.json:"
+          find . -name "package.json" | xargs -I{} echo "Encontrado: {}"
+
       - name: Instalar Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 18
 
       - name: Instalar dependencias y construir
-        working-directory: frontend
+        # Usa el directorio correcto dependiendo de la ubicación de tu frontend
+        working-directory: frontend  # Ajusta esto si es necesario
         run: |
+          pwd
+          ls -la
           npm install
           npm run build
 
