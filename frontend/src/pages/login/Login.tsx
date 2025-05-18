@@ -169,7 +169,7 @@ const XCargoLogin: React.FC = () => {
 
           {/* Roles */}
           <div className="input-group">
-            <p className="role-label">Selecciona tu rol</p>
+            <p className="role-label">Selecciona su rol</p>
             <div className="role-grid">
               {["Operador", "conductor", "contabilidad", "administrador"].map(
                 (rol) => (
