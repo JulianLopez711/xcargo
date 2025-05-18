@@ -1,16 +1,18 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import guias, ocr, pagos, operador,pagoCliente,auth,pagos_cruzados,roles
+from app.routers import guias, ocr, pagos, operador, pagoCliente, auth, pagos_cruzados, roles
 from fastapi.staticfiles import StaticFiles
-
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 
-# Middleware CORS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",       
+        "https://gestion.x-cargo.co",  
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
