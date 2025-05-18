@@ -1,4 +1,4 @@
-name: Despliegue a servidor VPS
+name: Deploy Frontend to VPS
 
 on:
   push:
@@ -7,25 +7,39 @@ on:
 
 jobs:
   deploy:
-    name: Desplegar a VPS
+    name: Desplegar frontend a VPS
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout del código
+      - name: Clonar repositorio
         uses: actions/checkout@v3
 
-      - name: Configurar SSH
+      - name: Instalar Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Instalar dependencias
+        run: |
+          cd frontend
+          npm install
+
+      - name: Construir frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Configurar conexión SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          echo "${{ secrets.VPS_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H 72.167.223.67 >> ~/.ssh/known_hosts
 
-      - name: Subir archivos al servidor
+      - name: Subir archivos al VPS (carpeta dist)
         run: |
-          rsync -avz --delete ./backend/ ${{ secrets.USERNAME }}@${{ secrets.HOST }}:/home/${{ secrets.USERNAME }}/xcargo-backend
-          rsync -avz --delete ./frontend/dist/ ${{ secrets.USERNAME }}@${{ secrets.HOST }}:/var/www/xcargo-frontend
+          scp -r frontend/dist devxcargo@72.167.223.67:/home/devxcargo/xcargo/frontend/
 
-      - name: Reiniciar backend
+      - name: Reiniciar NGINX (opcional si cambió algo)
         run: |
-          ssh ${{ secrets.USERNAME }}@${{ secrets.HOST }} 'sudo systemctl restart xcargo-backend'
+          ssh devxcargo@72.167.223.67 'sudo systemctl reload nginx'
