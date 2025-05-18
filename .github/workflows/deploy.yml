@@ -20,7 +20,7 @@ jobs:
           node-version: 18
 
       - name: Instalar dependencias y construir
-        working-directory: ./xcargo/frontend
+        working-directory: frontend
         run: |
           npm install
           npm run build
@@ -34,7 +34,7 @@ jobs:
 
       - name: Subir build al VPS
         run: |
-          scp -r ./xcargo/frontend/dist devxcargo@72.167.223.67:/home/devxcargo/xcargo/frontend/
+          scp -r frontend/dist devxcargo@72.167.223.67:/home/devxcargo/xcargo/frontend/
 
       - name: Recargar NGINX en el servidor
         run: |
