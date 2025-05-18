@@ -17,14 +17,14 @@ export default function RoleManagement() {
   });
 
   useEffect(() => {
-    fetch("http://localhost:8000/roles/")
+    fetch("https://api.x-cargo.co/roles/")
       .then((res) => res.json())
       .then((data) => setRoles(data))
       .catch(() => alert("Error al obtener roles"));
   }, []);
 
   const agregarRol = async () => {
-    const res = await fetch("http://localhost:8000/roles/crear", {
+    const res = await fetch("https://api.x-cargo.co/roles/crear", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(nuevoRol),
@@ -42,7 +42,7 @@ export default function RoleManagement() {
     const confirm = window.confirm("¿Estás seguro de eliminar este rol?");
     if (!confirm) return;
 
-    const res = await fetch(`http://localhost:8000/roles/${id_rol}`, {
+    const res = await fetch(`https://api.x-cargo.co/roles/${id_rol}`, {
       method: "DELETE",
     });
     if (res.ok) {

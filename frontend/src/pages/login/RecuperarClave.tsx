@@ -10,7 +10,7 @@ export default function RecuperarClave() {
 
   const solicitarCodigo = async () => {
     try {
-      const res = await fetch("http://localhost:8000/auth/solicitar-codigo", {
+      const res = await fetch("https://api.x-cargo.co/auth/solicitar-codigo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ correo }),

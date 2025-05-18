@@ -23,7 +23,7 @@ export default function PagosPendientes() {
 
   // Cargar pagos
   useEffect(() => {
-    fetch("http://localhost:8000/api/operador/guias-pendientes")
+    fetch("https://api.x-cargo.co/api/operador/guias-pendientes")
       .then((res) => res.json())
       .then((data) => {
         const pagosConId = data.map((p: Omit<Pago, "id">, i: number) => ({

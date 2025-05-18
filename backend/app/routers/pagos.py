@@ -60,7 +60,7 @@ async def registrar_pago_conductor(
     with open(ruta_local, "wb") as f:
         f.write(await comprobante.read())
 
-    comprobante_url = f"http://localhost:8000/static/{nombre_archivo}"
+    comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
 
     # 📄 Registro para BigQuery
     table_id = "datos-clientes-441216.Conciliaciones.pagosconductor"

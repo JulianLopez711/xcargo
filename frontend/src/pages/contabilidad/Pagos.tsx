@@ -20,7 +20,7 @@ export default function PagosContabilidad() {
   const [fechaHasta, setFechaHasta] = useState("");
 
   useEffect(() => {
-  fetch("http://localhost:8000/pagos/pagos-conductor")
+  fetch("https://api.x-cargo.co/pagos/pagos-conductor")
     .then((res) => res.json())
     .then((data) => setPagos(data))
     .catch((err) => {

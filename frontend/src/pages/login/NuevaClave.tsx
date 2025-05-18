@@ -30,7 +30,7 @@ export default function CambiarClave() {
     }
 
     try {
-      const res = await fetch("http://localhost:8000/auth/cambiar-clave", {
+      const res = await fetch("https://api.x-cargo.co/auth/cambiar-clave", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
