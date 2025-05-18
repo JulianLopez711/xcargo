@@ -4,7 +4,7 @@ import "../../styles/admin/Dashboard.css";
 export default function DashboardAdmin() {
   return (
     <div className="dashboard-admin">
-      <h1 className="dashboard-title">Panel de Administración</h1>
+      <h1 className="dashboard-title">Panel de Administrador</h1>
       <div className="dashboard-cards">
         <div className="dashboard-card">
           <h2>Usuarios</h2>

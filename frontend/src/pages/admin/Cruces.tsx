@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import "../../styles/admin/Cruces.css";
 import sampleComprobante from "../../../public/comprobantes/4.jpeg";
 import { saveAs } from "file-saver";
+;
+
 
 interface Cruce {
   id: number;
