@@ -27,7 +27,7 @@ jobs:
       - name: Instalar dependencias y construir
         working-directory: frontend
         run: |
-          npm ci
+          npm install
           npm run build
 
       - name: Configurar conexión SSH
