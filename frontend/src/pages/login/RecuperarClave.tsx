@@ -34,7 +34,7 @@ export default function RecuperarClave() {
 
       <input
         type="email"
-        placeholder="tucorreo@x-cargo.co"
+        placeholder="tu-correo@x-cargo.co"
         value={correo}
         onChange={(e) => setCorreo(e.target.value)}
         required
