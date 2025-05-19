@@ -40,7 +40,7 @@ export default function Navbar() {
 
   return (
     <nav className="navbar">
-      <div className="navbar-logo" onClick={() => navigate("/")}>
+      <div className="navbar-logo">
         <img src={logo} alt="Logo XCargo" />
       </div>
 
