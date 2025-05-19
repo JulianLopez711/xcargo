@@ -11,37 +11,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Clonar repositorio
-        uses: actions/checkout@v3
-
-      - name: Instalar Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
-
-      - name: Verificar contenido antes del build
-        run: |
-          pwd
-          ls -la frontend
-
-      - name: Instalar dependencias y construir
-        working-directory: frontend
-        run: |
-          npm install
-          npm run build
-name: Deploy Frontend to VPS
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  deploy:
-    name: Desplegar Frontend
-    runs-on: ubuntu-latest
-
-    steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
@@ -61,7 +30,7 @@ jobs:
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.8.0
         with:
-          ssh-private-key: ${{ secrets.VPS_PRIVATE_KEY }}
+          ssh-private-key: "${{ secrets.VPS_PRIVATE_KEY }}"
 
       - name: Deploy to VPS via ssh
         env:
@@ -86,17 +55,3 @@ jobs:
             sudo systemctl reload nginx"
           
           echo "✅ Frontend deployed successfully"
-      - name: Configurar conexión SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.VPS_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          echo "StrictHostKeyChecking=no" >> ~/.ssh/config
-
-      - name: Subir build al VPS
-        run: |
-          scp -r frontend/dist devxcargo@72.167.223.67:/home/devxcargo/xcargo/frontend/
-
-      - name: Recargar NGINX en el servidor
-        run: |
-          ssh devxcargo@72.167.223.67 "sudo systemctl reload nginx"
