@@ -16,6 +16,7 @@
   color: #6b7280;
 }
 
+/* Contenedor de tablas */
 .tablas-fila {
   display: flex;
   flex-wrap: wrap;
@@ -24,6 +25,7 @@
   margin-bottom: 2rem;
 }
 
+/* Cada tabla de cliente */
 .tabla-cliente {
   background-color: #ffffff;
   border-radius: 0.75rem;
@@ -32,6 +34,15 @@
   flex: 1 1 300px;
   max-width: 440px;
   min-width: 280px;
+  overflow-x: auto;
+}
+
+/* Título encima de cada tabla */
+.cliente-titulo {
+  color: #374151;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  font-size: 1rem;
 }
 
 .tabla-cliente table {
@@ -53,21 +64,69 @@
   font-weight: 600;
 }
 
-.cliente-titulo {
-  color: #374151;
-  margin-bottom: 0.75rem;
-  text-align: center;
-  font-size: 1rem;
-}
-
+/* Estilo para fila de totales */
 .fila-total {
   background-color: #f0fdf4;
   font-weight: bold;
 }
 
+/* Tabla total general */
 .total-general {
   background-color: #ecfdf5;
   border: 2px solid #10b981;
   margin: 0 auto;
   max-width: 500px;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  overflow-x: auto;
+}
+
+/* Responsive para tablets */
+@media screen and (max-width: 768px) {
+  .dashboard-title {
+    font-size: 1.5rem;
+  }
+
+  .tabla-cliente {
+    flex: 1 1 100%;
+    max-width: 100%;
+    min-width: auto;
+  }
+
+  .tabla-cliente table {
+    font-size: 0.8rem;
+  }
+}
+
+/* Responsive para móviles */
+@media screen and (max-width: 480px) {
+  .dashboard-contabilidad {
+    padding: 1rem;
+  }
+
+  .dashboard-title {
+    font-size: 1.4rem;
+  }
+
+  .dashboard-subtitle {
+    font-size: 0.9rem;
+  }
+
+  .tabla-cliente {
+    padding: 0.75rem;
+  }
+
+  .tabla-cliente th,
+  .tabla-cliente td {
+    padding: 0.4rem 0.5rem;
+  }
+
+  .tabla-cliente table {
+    font-size: 0.75rem;
+  }
+
+  .total-general {
+    padding: 0.75rem;
+    font-size: 0.85rem;
+  }
 }

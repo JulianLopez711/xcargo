@@ -9,17 +9,18 @@ router = APIRouter(prefix="/pagos", tags=["Pagos"])
 @router.post("/registrar-conductor")
 async def registrar_pago_conductor(
     correo: str = Form(...),
-    valor: float = Form(...),
-    fecha_pago: str = Form(...),       # YYYY-MM-DD
-    hora_pago: str = Form(...),        # HH:MM
+    fecha_pago: str = Form(...),
+    hora_pago: str = Form(...),
     tipo: str = Form(...),
     entidad: str = Form(...),
     referencia: str = Form(...),
+    guias: str = Form(...),  # JSON.stringify([]) en el frontend
     comprobante: UploadFile = File(...)
 ):
+    import json
     client = bigquery.Client()
 
-    # 🔍 Validar duplicado por referencia
+    # Validación de duplicado por referencia global
     query_ref = """
         SELECT referencia
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
@@ -30,11 +31,10 @@ async def registrar_pago_conductor(
         query_parameters=[bigquery.ScalarQueryParameter("ref", "STRING", referencia)]
     )
     resultado_ref = client.query(query_ref, job_config=job_config_ref).result()
-
     if any(resultado_ref):
         raise HTTPException(status_code=400, detail=f"❌ La referencia {referencia} ya fue registrada.")
 
-    # 🔍 Validar duplicado por fecha y hora exactas
+    # Validación por fecha y hora
     query_fecha_hora = """
         SELECT referencia
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
@@ -48,51 +48,56 @@ async def registrar_pago_conductor(
         ]
     )
     resultado_fecha_hora = client.query(query_fecha_hora, job_config=job_config_fecha_hora).result()
-
     if any(resultado_fecha_hora):
-        raise HTTPException(status_code=400, detail=f"❌ Ya existe un pago con la misma fecha y hora ({fecha_pago} {hora_pago}).")
+        raise HTTPException(status_code=400, detail=f"❌ Ya existe un pago con la misma fecha y hora.")
 
-    # 🗂 Guardar comprobante
+    # Guardar comprobante
     nombre_archivo = f"{uuid4()}_{comprobante.filename}"
     ruta_local = os.path.join("comprobantes", nombre_archivo)
     os.makedirs("comprobantes", exist_ok=True)
-
     with open(ruta_local, "wb") as f:
         f.write(await comprobante.read())
-
     comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
 
-    # 📄 Registro para BigQuery
+    # Nueva referencia común automática
+    referencia_pago = f"PAGO-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    # Procesar guías
+    lista_guias = json.loads(guias)
     table_id = "datos-clientes-441216.Conciliaciones.pagosconductor"
-    nuevo_pago = [{
-        "id_string": str(uuid4()),
-        "correo": correo,
-        "valor": valor,
-        "fecha_pago": fecha_pago,
-        "hora_pago": hora_pago,
-        "tipo": tipo,
-        "entidad": entidad,
-        "referencia": referencia,
-        "comprobante": comprobante_url,
-        "fecha": fecha_pago,
-        "estado": "registrado",
-        "creado_por": correo,
-        "modificado_por": correo,
-        "novedades": "",
-        "creado_en": datetime.datetime.utcnow().isoformat()
-    }]
 
-    # 💾 Insertar en BigQuery
-    errors = client.insert_rows_json(table_id, nuevo_pago)
+    filas = []
+    for guia in lista_guias:
+        filas.append({
+            "id_string": str(uuid4()),
+            "correo": correo,
+            "valor": guia["valor"],
+            "fecha_pago": fecha_pago,
+            "hora_pago": hora_pago,
+            "tipo": tipo,
+            "entidad": entidad,
+            "referencia": referencia,
+            "tracking": guia["referencia"],
+            "referencia_pago": referencia_pago,
+            "comprobante": comprobante_url,
+            "fecha": fecha_pago,
+            "estado": "registrado",
+            "creado_por": correo,
+            "modificado_por": correo,
+            "novedades": "",
+            "creado_en": datetime.datetime.utcnow().isoformat()
+        })
 
+    errors = client.insert_rows_json(table_id, filas)
     if errors:
-        print("❌ Errores de BigQuery:", errors)
         raise HTTPException(status_code=500, detail=errors)
 
     return {
         "mensaje": "✅ Pago registrado correctamente.",
+        "referencia_pago": referencia_pago,
         "comprobante_url": comprobante_url
     }
+
 
 @router.get("/pagos-conductor")
 def obtener_pagos_conductor():

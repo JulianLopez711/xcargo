@@ -117,11 +117,19 @@
     padding: 1rem;
   }
 
+  .navbar-logo {
+    margin-bottom: 0.5rem;
+  }
+
   .navbar-links {
     width: 100%;
     flex-direction: column;
     gap: 0.5rem;
     margin-top: 1rem;
+  }
+
+  .navbar-link {
+    font-size: 0.95rem;
   }
 
   .navbar-user {
@@ -131,8 +139,23 @@
   }
 
   .user-dropdown {
-    top: auto;
-    bottom: -6.5rem;
-    right: 0;
+    position: static;
+    margin-top: 0.5rem;
+    width: 100%;
   }
 }
+
+@media (max-width: 480px) {
+  .navbar-title {
+    font-size: 1.1rem;
+  }
+
+  .navbar-link {
+    font-size: 0.9rem;
+  }
+
+  .dropdown-item {
+    font-size: 0.85rem;
+  }
+}
+

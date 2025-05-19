@@ -160,36 +160,41 @@ export default function RegistrarPago() {
 
     try {
       for (const p of pagosCargados) {
-        const formData = new FormData();
-        formData.append(
-          "correo",
-          JSON.parse(localStorage.getItem("user")!).email
-        );
-        formData.append("valor", parseValorMonetario(p.datos.valor).toString());
-        formData.append("fecha_pago", p.datos.fecha);
-        const horaFormateada =
-          p.datos.hora.length === 5 ? `${p.datos.hora}:00` : p.datos.hora;
-        formData.append("hora_pago", horaFormateada);
+  const formData = new FormData();
+  const usuario = JSON.parse(localStorage.getItem("user")!);
+  const correo = usuario.email;
 
-        formData.append("tipo", p.datos.tipo); // Puedes mapear tipo si lo necesitas
-        formData.append("entidad", p.datos.entidad);
-        formData.append("referencia", p.datos.referencia);
-        formData.append("comprobante", p.archivo);
+  const guiasConValor = guias.map((g) => ({
+    referencia: g.referencia,
+    valor: g.valor,
+  }));
 
-        const response = await fetch(
-          "https://api.x-cargo.co/pagos/registrar-conductor",
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
+  formData.append("correo", correo);
+  formData.append("fecha_pago", p.datos.fecha);
+  const horaFormateada =
+    p.datos.hora.length === 5 ? `${p.datos.hora}:00` : p.datos.hora;
+  formData.append("hora_pago", horaFormateada);
+  formData.append("tipo", p.datos.tipo);
+  formData.append("entidad", p.datos.entidad);
+  formData.append("referencia", p.datos.referencia); // referencia del comprobante
+  formData.append("guias", JSON.stringify(guiasConValor));
+  formData.append("comprobante", p.archivo);
 
-        const result = await response.json();
-        if (!response.ok) {
-          console.error("Error del backend:", result);
-          throw new Error(JSON.stringify(result));
-        }
-      }
+  const response = await fetch(
+    "https://api.x-cargo.co/pagos/registrar-conductor",
+    {
+      method: "POST",
+      body: formData,
+    }
+  );
+
+  const result = await response.json();
+  if (!response.ok) {
+    console.error("Error del backend:", result);
+    throw new Error(JSON.stringify(result));
+  }
+}
+
 
       const excedente = totalAcumulado - totalConBono;
       const nuevoBono = excedente > 0 ? excedente : 0;
