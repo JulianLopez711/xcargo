@@ -68,11 +68,6 @@ export default function PagosContabilidad() {
     setImagenSeleccionada(src);
   };
 
-  const manejarAprobacion = (referencia: string) => {
-    alert(`✅ Pago con referencia ${referencia} aprobado.`);
-    // Aquí podrías hacer un fetch para notificar al backend
-  };
-
   const manejarRechazo = (referencia: string) => {
     const observacion = prompt(
       `❌ Ingresa el motivo de rechazo del pago con referencia ${referencia}:`
