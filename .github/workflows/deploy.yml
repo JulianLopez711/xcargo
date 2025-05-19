@@ -47,18 +47,25 @@ jobs:
         run: |
           # Añadir el host a known_hosts para evitar problemas de conexión
           ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts
-          
+
+          # Esperar hasta que el puerto 22 esté disponible (máx 60s)
+          for i in {1..12}; do
+            nc -z $SSH_HOST 22 && break
+            echo "Esperando conexión SSH..."
+            sleep 5
+          done
+
           # Crear un directorio temporal en el VPS para el build
           ssh $SSH_USER@$SSH_HOST "mkdir -p $DEPLOY_PATH/frontend/temp"
-          
+
           # Transferir el build al directorio temporal
           scp -r frontend/dist/* $SSH_USER@$SSH_HOST:$DEPLOY_PATH/frontend/temp/
-          
+
           # Ejecutar script de actualización en el servidor
           ssh $SSH_USER@$SSH_HOST "cd $DEPLOY_PATH && \
             if [ -d frontend/dist ]; then mv frontend/dist frontend/dist_old; fi && \
             mv frontend/temp frontend/dist && \
             rm -rf frontend/dist_old && \
             sudo systemctl reload nginx"
-          
+
           echo "✅ Frontend deployed successfully"
