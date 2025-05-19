@@ -11,7 +11,9 @@ interface Pago {
   estado: string;
   tipo: string;
   imagen: string;
+  referencia_pago: string; 
 }
+
 
 export default function PagosContabilidad() {
   const [pagos, setPagos] = useState<Pago[]>([]);
@@ -115,7 +117,7 @@ export default function PagosContabilidad() {
           />
         </label>
         <button onClick={descargarCSV} className="boton-accion">
-          📥 Descargar CSV
+          📥 Descargar Informe
         </button>
       </div>
 
@@ -124,12 +126,13 @@ export default function PagosContabilidad() {
           <thead>
             <tr>
               <th>ID</th>
-              <th>Referencia</th>
+              <th>Ref. Pago</th>
+              <th>Ref. Comprobante</th>
               <th>Valor</th>
               <th>Fecha</th>
               <th>Entidad</th>
-              <th>Estado</th>
               <th>Tipo</th>
+              <th>Estado</th>
               <th>Comprobante</th>
               <th>Novedades</th>
             </tr>
@@ -139,12 +142,13 @@ export default function PagosContabilidad() {
               pagosFiltrados.map((p, idx) => (
                 <tr key={idx}>
                   <td>{idx + 1}</td>
+                  <td>{p.referencia_pago}</td>
                   <td>{p.referencia}</td>
                   <td>${p.valor.toLocaleString()}</td>
                   <td>{p.fecha}</td>
                   <td>{p.entidad}</td>
-                  <td>{p.estado}</td>
                   <td>{p.tipo}</td>
+                  <td>{p.estado}</td>
                   <td>
                     <button
                       onClick={() => verImagen(p.imagen)}
@@ -155,12 +159,6 @@ export default function PagosContabilidad() {
                   </td>
 
                   <td>
-                    <button
-                      onClick={() => manejarAprobacion(p.referencia)}
-                      className="boton-aprobar"
-                    >
-                      Aprobar
-                    </button>
                     <button
                       onClick={() => manejarRechazo(p.referencia)}
                       className="boton-rechazar"

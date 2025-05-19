@@ -106,7 +106,7 @@ async def registrar_pago_conductor(
 def obtener_pagos_conductor():
     client = bigquery.Client()
     query = """
-        SELECT referencia, valor, fecha_pago AS fecha, entidad, estado, tipo, comprobante AS imagen
+        SELECT referencia, valor, fecha_pago AS fecha, entidad, estado, tipo, comprobante AS imagen,referencia_pago
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
         ORDER BY fecha DESC
     """
