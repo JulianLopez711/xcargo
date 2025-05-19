@@ -29,7 +29,63 @@ jobs:
         run: |
           npm install
           npm run build
+name: Deploy Frontend to VPS
 
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Desplegar Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies and build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_PRIVATE_KEY }}
+
+      - name: Deploy to VPS via ssh
+        env:
+          SSH_USER: devxcargo
+          SSH_HOST: 72.167.223.67
+          DEPLOY_PATH: /home/devxcargo/xcargo
+        run: |
+          # Añadir el host a known_hosts para evitar problemas de conexión
+          ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts
+          
+          # Crear un directorio temporal en el VPS para el build
+          ssh $SSH_USER@$SSH_HOST "mkdir -p $DEPLOY_PATH/frontend/temp"
+          
+          # Transferir el build al directorio temporal
+          scp -r frontend/dist/* $SSH_USER@$SSH_HOST:$DEPLOY_PATH/frontend/temp/
+          
+          # Ejecutar script de actualización en el servidor
+          ssh $SSH_USER@$SSH_HOST "cd $DEPLOY_PATH && \
+            if [ -d frontend/dist ]; then mv frontend/dist frontend/dist_old; fi && \
+            mv frontend/temp frontend/dist && \
+            rm -rf frontend/dist_old && \
+            sudo systemctl reload nginx"
+          
+          echo "✅ Frontend deployed successfully"
       - name: Configurar conexión SSH
         run: |
           mkdir -p ~/.ssh
