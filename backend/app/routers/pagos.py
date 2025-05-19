@@ -3,6 +3,7 @@ from google.cloud import bigquery
 import datetime
 from uuid import uuid4
 import os
+import json
 
 router = APIRouter(prefix="/pagos", tags=["Pagos"])
 
@@ -14,13 +15,12 @@ async def registrar_pago_conductor(
     tipo: str = Form(...),
     entidad: str = Form(...),
     referencia: str = Form(...),
-    guias: str = Form(...),  # JSON.stringify([]) en el frontend
+    guias: str = Form(...),  
     comprobante: UploadFile = File(...)
 ):
-    import json
     client = bigquery.Client()
 
-    # Validación de duplicado por referencia global
+    # 🔍 Validación por referencia duplicada
     query_ref = """
         SELECT referencia
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
@@ -34,7 +34,7 @@ async def registrar_pago_conductor(
     if any(resultado_ref):
         raise HTTPException(status_code=400, detail=f"❌ La referencia {referencia} ya fue registrada.")
 
-    # Validación por fecha y hora
+    # 🔍 Validación por fecha + hora exacta
     query_fecha_hora = """
         SELECT referencia
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
@@ -51,18 +51,19 @@ async def registrar_pago_conductor(
     if any(resultado_fecha_hora):
         raise HTTPException(status_code=400, detail=f"❌ Ya existe un pago con la misma fecha y hora.")
 
-    # Guardar comprobante
+    # 📁 Guardar comprobante en carpeta local
     nombre_archivo = f"{uuid4()}_{comprobante.filename}"
     ruta_local = os.path.join("comprobantes", nombre_archivo)
     os.makedirs("comprobantes", exist_ok=True)
     with open(ruta_local, "wb") as f:
         f.write(await comprobante.read())
+
     comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
 
-    # Nueva referencia común automática
+    # 🆔 Generar referencia común para este grupo de pagos
     referencia_pago = f"PAGO-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-    # Procesar guías
+    # 🧾 Procesar guías individuales
     lista_guias = json.loads(guias)
     table_id = "datos-clientes-441216.Conciliaciones.pagosconductor"
 
@@ -88,6 +89,7 @@ async def registrar_pago_conductor(
             "creado_en": datetime.datetime.utcnow().isoformat()
         })
 
+    # 💾 Insertar en BigQuery
     errors = client.insert_rows_json(table_id, filas)
     if errors:
         raise HTTPException(status_code=500, detail=errors)
@@ -98,6 +100,7 @@ async def registrar_pago_conductor(
         "comprobante_url": comprobante_url
     }
 
+# ============================================
 
 @router.get("/pagos-conductor")
 def obtener_pagos_conductor():
@@ -123,5 +126,6 @@ async def actualizar_estado_cod(tracking_numbers: list[str]):
             bigquery.ArrayQueryParameter("ids", "STRING", tracking_numbers)
         ]
     )
+    client = bigquery.Client()
     client.query(query, job_config=job_config).result()
     return {"mensaje": "Actualización exitosa"}

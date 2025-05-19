@@ -12,7 +12,7 @@ type DatosPago = {
   hora: string;
   tipo: string;
   entidad: string;
-  referencia: string;
+  referencia: string; 
 };
 
 type PagoCompleto = {
@@ -151,63 +151,63 @@ export default function RegistrarPago() {
   };
 
   const registrarTodosLosPagos = async () => {
-    if (totalAcumulado < totalConBono) {
-      alert("El total acumulado aún no cubre el valor requerido.");
-      return;
-    }
-
-    setCargando(true);
-
-    try {
-      for (const p of pagosCargados) {
-  const formData = new FormData();
-  const usuario = JSON.parse(localStorage.getItem("user")!);
-  const correo = usuario.email;
-
-  const guiasConValor = guias.map((g) => ({
-    referencia: g.referencia,
-    valor: g.valor,
-  }));
-
-  formData.append("correo", correo);
-  formData.append("fecha_pago", p.datos.fecha);
-  const horaFormateada =
-    p.datos.hora.length === 5 ? `${p.datos.hora}:00` : p.datos.hora;
-  formData.append("hora_pago", horaFormateada);
-  formData.append("tipo", p.datos.tipo);
-  formData.append("entidad", p.datos.entidad);
-  formData.append("referencia", p.datos.referencia); // referencia del comprobante
-  formData.append("guias", JSON.stringify(guiasConValor));
-  formData.append("comprobante", p.archivo);
-
-  const response = await fetch(
-    "https://api.x-cargo.co/pagos/registrar-conductor",
-    {
-      method: "POST",
-      body: formData,
-    }
-  );
-
-  const result = await response.json();
-  if (!response.ok) {
-    console.error("Error del backend:", result);
-    throw new Error(JSON.stringify(result));
+  if (totalAcumulado < totalConBono) {
+    alert("El total acumulado aún no cubre el valor requerido.");
+    return;
   }
-}
 
+  setCargando(true);
 
-      const excedente = totalAcumulado - totalConBono;
-      const nuevoBono = excedente > 0 ? excedente : 0;
-      localStorage.setItem("bonoAFavor", nuevoBono.toFixed(2));
-      alert("✅ Pagos registrados correctamente.");
-      navigate("/conductor/pagos");
-    } catch (error: any) {
-      console.error("Error registrando pagos:", error);
-      alert("❌ Error: " + error.message);
-    } finally {
-      setCargando(false);
+  try {
+    for (const p of pagosCargados) {
+      const formData = new FormData();
+      const usuario = JSON.parse(localStorage.getItem("user")!);
+      const correo = usuario.email;
+
+      const guiasConValor = guias.map((g) => ({
+        referencia: g.referencia,
+        valor: g.valor,
+      }));
+
+      formData.append("correo", correo);
+      formData.append("fecha_pago", p.datos.fecha);
+      const horaFormateada =
+        p.datos.hora.length === 5 ? `${p.datos.hora}:00` : p.datos.hora;
+      formData.append("hora_pago", horaFormateada);
+      formData.append("tipo", p.datos.tipo);
+      formData.append("entidad", p.datos.entidad);
+      formData.append("referencia", p.datos.referencia);
+      formData.append("guias", JSON.stringify(guiasConValor));
+      formData.append("comprobante", p.archivo);
+
+      const response = await fetch(
+        "https://api.x-cargo.co/pagos/registrar-conductor",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const result = await response.json();
+      if (!response.ok) {
+        console.error("Error del backend:", result);
+        throw new Error(JSON.stringify(result));
+      }
     }
-  };
+
+    const excedente = totalAcumulado - totalConBono;
+    const nuevoBono = excedente > 0 ? excedente : 0;
+    localStorage.setItem("bonoAFavor", nuevoBono.toFixed(2));
+    alert("✅ Pagos registrados correctamente.");
+    navigate("/conductor/pagos");
+  } catch (error: any) {
+    console.error("Error registrando pagos:", error);
+    alert("❌ Error: " + error.message);
+  } finally {
+    setCargando(false);
+  }
+};
+
 
   return (
     <div className="registrar-pago">
