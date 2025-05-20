@@ -1,3 +1,4 @@
+from fastapi import Body
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from google.cloud import bigquery
 import datetime
@@ -93,6 +94,24 @@ async def registrar_pago_conductor(
     errors = client.insert_rows_json(table_id, filas)
     if errors:
         raise HTTPException(status_code=500, detail=errors)
+    
+    # ✅ Actualizar estado de las guías a "Pagado"
+    tracking_numbers = [guia["referencia"] for guia in lista_guias]
+
+    update_query = """
+        UPDATE `datos-clientes-441216.Conciliaciones.COD_pendiente`
+        SET StatusP = 'Pagado'
+        WHERE tracking_number IN UNNEST(@ids)
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ArrayQueryParameter("ids", "STRING", tracking_numbers)
+        ]
+    )
+
+    client.query(update_query, job_config=job_config).result()
+
 
     return {
         "mensaje": "✅ Pago registrado correctamente.",
@@ -129,3 +148,67 @@ async def actualizar_estado_cod(tracking_numbers: list[str]):
     client = bigquery.Client()
     client.query(query, job_config=job_config).result()
     return {"mensaje": "Actualización exitosa"}
+
+
+
+@router.post("/rechazar-pago")
+async def rechazar_pago_conductor(
+    referencia_pago: str = Body(...),
+    novedad: str = Body(...),
+    modificado_por: str = Body(...)
+):
+    client = bigquery.Client()
+
+    # ✅ 1. Obtener los trackings asociados a la referencia de pago
+    query_trackings = """
+        SELECT tracking
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE referencia_pago = @ref
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("ref", "STRING", referencia_pago)
+        ]
+    )
+    result = client.query(query_trackings, job_config=job_config).result()
+    trackings = [row["tracking"] for row in result]
+
+    if not trackings:
+        raise HTTPException(status_code=404, detail="No se encontraron pagos con esa referencia.")
+
+    # ✅ 2. Actualizar estado en pagosconductor
+    query_update_pagos = """
+        UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+        SET estado = 'rechazado',
+            novedades = @novedad,
+            modificado_por = @contador
+        WHERE referencia_pago = @ref
+    """
+    job_config_update = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("novedad", "STRING", novedad),
+            bigquery.ScalarQueryParameter("contador", "STRING", modificado_por),
+            bigquery.ScalarQueryParameter("ref", "STRING", referencia_pago),
+        ]
+    )
+    client.query(query_update_pagos, job_config=job_config_update).result()
+
+    # ✅ 3. Volver guías a estado "Pendiente"
+    query_cod = """
+        UPDATE `datos-clientes-441216.Conciliaciones.COD_pendiente`
+        SET StatusP = 'Pendiente'
+        WHERE tracking_number IN UNNEST(@trackings)
+    """
+    job_config_cod = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ArrayQueryParameter("trackings", "STRING", trackings)
+        ]
+    )
+    client.query(query_cod, job_config=job_config_cod).result()
+
+    return {
+        "mensaje": "❌ Pago rechazado correctamente.",
+        "referencia_pago": referencia_pago,
+        "novedad": novedad,
+        "trackings_afectados": trackings
+    }

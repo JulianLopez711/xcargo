@@ -1,9 +1,20 @@
 from fastapi import APIRouter
-from app.models.pago_guia import RegistroPago
+from google.cloud import bigquery
 
 router = APIRouter(prefix="/pagos-cruzados", tags=["Pagos Cruzados"])
 
-@router.post("/registrar")
-def registrar_pago_cruzado(data: RegistroPago):
-    # Aquí va la lógica para guardar el pago y su relación con guías
-    return {"mensaje": "Pago registrado correctamente", "guías": data.guias}
+@router.get("/entregas-consolidadas")
+def obtener_entregas_consolidadas():
+    client = bigquery.Client()
+    query = """
+        SELECT
+            tracking,
+            fecha_pago AS fecha,
+            tipo,
+            entidad AS cliente,
+            valor
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE estado = 'conciliado' AND referencia_pago IS NOT NULL
+    """
+    result = client.query(query).result()
+    return [dict(row) for row in result]

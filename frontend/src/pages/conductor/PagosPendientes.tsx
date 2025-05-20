@@ -3,13 +3,14 @@ import { useNavigate } from "react-router-dom";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import "../../styles/PagosPendientes.css";
 
-
 interface Pago {
   id: number;
   tracking: string;
   conductor: string;
   empresa: string;
   valor: number;
+  estado?: string;
+  novedad?: string;
 }
 
 export default function PagosPendientes() {
@@ -21,7 +22,6 @@ export default function PagosPendientes() {
   const navigate = useNavigate();
   const itemsPorPagina = 20;
 
-  // Cargar pagos
   useEffect(() => {
     fetch("https://api.x-cargo.co/api/operador/guias-pendientes")
       .then((res) => res.json())
@@ -39,7 +39,6 @@ export default function PagosPendientes() {
       });
   }, []);
 
-  // Cargar bono del localStorage
   useEffect(() => {
     const bono = localStorage.getItem("bonoAFavor");
     if (bono) setBonoAFavor(parseFloat(bono));
@@ -76,13 +75,12 @@ export default function PagosPendientes() {
       .map((p) => ({ referencia: p.tracking, valor: p.valor }));
 
     navigate("/conductor/pago", {
-    state: {
-    guias: guiasSeleccionadas, 
-    total: totalSeleccionado,
-    bono: bonoAFavor,
-  },
-});
-
+      state: {
+        guias: guiasSeleccionadas,
+        total: totalSeleccionado,
+        bono: bonoAFavor,
+      },
+    });
   };
 
   return (
@@ -91,12 +89,10 @@ export default function PagosPendientes() {
 
       <div className="resumen-cabecera">
         <p className="resumen-total con-fondo">
-          Total pendiente:{" "}
-          <strong className="valor-total">${totalGlobal.toLocaleString()}</strong>
+          Total pendiente: <strong className="valor-total">${totalGlobal.toLocaleString()}</strong>
         </p>
         <p className="bono-favor">
-          Bono a favor:{" "}
-          <strong className="bono-valor">${bonoAFavor.toLocaleString()}</strong>
+          Bono a favor: <strong className="bono-valor">${bonoAFavor.toLocaleString()}</strong>
         </p>
       </div>
 
@@ -105,20 +101,22 @@ export default function PagosPendientes() {
           <thead>
             <tr>
               <th></th>
-              <th>tracking</th>
+              <th>Tracking</th>
               <th>Conductor</th>
               <th>Empresa</th>
               <th>Valor</th>
+              <th>Estado</th>
+              <th>Novedad</th>
             </tr>
           </thead>
           <tbody>
             {paginatedPagos.length === 0 ? (
               <tr>
-                <td colSpan={5}>No hay pagos pendientes.</td>
+                <td colSpan={7}>No hay pagos pendientes.</td>
               </tr>
             ) : (
               paginatedPagos.map((pago) => (
-                <tr key={pago.id}>
+                <tr key={pago.id} className={pago.estado === "rechazado" ? "fila-rechazada" : ""}>
                   <td>
                     <input
                       type="checkbox"
@@ -130,6 +128,10 @@ export default function PagosPendientes() {
                   <td>{pago.conductor}</td>
                   <td>{pago.empresa}</td>
                   <td>${pago.valor.toLocaleString()}</td>
+                  <td>{pago.estado || "pendiente"}</td>
+                  <td style={{ fontStyle: "italic", color: "#dc2626" }}>
+                    {pago.novedad || "-"}
+                  </td>
                 </tr>
               ))
             )}
@@ -156,8 +158,7 @@ export default function PagosPendientes() {
       </div>
 
       <div className="resumen-seleccion">
-        Total seleccionado:{" "}
-        <strong>${totalSeleccionado.toLocaleString()}</strong><br />
+        Total seleccionado: <strong>${totalSeleccionado.toLocaleString()}</strong>
       </div>
 
       <button className="boton-pagar" onClick={handlePagar}>

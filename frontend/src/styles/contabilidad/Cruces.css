@@ -1,228 +1,104 @@
-.cruces-contabilidad {
-  padding: 1.5rem;
+.cruces-container {
+  padding: 2rem;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-.cruces-contabilidad h1 {
+.titulo {
   font-size: 1.8rem;
   color: #10b981;
   margin-bottom: 1rem;
   text-align: center;
 }
 
-.cruces-filtros {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-  align-items: center;
-  justify-content: center;
-}
-
-.cruces-filtros input,
-.cruces-filtros select {
-  padding: 0.5rem;
-  border: 1px solid #d1d5db;
+.carga-csv {
+  background-color: #f9fafb;
+  padding: 1rem;
   border-radius: 0.5rem;
-  font-size: 0.875rem;
-  width: 200px;
-  max-width: 100%;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
-/* Botón de acción */
+.carga-csv label {
+  font-weight: 500;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.carga-csv input[type="file"] {
+  margin-top: 0.25rem;
+}
+
 .boton-accion {
-  padding: 0.5rem 1rem;
+  margin-top: 1rem;
   background-color: #10b981;
   color: white;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
   border: none;
   border-radius: 0.5rem;
-  font-weight: 500;
   cursor: pointer;
   transition: background-color 0.3s ease;
 }
+
 .boton-accion:hover {
   background-color: #059669;
 }
 
-/* Tabla contenedor para scroll horizontal */
-.cruces-table-container {
-  width: 100%;
+.mensaje-estado {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+  color: #374151;
+}
+
+.tabla-cruces {
   overflow-x: auto;
 }
 
-/* Tabla */
-.cruces-table {
+.tabla-cruces table {
   width: 100%;
   border-collapse: collapse;
-  background-color: #ffffff;
-  border-radius: 0.75rem;
+  background-color: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.05);
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
-  min-width: 700px;
 }
 
-.cruces-table th,
-.cruces-table td {
+.tabla-cruces th,
+.tabla-cruces td {
   padding: 0.75rem 1rem;
-  text-align: left;
   border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  font-size: 0.9rem;
 }
 
-.cruces-table th {
-  background-color: #f9fafb;
-  color: #374151;
-  font-weight: 600;
-  font-size: 0.875rem;
-}
-
-.cruces-table td {
-  color: #4b5563;
-  font-size: 0.875rem;
-}
-
-/* Estado de pagos */
-.estado {
+.tabla-cruces th {
+  background-color: #f0fdf4;
+  color: #065f46;
   font-weight: 600;
 }
-.estado.conciliado {
-  color: #10b981;
-}
-.estado.pendiente {
-  color: #f59e0b;
+
+.estado-conciliado td {
+  background-color: #ecfdf5;
+  color: #065f46;
 }
 
-/* Botones */
-.btn-img-preview,
-.btn-detalle {
-  padding: 0.4rem 0.75rem;
-  border-radius: 0.5rem;
-  border: none;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-  white-space: nowrap;
+.estado-pendiente td {
+  background-color: #fefce8;
+  color: #92400e;
 }
 
-.btn-img-preview {
-  background-color: #3b82f6;
-  color: white;
-}
-.btn-img-preview:hover {
-  background-color: #2563eb;
+.estado-duda td {
+  background-color: #fef2f2;
+  color: #991b1b;
 }
 
-.btn-detalle {
-  background-color: #6b7280;
-  color: white;
-}
-.btn-detalle:hover {
-  background-color: #4b5563;
-}
-
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.7);
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-}
-
-.modal-content {
-  position: relative;
-  background-color: #1f2937; /* fondo oscuro */
-  padding: 1.5rem;
-  border-radius: 0.75rem;
-  max-width: 600px;
-  width: 100%;
-  max-height: 90vh;
-  box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  color: #ffffff;
-}
-
-.modal-content img {
-  width: 100%;
-  height: auto;
-  border-radius: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.cerrar-modal {
-  position: absolute;
-  top: 0.5rem;
-  right: 0.75rem;
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  color: #ffffff;
-  cursor: pointer;
-  transition: color 0.3s ease;
-}
-.cerrar-modal:hover {
-  color: #10b981;
-}
-
-/* Miniatura de imagen */
-.thumb-img {
-  width: 60px;
-  height: auto;
-  border-radius: 0.25rem;
-  object-fit: cover;
-  cursor: pointer;
-}
-
-/* RESPONSIVE */
 @media screen and (max-width: 768px) {
-  .cruces-filtros {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .cruces-filtros input,
-  .cruces-filtros select {
-    width: 100%;
-  }
-
-  .cruces-table {
+  .tabla-cruces table,
+  .tabla-cruces th,
+  .tabla-cruces td {
     font-size: 0.8rem;
-    min-width: 100%;
   }
-
-  .btn-img-preview,
-  .btn-detalle {
-    font-size: 0.75rem;
-    padding: 0.3rem 0.5rem;
-  }
-}
-
-@media screen and (max-width: 480px) {
-  .modal-content {
-    padding: 1rem;
-    border-radius: 0.5rem;
-  }
-
-  .modal-content img {
-    max-height: 60vh;
-  }
-
-  .cerrar-modal {
-    top: 0.3rem;
-    right: 0.5rem;
-    font-size: 1.2rem;
-  }
-
   .boton-accion {
     width: 100%;
-    text-align: center;
   }
 }
