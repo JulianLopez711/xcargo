@@ -196,7 +196,7 @@ const XCargoLogin: React.FC = () => {
           <button
             type="button"
             className="forgot-password-link"
-            onClick={() => navigate("/cambiar-clave")}
+            onClick={() => navigate("/recuperar-clave")}
           >
             ¿Olvidaste tu contraseña?
           </button>

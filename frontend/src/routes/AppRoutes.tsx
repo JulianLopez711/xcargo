@@ -122,22 +122,8 @@ export default function AppRoutes() {
       {/* PÚBLICO - Recuperación de contraseña */}
       <Route path="/recuperar-clave" element={<RecuperarClave />} />
       <Route path="/verificar-codigo" element={<VerificarCodigo />} />
-      <Route
-        path="/cambiar-clave"
-        element={
-          <ProtectedRoute
-            allowedRoles={[
-              "admin",
-              "conductor",
-              "contabilidad",
-              "cliente",
-              "operador",
-            ]}
-          >
-            <NuevaClave />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/cambiar-clave" element={<NuevaClave />} />
+
 
       {/* Redirección genérica */}
       <Route path="*" element={<Navigate to="/" />} />

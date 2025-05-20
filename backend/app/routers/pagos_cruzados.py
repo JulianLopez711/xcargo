@@ -3,6 +3,7 @@ from google.cloud import bigquery
 
 router = APIRouter(prefix="/pagos-cruzados", tags=["Pagos Cruzados"])
 
+
 @router.get("/entregas-consolidadas")
 def obtener_entregas_consolidadas():
     client = bigquery.Client()
