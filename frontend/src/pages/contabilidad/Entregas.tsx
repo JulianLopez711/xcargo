@@ -20,15 +20,24 @@ export default function LiquidacionesClientes() {
   const [clienteFiltro, setClienteFiltro] = useState("");
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetch("https://api.x-cargo.co/pagos-cruzados/entregas-consolidadas")
-      .then(res => res.json())
-      .then(data => setLiquidaciones(data))
-      .catch(err => {
-        console.error("Error al cargar liquidaciones:", err);
-        alert("Error al cargar datos desde el servidor.");
-      });
-  }, []);
+ useEffect(() => {
+  fetch("https://api.x-cargo.co/pagos-cruzados/entregas-consolidadas")
+    .then(res => res.json())
+    .then(data => {
+      if (Array.isArray(data)) {
+        setLiquidaciones(data);
+      } else {
+        console.error("Respuesta inesperada del servidor:", data);
+        alert("Error: el servidor no devolvió una lista de liquidaciones.");
+      }
+    })
+    .catch(err => {
+      console.error("Error al cargar liquidaciones:", err);
+      alert("Error al cargar datos desde el servidor.");
+    });
+}, []);
+
+
 
   const datosFiltrados = liquidaciones.filter((e) => {
     const desde = !fechaDesde || e.fecha >= fechaDesde;

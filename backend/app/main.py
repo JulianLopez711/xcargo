@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import guias, ocr, pagos, operador, pagoCliente,
- auth, pagos_cruzados, roles,conciliacion,cruces,pagos_cruzados
+from app.routers import guias, ocr, pagos, operador, pagoCliente,auth, pagos_cruzados, roles,conciliacion,cruces,pagos_cruzados
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()

@@ -7,12 +7,7 @@ router = APIRouter(prefix="/pagos-cruzados", tags=["Pagos Cruzados"])
 def obtener_entregas_consolidadas():
     client = bigquery.Client()
     query = """
-        SELECT
-            tracking,
-            fecha_pago AS fecha,
-            tipo,
-            entidad AS cliente,
-            valor
+        SELECT tracking, fecha_pago AS fecha, tipo, entidad AS cliente, valor
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
         WHERE estado = 'conciliado' AND referencia_pago IS NOT NULL
     """
