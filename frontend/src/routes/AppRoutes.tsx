@@ -7,13 +7,10 @@ import Login from "../pages/login/Login";
 // Admin
 import DashboardAdmin from "../pages/admin/Dashboard";
 import UserManagement from "../pages/admin/UserManagement";
-import PagosAdmin from "../pages/admin/Pagos";
 import EntregasAdmin from "../pages/admin/Entregas";
-import CrucesAdmin from "../pages/admin/Cruces";
-import Reportes from "../pages/admin/Reportes";
-import Historial from "../pages/admin/Historial";
 import RoleManagement from "../pages/admin/RoleManagement";
 import GeneralSettings from "../pages/admin/GeneralSettings";
+
 
 // Contabilidad
 import DashboardContabilidad from "../pages/contabilidad/Dashboard";
@@ -56,11 +53,7 @@ export default function AppRoutes() {
       >
         <Route path="/admin/dashboard" element={<DashboardAdmin />} />
         <Route path="/admin/usuarios" element={<UserManagement />} />
-        <Route path="/admin/pagos" element={<PagosAdmin />} />
         <Route path="/admin/entregas" element={<EntregasAdmin />} />
-        <Route path="/admin/cruces" element={<CrucesAdmin />} />
-        <Route path="/admin/reportes" element={<Reportes />} />
-        <Route path="/admin/historial" element={<Historial />} />
         <Route path="/admin/roles" element={<RoleManagement />} />
         <Route path="/admin/configuracion" element={<GeneralSettings />} />
       </Route>

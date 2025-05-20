@@ -10,20 +10,22 @@ export default function RecuperarClave() {
 
   const solicitarCodigo = async () => {
     try {
+      const formData = new FormData();
+      formData.append("correo", correo);
+
       const res = await fetch("https://api.x-cargo.co/auth/solicitar-codigo", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ correo }),
+        body: formData,
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Error inesperado");
 
-      setMensaje("Código enviado correctamente. Revisa tu correo.");
+      setMensaje("✅ Código enviado correctamente. Revisa tu correo.");
       localStorage.setItem("correo_recuperacion", correo);
       setTimeout(() => navigate("/verificar-codigo"), 2000);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || "Error al enviar el código");
     }
   };
 
