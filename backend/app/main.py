@@ -1,17 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import guias, ocr, pagos, operador, pagoCliente,auth, pagos_cruzados, roles,conciliacion,cruces,pagos_cruzados
 from fastapi.staticfiles import StaticFiles
+from app.routers import guias, ocr, pagos, operador, pagoCliente, auth, pagos_cruzados, roles, conciliacion, cruces
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 
+app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",       
-        "https://gestion.x-cargo.co",  
+        "http://localhost:5173",
+        "https://gestion.x-cargo.co",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -22,7 +22,7 @@ app.add_middleware(
 def root():
     return {"message": "API XCargo backend funcionando"}
 
-app.include_router(pagos_cruzados.router)
+# Registrar todas las rutas
 app.include_router(guias.router)
 app.include_router(ocr.router)
 app.include_router(pagos.router)
