@@ -22,16 +22,14 @@ async def cargar_csv_banco(file: UploadFile = File(...)):
         try:
             fecha = datetime.datetime.strptime(row["fecha"], "%Y-%m-%d").date().isoformat()
             valor = float(row["valor"].replace(",", ""))
-            entidad = row["entidad"].strip()
-            tipo = row.get("tipo", "").strip()
+            tipo = row["tipo"].strip()
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error en fila: {row} - {str(e)}")
 
         registros.append({
-            "id": f"{row['fecha']}_{row['valor']}_{row['entidad']}",
+            "id": f"{row['fecha']}_{row['valor']}_{tipo}",  # ID único basado en 3 campos
             "fecha": fecha,
             "valor_banco": valor,
-            "entidad": entidad,
             "tipo": tipo,
             "cargado_en": datetime.datetime.utcnow().isoformat()
         })
@@ -47,6 +45,7 @@ async def cargar_csv_banco(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(errors))
 
     return {"mensaje": "Archivo cargado correctamente", "filas": len(registros)}
+
 
 
 
