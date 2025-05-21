@@ -68,7 +68,7 @@ async def registrar_pago_conductor(
     try:
         referencias_guias = [guia["referencia"] for guia in lista_guias]
         client.query(f"""
-            UPDATE `datos-clientes-441216.pickup_data.COD_Pendiente`
+            UPDATE `datos-clientes-441216.Conciliaciones..COD_Pendiente`
             SET estado = 'registrado'
             WHERE referencia IN UNNEST(@refs)
         """, job_config=bigquery.QueryJobConfig(
