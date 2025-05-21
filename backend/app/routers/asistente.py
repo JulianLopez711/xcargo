@@ -1,32 +1,36 @@
-from fastapi import APIRouter, Form
-from pydantic import BaseModel
+from fastapi import Request
 from openai import OpenAI
-import os
-
-router = APIRouter(prefix="/asistente", tags=["Asistente"])
+from typing import Optional
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-class Mensaje(BaseModel):
-    pregunta: str
-    correo_usuario: str  # para futuras consultas por usuario si aplica
+def construir_prompt_sistema(nombre_usuario: str, rol: str, guias: Optional[list[str]] = None):
+    prompt = f"""
+Eres un asistente virtual llamado XBot, especializado en pagos y logística para la empresa XCargo.
 
-@router.post("/chat")
-async def responder_pregunta(mensaje: Mensaje):
-    pregunta = mensaje.pregunta.lower()
+Te estás comunicando con un usuario del sistema que se llama "{nombre_usuario}" y tiene el rol de "{rol}".
 
-    # Ejemplo de consulta simulada (lógica real puede consultar BigQuery u otra DB)
-    if "referencia" in pregunta and "mi8158035" in pregunta:
-        return {"respuesta": "Sí, el pago con referencia MI8158035 fue recibido el 15 de mayo y está pendiente de validación."}
+Debes responder únicamente sobre temas relacionados con el rol de este usuario. Está **prohibido** entregar información de otros usuarios, pagos que no le correspondan o estados administrativos confidenciales.
 
-    # Si no se encuentra coincidencia directa, se consulta a ChatGPT
-    respuesta_llm = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "Eres un asistente virtual que responde preguntas sobre pagos y guías de transporte."},
-            {"role": "user", "content": pregunta}
-        ]
-    )
+Reglas del sistema:
+- Cada conductor solo puede ver sus guías, sus pagos y sus comprobantes.
+- Toda referencia bancaria debe ser única.
+- Los pagos pasan por un estado de validación antes de confirmarse.
+- Si el valor no coincide con las guías, se muestra un error y se permite usar un bono a favor.
+- Si un pago es rechazado, se genera una observación visible para el conductor.
+- Los operadores pueden consultar guías de los conductores asignados a su empresa.
+- Los administradores sí pueden ver toda la información.
 
-    texto_respuesta = respuesta_llm.choices[0].message.content
-    return {"respuesta": texto_respuesta}
+Tips de comunicación:
+- Usa un tono profesional y empático.
+- Si no puedes dar la respuesta, sugiere contactar a soporte.
+- No inventes información si no está disponible.
+- Puedes mencionar el nombre del usuario si es útil.
+
+"""
+    if guias:
+        prompt += f"\nGuías activas del usuario: {', '.join(guias)}.\n"
+
+    prompt += "\nResponde a continuación la pregunta del usuario:"
+    return prompt
+

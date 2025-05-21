@@ -1,50 +1,63 @@
 import { useState } from "react";
 import "../styles/chat/ChatBotBubble.css";
+import xbotAvatar from "../assets/xbot-avatar.png.png";
 
 export default function ChatBotBubble() {
   const [abierto, setAbierto] = useState(false);
   const [mensajes, setMensajes] = useState([
-    { tipo: "bot", texto: "¡Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte con tus pagos?" }
+    {
+      tipo: "bot",
+      texto:
+        "Hola, soy XBot, tu asistente virtual en XCargo. ¿En qué puedo ayudarte hoy?",
+    },
   ]);
   const [entrada, setEntrada] = useState("");
 
   const enviarMensaje = async () => {
-  if (!entrada.trim()) return;
+    if (!entrada.trim()) return;
 
-  const nuevoMensaje = { tipo: "usuario", texto: entrada };
-  setMensajes((prev) => [...prev, nuevoMensaje]);
-  setEntrada("");
+    const nuevoMensaje = { tipo: "usuario", texto: entrada };
+    setMensajes((prev) => [...prev, nuevoMensaje]);
+    setEntrada("");
 
-  try {
-    const res = await fetch("https://api.x-cargo.co/asistente/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pregunta: entrada,
-        correo_usuario: "conductor@xcargo.co" // luego lo puedes extraer del contexto o login
-      }),
-    });
+    try {
+      const res = await fetch("https://api.x-cargo.co/asistente/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pregunta: entrada,
+          correo_usuario: "conductor@xcargo.co", // o dinámico según contexto
+        }),
+      });
 
-    const data = await res.json();
-    setMensajes((prev) => [...prev, { tipo: "bot", texto: data.respuesta }]);
-  } catch (error) {
-    setMensajes((prev) => [...prev, { tipo: "bot", texto: "Lo siento, hubo un error al procesar tu solicitud." }]);
-  }
-};
-
+      const data = await res.json();
+      setMensajes((prev) => [...prev, { tipo: "bot", texto: data.respuesta }]);
+    } catch (error) {
+      setMensajes((prev) => [
+        ...prev,
+        {
+          tipo: "bot",
+          texto: "Lo siento, hubo un error al procesar tu solicitud.",
+        },
+      ]);
+    }
+  };
 
   return (
     <div className="chat-burbuja-container">
       {abierto && (
         <div className="chat-panel">
           <div className="chat-header">
-            Asistente de Pagos
+            XBot - Asistente Virtual
             <button onClick={() => setAbierto(false)}>✕</button>
           </div>
           <div className="chat-mensajes">
             {mensajes.map((msg, idx) => (
               <div key={idx} className={`mensaje ${msg.tipo}`}>
-                {msg.texto}
+                {msg.tipo === "bot" && (
+                  <img src={xbotAvatar} alt="XBot" className="xbot-avatar" />
+                )}
+                <span>{msg.texto}</span>
               </div>
             ))}
           </div>
