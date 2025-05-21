@@ -35,3 +35,4 @@ app.include_router(cruces.router)
 app.include_router(pagos_cruzados.router)
 app.include_router(contabilidad.router)
 app.include_router(asistente.router)
+

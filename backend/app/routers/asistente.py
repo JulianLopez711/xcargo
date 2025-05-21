@@ -1,6 +1,12 @@
-from fastapi import Request
+from fastapi import APIRouter, Request
+from pydantic import BaseModel
 from openai import OpenAI
 from typing import Optional
+import os
+
+
+
+router = APIRouter(prefix="/asistente", tags=["Asistente"])
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
