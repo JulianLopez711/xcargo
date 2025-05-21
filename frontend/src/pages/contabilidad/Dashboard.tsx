@@ -1,31 +1,29 @@
+import { useEffect, useState } from "react";
 import "../../styles/DashboardContabilidad.css";
 
-export default function DashboardContabilidad() {
-  const resumen = [
-    {
-      cliente: "Dropi",
-      datos: [
-        { estado: "Pendiente", guias: 10, valor: 450000, pendiente: 450000 },
-        { estado: "Cancelada", guias: 5, valor: 200000, pendiente: 0 },
-      ],
-    },
-    {
-      cliente: "Dafiti",
-      datos: [
-        { estado: "Pendiente", guias: 7, valor: 300000, pendiente: 150000 },
-        { estado: "Cancelada", guias: 8, valor: 380000, pendiente: 0 },
-      ],
-    },
-    {
-      cliente: "Tridy",
-      datos: [
-        { estado: "Pendiente", guias: 6, valor: 220000, pendiente: 220000 },
-        { estado: "Cancelada", guias: 4, valor: 150000, pendiente: 0 },
-      ],
-    },
-  ];
+interface GuiaResumen {
+  estado: string;
+  guias: number;
+  valor: number;
+  pendiente: number;
+}
 
-  const calcularSubtotal = (datos: any[]) =>
+interface ClienteResumen {
+  cliente: string;
+  datos: GuiaResumen[];
+}
+
+export default function DashboardContabilidad() {
+  const [resumen, setResumen] = useState<ClienteResumen[]>([]);
+
+  useEffect(() => {
+    fetch("https://api.x-cargo.co/contabilidad/resumen")
+      .then((res) => res.json())
+      .then((data) => setResumen(data))
+      .catch((err) => console.error("Error cargando resumen:", err));
+  }, []);
+
+  const calcularSubtotal = (datos: GuiaResumen[]) =>
     datos.reduce(
       (acc, d) => {
         acc.guias += d.guias;
