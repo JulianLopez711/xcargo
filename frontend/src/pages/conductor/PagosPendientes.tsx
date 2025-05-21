@@ -18,7 +18,6 @@ export default function PagosPendientes() {
   const [seleccionados, setSeleccionados] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const [bonoAFavor, setBonoAFavor] = useState(0);
   const navigate = useNavigate();
   const itemsPorPagina = 20;
 
@@ -37,11 +36,6 @@ export default function PagosPendientes() {
         console.error("Error cargando pagos:", err);
         setIsLoading(false);
       });
-  }, []);
-
-  useEffect(() => {
-    const bono = localStorage.getItem("bonoAFavor");
-    if (bono) setBonoAFavor(parseFloat(bono));
   }, []);
 
   if (isLoading) return <LoadingSpinner />;
@@ -78,7 +72,6 @@ export default function PagosPendientes() {
       state: {
         guias: guiasSeleccionadas,
         total: totalSeleccionado,
-        bono: bonoAFavor,
       },
     });
   };
@@ -90,9 +83,6 @@ export default function PagosPendientes() {
       <div className="resumen-cabecera">
         <p className="resumen-total con-fondo">
           Total pendiente: <strong className="valor-total">${totalGlobal.toLocaleString()}</strong>
-        </p>
-        <p className="bono-favor">
-          Bono a favor: <strong className="bono-valor">${bonoAFavor.toLocaleString()}</strong>
         </p>
       </div>
 

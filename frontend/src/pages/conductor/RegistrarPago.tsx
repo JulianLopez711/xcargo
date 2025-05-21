@@ -12,7 +12,7 @@ type DatosPago = {
   hora: string;
   tipo: string;
   entidad: string;
-  referencia: string; 
+  referencia: string;
 };
 
 type PagoCompleto = {
@@ -24,15 +24,12 @@ export default function RegistrarPago() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const {
-    guias,
-    total,
-    bono = 0,
-  }: { guias: GuiaPago[]; total: number; bono?: number } = location.state || {
-    guias: [],
-    total: 0,
-    bono: 0,
-  };
+  const { guias, total }: { guias: GuiaPago[]; total: number; bono?: number } =
+    location.state || {
+      guias: [],
+      total: 0,
+      bono: 0,
+    };
 
   const [archivo, setArchivo] = useState<File | null>(null);
   const [usarBono, setUsarBono] = useState(false);
@@ -47,8 +44,6 @@ export default function RegistrarPago() {
     entidad: "",
     referencia: "",
   });
-
-  const totalConBono = Math.max(total - (usarBono ? bono : 0), 0);
 
   function parseValorMonetario(valor: string): number {
     const limpio = valor
@@ -151,63 +146,64 @@ export default function RegistrarPago() {
   };
 
   const registrarTodosLosPagos = async () => {
-  if (totalAcumulado < totalConBono) {
-    alert("El total acumulado aún no cubre el valor requerido.");
-    return;
-  }
-
-  setCargando(true);
-
-  try {
-    for (const p of pagosCargados) {
-      const formData = new FormData();
-      const usuario = JSON.parse(localStorage.getItem("user")!);
-      const correo = usuario.email;
-
-      const guiasConValor = guias.map((g) => ({
-        referencia: g.referencia,
-        valor: g.valor,
-      }));
-
-      formData.append("correo", correo);
-      formData.append("fecha_pago", p.datos.fecha);
-      const horaFormateada =
-        p.datos.hora.length === 5 ? `${p.datos.hora}:00` : p.datos.hora;
-      formData.append("hora_pago", horaFormateada);
-      formData.append("tipo", p.datos.tipo);
-      formData.append("entidad", p.datos.entidad);
-      formData.append("referencia", p.datos.referencia);
-      formData.append("guias", JSON.stringify(guiasConValor));
-      formData.append("comprobante", p.archivo);
-
-      const response = await fetch(
-        "https://api.x-cargo.co/pagos/registrar-conductor",
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-
-      const result = await response.json();
-      if (!response.ok) {
-        console.error("Error del backend:", result);
-        throw new Error(JSON.stringify(result));
-      }
+    if (totalAcumulado < total) {
+      alert("El total acumulado no cubre el valor requerido para las guías.");
+      return;
     }
 
-    const excedente = totalAcumulado - totalConBono;
-    const nuevoBono = excedente > 0 ? excedente : 0;
-    localStorage.setItem("bonoAFavor", nuevoBono.toFixed(2));
-    alert("✅ Pagos registrados correctamente.");
-    navigate("/conductor/pagos");
-  } catch (error: any) {
-    console.error("Error registrando pagos:", error);
-    alert("❌ Error: " + error.message);
-  } finally {
-    setCargando(false);
-  }
-};
+    setCargando(true);
 
+    try {
+      for (const p of pagosCargados) {
+        const formData = new FormData();
+        const usuario = JSON.parse(localStorage.getItem("user")!);
+        const correo = usuario.email;
+
+        const guiasConCliente = guias.map((g) => ({
+          referencia: g.referencia,
+          valor: g.valor,
+          cliente: "por_definir", // si ya tienes el cliente, cámbialo
+        }));
+
+        formData.append("correo", correo);
+        formData.append(
+          "valor_pago",
+          parseValorMonetario(p.datos.valor).toString()
+        );
+        formData.append("fecha_pago", p.datos.fecha);
+        formData.append(
+          "hora_pago",
+          p.datos.hora.length === 5 ? `${p.datos.hora}:00` : p.datos.hora
+        );
+        formData.append("tipo", p.datos.tipo);
+        formData.append("entidad", p.datos.entidad);
+        formData.append("referencia", p.datos.referencia);
+        formData.append("guias", JSON.stringify(guiasConCliente));
+        formData.append("comprobante", p.archivo);
+
+        const response = await fetch(
+          "https://api.x-cargo.co/pagos/registrar-conductor",
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.detail || "Error al registrar pago");
+        }
+      }
+
+      alert("✅ Pagos registrados correctamente.");
+      navigate("/conductor/pagos");
+    } catch (error: any) {
+      console.error("Error registrando pagos:", error);
+      alert("❌ Error: " + error.message);
+    } finally {
+      setCargando(false);
+    }
+  };
 
   return (
     <div className="registrar-pago">
@@ -238,25 +234,6 @@ export default function RegistrarPago() {
             <span>Total guías:</span>
             <strong>${total.toLocaleString()}</strong>
           </div>
-
-          {bono > 0 && (
-            <>
-              <div className="linea bono-checkbox">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={usarBono}
-                    onChange={() => setUsarBono(!usarBono)}
-                  />
-                  Usar bono a favor (${bono.toLocaleString()})
-                </label>
-              </div>
-              <div className="linea total-destacado">
-                <span>Total a pagar:</span>
-                <strong>${totalConBono.toLocaleString()}</strong>
-              </div>
-            </>
-          )}
         </div>
       </div>
 
@@ -310,23 +287,23 @@ export default function RegistrarPago() {
               <strong>Total acumulado:</strong> $
               {totalAcumulado.toLocaleString("es-CO")}
             </p>
-            {totalAcumulado < totalConBono ? (
+            {totalAcumulado < total ? (
               <p style={{ color: "crimson" }}>
-                Faltan $
-                {(totalConBono - totalAcumulado).toLocaleString("es-CO")}
+                Faltan ${(total - totalAcumulado).toLocaleString("es-CO")}
               </p>
             ) : (
               <p style={{ color: "green" }}>
-                ✅ Cubierto. Excedente: $
-                {(totalAcumulado - totalConBono).toLocaleString("es-CO")}
+                ✅ Listo. Excedente: $
+                {(totalAcumulado - total).toLocaleString("es-CO")}
               </p>
             )}
           </div>
 
-          {totalAcumulado >= totalConBono && (
+          {totalAcumulado >= total && (
             <button
               className="boton-registrar"
               onClick={registrarTodosLosPagos}
+              disabled={cargando}
             >
               ✅ Registrar todos los pagos
             </button>

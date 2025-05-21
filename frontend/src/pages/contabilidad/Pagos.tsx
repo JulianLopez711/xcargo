@@ -23,7 +23,11 @@ export default function PagosContabilidad() {
   const [modalVisible, setModalVisible] = useState(false);
   const [novedad, setNovedad] = useState("");
   const [refPagoSeleccionada, setRefPagoSeleccionada] = useState("");
-  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
+  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(
+    null
+  );
+  const [detalleTracking, setDetalleTracking] = useState<string[]>([]);
+  const [modalDetallesVisible, setModalDetallesVisible] = useState(false);
 
   const obtenerPagos = () => {
     fetch("https://api.x-cargo.co/pagos/pagos-conductor")
@@ -40,7 +44,9 @@ export default function PagosContabilidad() {
   }, []);
 
   const pagosFiltrados = pagos.filter((p) => {
-    const cumpleReferencia = p.referencia.toLowerCase().includes(filtroReferencia.toLowerCase());
+    const cumpleReferencia = p.referencia
+      .toLowerCase()
+      .includes(filtroReferencia.toLowerCase());
     const cumpleDesde = !fechaDesde || p.fecha >= fechaDesde;
     const cumpleHasta = !fechaHasta || p.fecha <= fechaHasta;
     return cumpleReferencia && cumpleDesde && cumpleHasta;
@@ -51,18 +57,36 @@ export default function PagosContabilidad() {
     const filas = pagosFiltrados
       .map(
         (p, idx) =>
-          `${idx + 1},${p.referencia},${p.valor},${p.fecha},${p.entidad},${p.estado},${p.tipo}`
+          `${idx + 1},${p.referencia},${p.valor},${p.fecha},${p.entidad},${
+            p.estado
+          },${p.tipo}`
       )
       .join("\n");
 
     const blob = new Blob([encabezado + filas], {
       type: "text/csv;charset=utf-8;",
     });
-    saveAs(blob, `pagos-consolidados-${new Date().toISOString().split("T")[0]}.csv`);
+    saveAs(
+      blob,
+      `pagos-consolidados-${new Date().toISOString().split("T")[0]}.csv`
+    );
   };
 
   const verImagen = (src: string) => {
     setImagenSeleccionada(src);
+  };
+  const verDetallesPago = async (referenciaPago: string) => {
+    try {
+      const res = await fetch(
+        `https://api.x-cargo.co/pagos/detalles/${referenciaPago}`
+      );
+      const data = await res.json();
+      setDetalleTracking(data);
+      setModalDetallesVisible(true);
+    } catch (err) {
+      console.error("Error cargando detalles:", err);
+      alert("Error al cargar detalles del pago.");
+    }
   };
 
   const confirmarRechazo = async () => {
@@ -113,11 +137,19 @@ export default function PagosContabilidad() {
         </label>
         <label>
           Desde:
-          <input type="date" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
+          <input
+            type="date"
+            value={fechaDesde}
+            onChange={(e) => setFechaDesde(e.target.value)}
+          />
         </label>
         <label>
           Hasta:
-          <input type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
+          <input
+            type="date"
+            value={fechaHasta}
+            onChange={(e) => setFechaHasta(e.target.value)}
+          />
         </label>
         <button onClick={descargarCSV} className="boton-accion">
           📥 Descargar Informe
@@ -129,7 +161,6 @@ export default function PagosContabilidad() {
           <thead>
             <tr>
               <th>ID</th>
-              <th>Ref. Pago</th>
               <th>Ref. Comprobante</th>
               <th>Valor</th>
               <th>Fecha</th>
@@ -137,26 +168,62 @@ export default function PagosContabilidad() {
               <th>Tipo</th>
               <th>Estado</th>
               <th>Comprobante</th>
-              <th>Rechazar</th>
+              <th>Detalles</th>
               <th>Novedades</th>
+              <th>Acción</th>
             </tr>
           </thead>
+
           <tbody>
             {pagosFiltrados.length > 0 ? (
               pagosFiltrados.map((p, idx) => (
                 <tr key={idx}>
                   <td>{idx + 1}</td>
-                  <td>{p.referencia_pago}</td>
                   <td>{p.referencia}</td>
                   <td>${p.valor.toLocaleString()}</td>
                   <td>{p.fecha}</td>
                   <td>{p.entidad}</td>
                   <td>{p.tipo}</td>
-                  <td style={{ color: p.estado === "rechazado" ? "crimson" : undefined }}>{p.estado}</td>
-                  <td>
-                    <button onClick={() => verImagen(p.imagen)} className="btn-ver">👁 Ver</button>
+                  <td
+                    style={{
+                      color: p.estado === "rechazado" ? "crimson" : undefined,
+                    }}
+                  >
+                    {p.estado}
                   </td>
                   <td>
+                    <button
+                      onClick={() => verImagen(p.imagen)}
+                      className="btn-ver"
+                    >
+                      👁 Ver
+                    </button>
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => verDetallesPago(p.referencia_pago)}
+                      className="btn-ver"
+                    >
+                      Detalles
+                    </button>
+                  </td>
+                  <td>
+                    {p.novedades ? (
+                      <span style={{ fontStyle: "italic", color: "#6b7280" }}>
+                        {p.novedades}
+                      </span>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                  <td>
+                    <button
+                      onClick={() => alert("✅ Pago aprobado (simulado)")}
+                      className="boton-aprobar"
+                      disabled={p.estado === "aprobado"}
+                    >
+                      Aprobar
+                    </button>
                     <button
                       onClick={() => {
                         setRefPagoSeleccionada(p.referencia_pago);
@@ -167,18 +234,14 @@ export default function PagosContabilidad() {
                       Rechazar
                     </button>
                   </td>
-                  <td>
-                    {p.novedades ? (
-                      <span style={{ fontStyle: "italic", color: "#6b7280" }}>{p.novedades}</span>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={11} style={{ textAlign: "center", padding: "1rem" }}>
+                <td
+                  colSpan={11}
+                  style={{ textAlign: "center", padding: "1rem" }}
+                >
                   No hay pagos registrados.
                 </td>
               </tr>
@@ -188,10 +251,16 @@ export default function PagosContabilidad() {
       </div>
 
       {imagenSeleccionada && (
-        <div className="modal-overlay" onClick={() => setImagenSeleccionada(null)}>
+        <div
+          className="modal-overlay"
+          onClick={() => setImagenSeleccionada(null)}
+        >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <img src={imagenSeleccionada} alt="Vista previa" />
-            <button onClick={() => setImagenSeleccionada(null)} className="cerrar-modal">
+            <button
+              onClick={() => setImagenSeleccionada(null)}
+              className="cerrar-modal"
+            >
               ✕
             </button>
           </div>
@@ -209,7 +278,13 @@ export default function PagosContabilidad() {
               placeholder="Ej: El valor no coincide con las guías."
               style={{ width: "100%", marginBottom: "1rem" }}
             />
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: "1rem",
+              }}
+            >
               <button
                 className="boton-secundario"
                 onClick={() => {

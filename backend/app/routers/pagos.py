@@ -1,167 +1,106 @@
-from fastapi import Body
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Form, UploadFile, File, HTTPException
 from google.cloud import bigquery
-import datetime
+from datetime import datetime
 from uuid import uuid4
 import os
-import json
 
 router = APIRouter(prefix="/pagos", tags=["Pagos"])
 
 @router.post("/registrar-conductor")
 async def registrar_pago_conductor(
     correo: str = Form(...),
-    fecha_pago: str = Form(...),
-    hora_pago: str = Form(...),
+    valor_pago: float = Form(...),
+    fecha_pago: str = Form(...),       # YYYY-MM-DD
+    hora_pago: str = Form(...),        # HH:MM
     tipo: str = Form(...),
     entidad: str = Form(...),
     referencia: str = Form(...),
-    guias: str = Form(...),  
-    comprobante: UploadFile = File(...)
+    comprobante: UploadFile = File(...),
+    guias: str = Form(...)             # JSON string con guías asociadas
 ):
-    client = bigquery.Client()
+    import json
 
-    # 🔍 Validación por referencia duplicada
-    query_ref = """
-        SELECT referencia
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-        WHERE referencia = @ref
-        LIMIT 1
-    """
-    job_config_ref = bigquery.QueryJobConfig(
-        query_parameters=[bigquery.ScalarQueryParameter("ref", "STRING", referencia)]
-    )
-    resultado_ref = client.query(query_ref, job_config=job_config_ref).result()
-    if any(resultado_ref):
-        raise HTTPException(status_code=400, detail=f"❌ La referencia {referencia} ya fue registrada.")
+    try:
+        lista_guias = json.loads(guias)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error al leer las guías")
 
-    # 🔍 Validación por fecha + hora exacta
-    query_fecha_hora = """
-        SELECT referencia
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-        WHERE fecha_pago = @fecha AND hora_pago = @hora
-        LIMIT 1
-    """
-    job_config_fecha_hora = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("fecha", "STRING", fecha_pago),
-            bigquery.ScalarQueryParameter("hora", "STRING", hora_pago),
-        ]
-    )
-    resultado_fecha_hora = client.query(query_fecha_hora, job_config=job_config_fecha_hora).result()
-    if any(resultado_fecha_hora):
-        raise HTTPException(status_code=400, detail=f"❌ Ya existe un pago con la misma fecha y hora.")
+    if not lista_guias:
+        raise HTTPException(status_code=400, detail="Debe asociar al menos una guía")
 
-    # 📁 Guardar comprobante en carpeta local
     nombre_archivo = f"{uuid4()}_{comprobante.filename}"
     ruta_local = os.path.join("comprobantes", nombre_archivo)
     os.makedirs("comprobantes", exist_ok=True)
+
     with open(ruta_local, "wb") as f:
         f.write(await comprobante.read())
 
     comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
-
-    # 🆔 Generar referencia común para este grupo de pagos
-    referencia_pago = f"PAGO-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-    # 🧾 Procesar guías individuales
-    lista_guias = json.loads(guias)
-    table_id = "datos-clientes-441216.Conciliaciones.pagosconductor"
+    fecha_hora_registro = datetime.utcnow().isoformat()
+    client = bigquery.Client()
 
     filas = []
+    valor_por_guia = valor_pago / len(lista_guias)
+
     for guia in lista_guias:
         filas.append({
-            "id_string": str(uuid4()),
             "correo": correo,
-            "valor": guia["valor"],
             "fecha_pago": fecha_pago,
             "hora_pago": hora_pago,
-            "tipo": tipo,
+            "valor": valor_por_guia,
             "entidad": entidad,
-            "referencia": referencia,
-            "tracking": guia["referencia"],
-            "referencia_pago": referencia_pago,
+            "tipo": tipo,
+            "referencia": guia["referencia"],  # de la guía
+            "referencia_pago": referencia,     # única por pago
             "comprobante": comprobante_url,
-            "fecha": fecha_pago,
-            "estado": "registrado",
-            "creado_por": correo,
+            "estado": "pendiente",
+            "fecha_registro": fecha_hora_registro,
             "modificado_por": correo,
-            "novedades": "",
-            "creado_en": datetime.datetime.utcnow().isoformat()
+            "cliente": guia.get("cliente", "no_asignado")
         })
 
-    # 💾 Insertar en BigQuery
-    errors = client.insert_rows_json(table_id, filas)
-    if errors:
-        raise HTTPException(status_code=500, detail=errors)
-    
-    # ✅ Actualizar estado de las guías a "Pagado"
-    tracking_numbers = [guia["referencia"] for guia in lista_guias]
+    try:
+        tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
+        client.insert_rows_json(tabla, filas)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {e}")
 
-    update_query = """
-        UPDATE `datos-clientes-441216.Conciliaciones.COD_pendiente`
-        SET StatusP = 'Pagado'
-        WHERE tracking_number IN UNNEST(@ids)
-    """
+    try:
+        referencias_guias = [guia["referencia"] for guia in lista_guias]
+        client.query(f"""
+            UPDATE `datos-clientes-441216.pickup_data.COD_Pendiente`
+            SET estado = 'registrado'
+            WHERE referencia IN UNNEST(@refs)
+        """, job_config=bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("refs", "STRING", referencias_guias)
+            ]
+        )).result()
+    except Exception as e:
+        print("Error al actualizar estado de guías:", e)
 
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ArrayQueryParameter("ids", "STRING", tracking_numbers)
-        ]
-    )
-
-    client.query(update_query, job_config=job_config).result()
-
-
-    return {
-        "mensaje": "✅ Pago registrado correctamente.",
-        "referencia_pago": referencia_pago,
-        "comprobante_url": comprobante_url
-    }
-
-# ============================================
+    return {"mensaje": "Pago registrado correctamente", "valor_total": valor_pago}
 
 @router.get("/pagos-conductor")
-def obtener_pagos_conductor():
+def obtener_pagos():
     client = bigquery.Client()
     query = """
-        SELECT referencia, valor, fecha_pago AS fecha, entidad, estado, tipo, comprobante AS imagen,referencia_pago
+        SELECT referencia_pago, MAX(referencia) AS referencia, MAX(valor) AS valor,
+               MAX(fecha_pago) AS fecha, MAX(entidad) AS entidad, 
+               MAX(estado) AS estado, MAX(tipo) AS tipo,
+               MAX(comprobante) AS imagen, MAX(novedades) AS novedades
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        GROUP BY referencia_pago
         ORDER BY fecha DESC
     """
-    result = client.query(query).result()
-    pagos = [dict(row) for row in result]
-    return pagos
+    resultados = client.query(query).result()
+    return [dict(row) for row in resultados]
 
-@router.post("/actualizar-estado-cod")
-async def actualizar_estado_cod(tracking_numbers: list[str]):
-    query = """
-        UPDATE `datos-clientes-441216.Conciliaciones.COD_pendiente`
-        SET StatusP = 'Pagado'
-        WHERE tracking_number IN UNNEST(@ids)
-    """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ArrayQueryParameter("ids", "STRING", tracking_numbers)
-        ]
-    )
+@router.get("/detalles/{referencia_pago}")
+def obtener_detalles_pago(referencia_pago: str):
     client = bigquery.Client()
-    client.query(query, job_config=job_config).result()
-    return {"mensaje": "Actualización exitosa"}
-
-
-
-@router.post("/rechazar-pago")
-async def rechazar_pago_conductor(
-    referencia_pago: str = Body(...),
-    novedad: str = Body(...),
-    modificado_por: str = Body(...)
-):
-    client = bigquery.Client()
-
-    # ✅ 1. Obtener los trackings asociados a la referencia de pago
-    query_trackings = """
-        SELECT tracking
+    query = f"""
+        SELECT referencia
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
         WHERE referencia_pago = @ref
     """
@@ -170,45 +109,5 @@ async def rechazar_pago_conductor(
             bigquery.ScalarQueryParameter("ref", "STRING", referencia_pago)
         ]
     )
-    result = client.query(query_trackings, job_config=job_config).result()
-    trackings = [row["tracking"] for row in result]
-
-    if not trackings:
-        raise HTTPException(status_code=404, detail="No se encontraron pagos con esa referencia.")
-
-    # ✅ 2. Actualizar estado en pagosconductor
-    query_update_pagos = """
-        UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
-        SET estado = 'rechazado',
-            novedades = @novedad,
-            modificado_por = @contador
-        WHERE referencia_pago = @ref
-    """
-    job_config_update = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("novedad", "STRING", novedad),
-            bigquery.ScalarQueryParameter("contador", "STRING", modificado_por),
-            bigquery.ScalarQueryParameter("ref", "STRING", referencia_pago),
-        ]
-    )
-    client.query(query_update_pagos, job_config=job_config_update).result()
-
-    # ✅ 3. Volver guías a estado "Pendiente"
-    query_cod = """
-        UPDATE `datos-clientes-441216.Conciliaciones.COD_pendiente`
-        SET StatusP = 'Pendiente'
-        WHERE tracking_number IN UNNEST(@trackings)
-    """
-    job_config_cod = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ArrayQueryParameter("trackings", "STRING", trackings)
-        ]
-    )
-    client.query(query_cod, job_config=job_config_cod).result()
-
-    return {
-        "mensaje": "❌ Pago rechazado correctamente.",
-        "referencia_pago": referencia_pago,
-        "novedad": novedad,
-        "trackings_afectados": trackings
-    }
+    resultados = client.query(query, job_config=job_config).result()
+    return [row["referencia"] for row in resultados]
