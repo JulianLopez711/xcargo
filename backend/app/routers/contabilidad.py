@@ -112,4 +112,5 @@ def conciliacion_mensual(mes: str = Query(..., pattern=r"^\d{4}-\d{2}$")):
         return datos
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    print("❌ ERROR:", str(e))  # Añade esto para ver en consola
+    raise HTTPException(status_code=500, detail=str(e))

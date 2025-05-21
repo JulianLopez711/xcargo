@@ -18,11 +18,22 @@ export default function CalendarioConciliacion() {
   const [mesActual] = useState("2025-05"); // luego se puede hacer dinámico
 
   useEffect(() => {
-    fetch(`https://api.x-cargo.co/contabilidad/conciliacion-mensual?mes=${mesActual}`)
-      .then((res) => res.json())
-      .then(setDatos)
-      .catch(console.error);
-  }, [mesActual]);
+  fetch(`https://api.x-cargo.co/contabilidad/conciliacion-mensual?mes=${mesActual}`)
+    .then((res) => res.json())
+    .then((data) => {
+      if (Array.isArray(data)) {
+        setDatos(data);
+      } else {
+        console.error("Respuesta inesperada:", data);
+        setDatos([]); // evita que explote
+      }
+    })
+    .catch((err) => {
+      console.error("Error al cargar datos del calendario:", err);
+      setDatos([]);
+    });
+}, [mesActual]);
+
 
   // Genera estructura de calendario
   const generarCalendario = () => {
