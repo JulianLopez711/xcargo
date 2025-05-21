@@ -38,7 +38,7 @@ def obtener_resumen_contabilidad():
         agrupado = {}
 
         for row in canceladas_rows:
-            cliente = row["cliente"].capitalize()
+            cliente = (row["cliente"] or "Desconocido").capitalize()
             if cliente not in agrupado:
                 agrupado[cliente] = []
             agrupado[cliente].append({
@@ -49,7 +49,7 @@ def obtener_resumen_contabilidad():
             })
 
         for row in pendientes_rows:
-            cliente = row["cliente"].capitalize()
+            cliente = (row["cliente"] or "Desconocido").capitalize()
             if cliente not in agrupado:
                 agrupado[cliente] = []
             agrupado[cliente].append({

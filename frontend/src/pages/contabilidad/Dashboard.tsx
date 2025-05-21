@@ -17,11 +17,22 @@ export default function DashboardContabilidad() {
   const [resumen, setResumen] = useState<ClienteResumen[]>([]);
 
   useEffect(() => {
-    fetch("https://api.x-cargo.co/contabilidad/resumen")
-      .then((res) => res.json())
-      .then((data) => setResumen(data))
-      .catch((err) => console.error("Error cargando resumen:", err));
-  }, []);
+  fetch("https://api.x-cargo.co/contabilidad/resumen")
+    .then((res) => res.json())
+    .then((data) => {
+      if (Array.isArray(data)) {
+        setResumen(data);
+      } else {
+        console.error("Respuesta inesperada:", data);
+        setResumen([]);
+      }
+    })
+    .catch((err) => {
+      console.error("Error cargando resumen:", err);
+      setResumen([]);
+    });
+}, []);
+
 
   const calcularSubtotal = (datos: GuiaResumen[]) =>
     datos.reduce(
