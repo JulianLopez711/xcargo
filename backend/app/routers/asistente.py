@@ -4,11 +4,13 @@ from openai import OpenAI
 from typing import Optional
 import os
 
-
-
 router = APIRouter(prefix="/asistente", tags=["Asistente"])
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+class Mensaje(BaseModel):
+    pregunta: str
+    correo_usuario: str  # futuro uso para verificar identidad
 
 def construir_prompt_sistema(nombre_usuario: str, rol: str, guias: Optional[list[str]] = None):
     prompt = f"""
@@ -32,7 +34,6 @@ Tips de comunicación:
 - Si no puedes dar la respuesta, sugiere contactar a soporte.
 - No inventes información si no está disponible.
 - Puedes mencionar el nombre del usuario si es útil.
-
 """
     if guias:
         prompt += f"\nGuías activas del usuario: {', '.join(guias)}.\n"
@@ -40,3 +41,22 @@ Tips de comunicación:
     prompt += "\nResponde a continuación la pregunta del usuario:"
     return prompt
 
+@router.post("/chat")
+async def responder_pregunta(mensaje: Mensaje):
+    # Simulación básica para este ejemplo
+    nombre_usuario = "Juan Pérez"
+    rol = "conductor"
+    guias = ["G123", "G456"]
+
+    prompt_sistema = construir_prompt_sistema(nombre_usuario, rol, guias)
+
+    respuesta_llm = client.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": prompt_sistema},
+            {"role": "user", "content": mensaje.pregunta}
+        ]
+    )
+
+    respuesta_texto = respuesta_llm.choices[0].message.content
+    return {"respuesta": respuesta_texto}
