@@ -1,7 +1,8 @@
 from fastapi import APIRouter
 from google.cloud import bigquery
 
-router = APIRouter(prefix="/conciliacion", tags=["Conciliacion"])
+router = APIRouter(prefix="/cruces", tags=["Cruces"])
+
 
 @router.get("/cruces")
 def obtener_cruces():
