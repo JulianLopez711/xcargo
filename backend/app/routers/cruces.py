@@ -1,49 +1,59 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from google.cloud import bigquery
+from datetime import datetime
 
 router = APIRouter(prefix="/cruces", tags=["Cruces"])
-
 
 @router.get("/cruces")
 def obtener_cruces():
     client = bigquery.Client()
 
-    query = """
-    WITH pagos AS (
-      SELECT
-        referencia_pago,
-        SAFE_CAST(fecha_pago AS DATE) AS fecha,
-        ROUND(SUM(valor), 2) AS total_pagado
-      FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-      WHERE estado != 'rechazado'
-      GROUP BY referencia_pago, fecha
-    ),
-    banco AS (
-      SELECT
-        id,
-        fecha,
-        valor_banco,
-        entidad
-      FROM `datos-clientes-441216.Conciliaciones.banco_raw`
-    ),
-    cruces AS (
-      SELECT
-        b.fecha,
-        b.valor_banco,
-        b.entidad,
-        p.referencia_pago,
-        CASE
-          WHEN ABS(b.valor_banco - p.total_pagado) < 100 THEN 'conciliado'
-          WHEN p.referencia_pago IS NULL THEN 'pendiente'
-          ELSE 'duda'
-        END AS coincidencia
-      FROM banco b
-      LEFT JOIN pagos p
-      ON b.valor_banco BETWEEN p.total_pagado - 100 AND p.total_pagado + 100
-      AND b.fecha = p.fecha
-    )
-    SELECT * FROM cruces ORDER BY fecha DESC
+    # Consulta los pagos del banco cargados recientemente
+    query_banco = """
+        SELECT id, fecha, valor_banco, tipo, cargado_en
+        FROM `datos-clientes-441216.Conciliaciones.banco_raw`
+        WHERE conciliado_manual IS NULL OR conciliado_manual = FALSE
     """
+    banco_rows = client.query(query_banco).result()
+    banco_data = [dict(row) for row in banco_rows]
 
-    resultados = client.query(query).result()
-    return [dict(row) for row in resultados]
+    if not banco_data:
+        return []
+
+    # Consulta los pagos realizados por conductores
+    query_pagos = """
+        SELECT fecha_pago AS fecha, valor, tipo, referencia, tracking
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+    """
+    pagos_rows = client.query(query_pagos).result()
+    pagos_data = [dict(row) for row in pagos_rows]
+
+    resultados = []
+    for banco in banco_data:
+        coincidencias = [
+            pago for pago in pagos_data
+            if str(pago["fecha"]) == str(banco["fecha"])
+            and pago["valor"] == banco["valor_banco"]
+            and pago["tipo"].lower() == banco["tipo"].lower()
+        ]
+
+        if len(coincidencias) == 1:
+            coincidencia = "conciliado"
+            tracking = coincidencias[0].get("tracking")
+        elif len(coincidencias) > 1:
+            coincidencia = "duda"
+            tracking = None
+        else:
+            coincidencia = "pendiente"
+            tracking = None
+
+        resultados.append({
+            "id": banco["id"],
+            "fecha": banco["fecha"],
+            "valor_banco": banco["valor_banco"],
+            "tipo": banco["tipo"],
+            "coincidencia": coincidencia,
+            "tracking": tracking
+        })
+
+    return resultados

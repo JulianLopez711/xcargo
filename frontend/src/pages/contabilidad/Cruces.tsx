@@ -5,9 +5,9 @@ interface Cruce {
   id: string;
   fecha: string;
   valor_banco: number;
-  entidad: string;
-  referencia_pago: string;
+  tipo: string;
   coincidencia: "conciliado" | "pendiente" | "duda" | "conciliado_manual";
+  tracking?: string;
 }
 
 export default function Cruces() {
@@ -117,8 +117,8 @@ export default function Cruces() {
               <tr>
                 <th>Fecha</th>
                 <th>Valor del banco</th>
-                <th>Entidad</th>
-                <th>Ref. Pago</th>
+                <th>Tipo</th>
+                <th>Tracking</th>
                 <th>Estado de cruce</th>
                 <th>Acción</th>
               </tr>
@@ -128,8 +128,8 @@ export default function Cruces() {
                 <tr key={idx} className={"estado-" + c.coincidencia}>
                   <td>{c.fecha}</td>
                   <td>${c.valor_banco.toLocaleString()}</td>
-                  <td>{c.entidad}</td>
-                  <td>{c.referencia_pago || "-"}</td>
+                  <td>{c.tipo}</td>
+                  <td>{c.tracking || "-"}</td>
                   <td>{c.coincidencia}</td>
                   <td>
                     {(c.coincidencia === "pendiente" || c.coincidencia === "duda") && (
