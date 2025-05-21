@@ -1,4 +1,4 @@
-import "../../styles/DashboardCliente.css";
+import "../../styles/cliente/DashboardCliente.css";
 
 export default function DashboardOperador() {
   return (

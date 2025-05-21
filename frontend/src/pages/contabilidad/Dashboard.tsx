@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import "../../styles/DashboardContabilidad.css";
+import "../../styles//contabilidad/DashboardContabilidad.css";
 
 interface GuiaResumen {
   estado: string;

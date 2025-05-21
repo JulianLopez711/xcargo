@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import LoadingSpinner from "../../components/LoadingSpinner";
-import "../../styles/PagosPendientes.css";
+import "../../styles/conductor/PagosPendientes.css";
 
 interface Pago {
   id: number;

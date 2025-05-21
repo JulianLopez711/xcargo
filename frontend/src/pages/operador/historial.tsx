@@ -1,6 +1,6 @@
 // src/pages/operador/HistorialOperador.tsx
 import { useEffect, useState } from "react";
-import "../../styles/HistorialOperador.css";
+import "../../styles/cliente/HistorialOperador.css";
 import { saveAs } from "file-saver";
 
 interface RegistroPago {
