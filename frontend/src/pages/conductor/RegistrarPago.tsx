@@ -32,7 +32,6 @@ export default function RegistrarPago() {
     };
 
   const [archivo, setArchivo] = useState<File | null>(null);
-  const [usarBono, setUsarBono] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [analizando, setAnalizando] = useState(false);
   const [pagosCargados, setPagosCargados] = useState<PagoCompleto[]>([]);

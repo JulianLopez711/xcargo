@@ -302,6 +302,32 @@ export default function PagosContabilidad() {
           </div>
         </div>
       )}
+      {modalDetallesVisible && (
+        <div
+          className="modal-overlay"
+          onClick={() => setModalDetallesVisible(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3>Guías asociadas a este pago</h3>
+            {detalleTracking.length > 0 ? (
+              <ul>
+                {detalleTracking.map((ref, idx) => (
+                  <li key={idx}>🔹 {ref}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>No se encontraron trackings asociados.</p>
+            )}
+            <button
+              onClick={() => setModalDetallesVisible(false)}
+              className="cerrar-modal"
+              style={{ marginTop: "1rem" }}
+            >
+              ✕ Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
