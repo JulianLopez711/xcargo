@@ -14,20 +14,26 @@ async def cargar_csv_banco(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="El archivo debe ser un CSV")
 
     content = await file.read()
-    decoded = content.decode("utf-8")
-    reader = csv.DictReader(io.StringIO(decoded))
+    decoded = content.decode("utf-8-sig")  # Quita BOM
+    reader = csv.DictReader(io.StringIO(decoded), delimiter=";")  # Usa separador correcto
 
     registros = []
     for row in reader:
         try:
-            fecha = datetime.datetime.strptime(row["fecha"], "%Y-%m-%d").date().isoformat()
-            valor = float(row["valor"].replace(",", ""))
-            tipo = row["tipo"].strip()
+            # Asegúrate de que las claves están bien
+            fecha_raw = row.get("fecha") or row.get("Fecha") or row.get("FECHA")
+            valor_raw = row.get("valor") or row.get("Valor")
+            tipo = row.get("tipo") or row.get("Tipo") or ""
+
+            fecha = datetime.datetime.strptime(fecha_raw.strip(), "%d/%m/%Y").date().isoformat()
+            valor = float(valor_raw.replace(",", "").strip())
+            tipo = tipo.strip()
+
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error en fila: {row} - {str(e)}")
 
         registros.append({
-            "id": f"{row['fecha']}_{row['valor']}_{tipo}",  # ID único basado en 3 campos
+            "id": f"{fecha}_{valor}_{tipo}",
             "fecha": fecha,
             "valor_banco": valor,
             "tipo": tipo,
