@@ -8,7 +8,9 @@ import "../styles/Navbar.css";
 import { adminRoutes } from "../routes/adminRoutes/adminRoutes";
 import { contabilidadRoutes } from "../routes/contabilidadRoutes/contabilidadRoutes";
 import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
-import { clientRoutes } from "../routes/operadorRoutes/clientRoutes";
+import { operadorRoutes } from "../routes/operadorRoutes/operadorRoutes";
+
+
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -20,7 +22,8 @@ export default function Navbar() {
     admin: adminRoutes,
     contabilidad: contabilidadRoutes,
     conductor: conductorRoutes,
-    cliente: clientRoutes,
+    operador: operadorRoutes,
+
   };
 
   const handleClickOutside = (e: MouseEvent) => {

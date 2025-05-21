@@ -1,0 +1,68 @@
+.calendario-container {
+  padding: 2rem;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.titulo-calendario {
+  font-size: 20px;
+  color: #28a745;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.calendario-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.encabezado-dia {
+  font-weight: bold;
+  text-align: center;
+  padding: 10px 0;
+  background: #e8f5e9;
+  border-radius: 6px;
+  color: #2e7d32;
+}
+
+.celda-dia {
+  min-height: 130px;
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: start;
+}
+
+.celda-dia.vacio {
+  background-color: transparent;
+  border: none;
+}
+
+.fecha {
+  font-weight: bold;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.dato {
+  margin: 2px 0;
+}
+
+.avance {
+  color: #2e7d32;
+  font-weight: bold;
+}
+
+@media (max-width: 768px) {
+  .calendario-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .celda-dia {
+    font-size: 13px;
+  }
+}

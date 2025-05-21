@@ -39,13 +39,13 @@ const XCargoLogin: React.FC = () => {
         administrador: "admin",
         contabilidad: "contabilidad",
         conductor: "conductor",
-        operador: "cliente",
+        operador: "operador",
       };
 
       const rolEsperado = rolMapeo[selectedRole.toLowerCase()];
       const rolDesdeBackend = data.rol?.toLowerCase();
-      console.log("Rol esperado:", rolEsperado);
-      console.log("Rol desde backend:", rolDesdeBackend);
+      //console.log("Rol esperado:", rolEsperado);
+      //console.log("Rol desde backend:", rolDesdeBackend);
 
       if (rolEsperado !== rolDesdeBackend) {
         alert("Rol incorrecto. Verifica tu selección.");
@@ -83,7 +83,6 @@ const XCargoLogin: React.FC = () => {
         administrador: "/admin/dashboard",
         contabilidad: "/contabilidad/dashboard",
         conductor: "/conductor/pagos",
-        cliente: "/operador/dashboard",
         operador: "/operador/dashboard",
       };
 

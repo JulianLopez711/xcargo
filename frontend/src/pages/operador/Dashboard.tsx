@@ -1,10 +1,12 @@
-import "../../styles/cliente/DashboardCliente.css";
+import "../../styles/cliente/DashboardOperador.css";
 
 export default function DashboardOperador() {
   return (
     <div className="dashboard-operador">
       <h2>Panel del Operador</h2>
-      <p className="bienvenida">Bienvenido, aquí puedes visualizar tus estadísticas generales.</p>
+      <p className="bienvenida">
+        Bienvenido, aquí puedes visualizar tus estadísticas generales.
+      </p>
 
       <div className="tarjetas-resumen">
         <div className="tarjeta">
