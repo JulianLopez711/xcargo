@@ -161,14 +161,12 @@ async def registrar_pago_conductor(
         df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce").dt.date
         df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
         
-        # Convertir hora_pago a formato TIME (HH:MM:SS)
+        # Convertir hora_pago como STRING simple
         df["hora_pago"] = df["hora_pago"].astype(str)
-        # Asegurar formato HH:MM:SS
-        df["hora_pago"] = df["hora_pago"].apply(lambda x: x if len(x) == 8 else f"{x}:00" if len(x) == 5 else x)
+        df["hora_pago"] = df["hora_pago"].apply(lambda x: x if x not in ['None', 'nan', ''] else None)
         
-        # Convertir valor a NUMERIC (Decimal)
-        from decimal import Decimal
-        df["valor"] = df["valor"].apply(lambda x: Decimal(str(x)) if pd.notna(x) else None)
+        # Convertir valor a numérico simple (evitar Decimal por problemas con PyArrow)
+        df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
         
         # Forzar campos string requeridos
         required_strings = ["referencia", "entidad", "estado", "tipo", "comprobante", 
@@ -183,7 +181,7 @@ async def registrar_pago_conductor(
         for col in optional_strings:
             if col in df.columns:
                 df[col] = df[col].astype(str)
-                df[col] = df[col].replace(['None', 'nan'], None)
+                df[col] = df[col].replace(['None', 'nan', ''], None)
         
         # Agregar id_string si no existe (aunque sea nullable)
         if "id_string" not in df.columns:
@@ -197,7 +195,7 @@ async def registrar_pago_conductor(
         if df["valor"].isnull().any():
             raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
 
-        # Definir esquema exacto según BigQuery
+        # Definir esquema exacto según BigQuery (modificado para compatibilidad)
         schema = [
             bigquery.SchemaField("referencia", "STRING", mode="REQUIRED"),
             bigquery.SchemaField("valor", "NUMERIC", mode="REQUIRED"),
@@ -211,7 +209,7 @@ async def registrar_pago_conductor(
             bigquery.SchemaField("creado_por", "STRING", mode="REQUIRED"),
             bigquery.SchemaField("modificado_en", "TIMESTAMP", mode="NULLABLE"),
             bigquery.SchemaField("modificado_por", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("hora_pago", "TIME", mode="NULLABLE"),
+            bigquery.SchemaField("hora_pago", "STRING", mode="NULLABLE"),  # Cambiar a STRING temporalmente
             bigquery.SchemaField("correo", "STRING", mode="NULLABLE"),
             bigquery.SchemaField("fecha_pago", "DATE", mode="NULLABLE"),
             bigquery.SchemaField("id_string", "STRING", mode="NULLABLE"),
