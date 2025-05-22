@@ -484,6 +484,7 @@ def test_table_access():
             "error": str(e),
             "timestamp": datetime.utcnow().isoformat()
         }
+@router.get("/detalles-pago")
 def obtener_detalles_pago(referencia_pago: str):
     """Obtiene los trackings asociados a un pago específico"""
     client = bigquery.Client()
@@ -519,100 +520,100 @@ def obtener_detalles_pago(referencia_pago: str):
         raise HTTPException(status_code=500, detail=f"Error al obtener detalles del pago: {str(e)}")
 
 @router.get("/pagos-conductor")
-def obtener_pagos():
-    client = bigquery.Client()
-    
-    try:
-        # Primero verificar qué columnas existen en la tabla
-        schema_query = """
-        SELECT column_name
-        FROM `datos-clientes-441216.Conciliaciones.INFORMATION_SCHEMA.COLUMNS`
-        WHERE table_name = 'pagosconductor'
-        """
+    def obtener_pagos():
+        client = bigquery.Client()
         
-        schema_result = client.query(schema_query).result()
-        columnas_existentes = [row["column_name"] for row in schema_result]
-        
-        print(f"Columnas existentes: {columnas_existentes}")
-        
-        # Construir query dinámicamente basado en columnas existentes
-        if "valor_total_consignacion" in columnas_existentes:
-            valor_query = "COALESCE(MAX(valor_total_consignacion), SUM(valor))"
-        else:
-            valor_query = "SUM(valor)"
+        try:
+            # Primero verificar qué columnas existen en la tabla
+            schema_query = """
+            SELECT column_name
+            FROM `datos-clientes-441216.Conciliaciones.INFORMATION_SCHEMA.COLUMNS`
+            WHERE table_name = 'pagosconductor'
+            """
             
-        if "tracking" in columnas_existentes:
-            tracking_query = "STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia))"
-        else:
-            tracking_query = "STRING_AGG(DISTINCT referencia, ', ' ORDER BY referencia)"
-        
-        query = f"""
-            SELECT 
-                referencia_pago, 
-                {valor_query} AS valor,
-                MAX(fecha_pago) AS fecha, 
-                MAX(COALESCE(entidad, 'Sin Entidad')) AS entidad,
-                MAX(COALESCE(estado, 'pendiente')) AS estado, 
-                MAX(COALESCE(tipo, 'Sin Tipo')) AS tipo,
-                MAX(COALESCE(comprobante, '')) AS imagen,
-                MAX(COALESCE(novedades, '')) AS novedades,
-                COUNT(*) as num_guias,
-                {tracking_query} as trackings_preview
-            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-            WHERE referencia_pago IS NOT NULL 
-              AND referencia_pago != ''
-            GROUP BY referencia_pago
-            ORDER BY MAX(fecha_pago) DESC
-            LIMIT 100
-        """
-        
-        print(f"Query generado: {query}")
-        
-        resultados = client.query(query).result()
-        
-        pagos = []
-        for row in resultados:
-            pago = {
-                "referencia_pago": row.get("referencia_pago", ""),
-                "valor": float(row.get("valor", 0)) if row.get("valor") else 0.0,
-                "fecha": str(row.get("fecha", "")),
-                "entidad": str(row.get("entidad", "")),
-                "estado": str(row.get("estado", "")),
-                "tipo": str(row.get("tipo", "")),
-                "imagen": str(row.get("imagen", "")),
-                "novedades": str(row.get("novedades", "")),
-                "num_guias": int(row.get("num_guias", 0)),
-                "trackings_preview": str(row.get("trackings_preview", ""))
-            }
+            schema_result = client.query(schema_query).result()
+            columnas_existentes = [row["column_name"] for row in schema_result]
             
-            # Limitar preview de trackings a los primeros 3
-            if pago["trackings_preview"]:
-                trackings_list = pago["trackings_preview"].split(", ")
-                if len(trackings_list) > 3:
-                    pago["trackings_preview"] = ", ".join(trackings_list[:3]) + f" (+{len(trackings_list)-3} más)"
+            print(f"Columnas existentes: {columnas_existentes}")
             
-            pagos.append(pago)
-        
-        print(f"Pagos obtenidos: {len(pagos)}")
-        return pagos
-        
-    except Exception as e:
-        print(f"Error en pagos-conductor: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # Fallback - devolver datos básicos si todo falla
-        return [
-            {
-                "referencia_pago": "ERROR_LOADING",
-                "valor": 0.0,
-                "fecha": "2025-01-01",
-                "entidad": "Error",
-                "estado": "error",
-                "tipo": "Error",
-                "imagen": "",
-                "novedades": "Error cargando datos",
-                "num_guias": 0,
-                "trackings_preview": "Error"
-            }
-        ]
+            # Construir query dinámicamente basado en columnas existentes
+            if "valor_total_consignacion" in columnas_existentes:
+                valor_query = "COALESCE(MAX(valor_total_consignacion), SUM(valor))"
+            else:
+                valor_query = "SUM(valor)"
+                
+            if "tracking" in columnas_existentes:
+                tracking_query = "STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia))"
+            else:
+                tracking_query = "STRING_AGG(DISTINCT referencia, ', ' ORDER BY referencia)"
+            
+            query = f"""
+                SELECT 
+                    referencia_pago, 
+                    {valor_query} AS valor,
+                    MAX(fecha_pago) AS fecha, 
+                    MAX(COALESCE(entidad, 'Sin Entidad')) AS entidad,
+                    MAX(COALESCE(estado, 'pendiente')) AS estado, 
+                    MAX(COALESCE(tipo, 'Sin Tipo')) AS tipo,
+                    MAX(COALESCE(comprobante, '')) AS imagen,
+                    MAX(COALESCE(novedades, '')) AS novedades,
+                    COUNT(*) as num_guias,
+                    {tracking_query} as trackings_preview
+                FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+                WHERE referencia_pago IS NOT NULL 
+                AND referencia_pago != ''
+                GROUP BY referencia_pago
+                ORDER BY MAX(fecha_pago) DESC
+                LIMIT 100
+            """
+            
+            print(f"Query generado: {query}")
+            
+            resultados = client.query(query).result()
+            
+            pagos = []
+            for row in resultados:
+                pago = {
+                    "referencia_pago": row.get("referencia_pago", ""),
+                    "valor": float(row.get("valor", 0)) if row.get("valor") else 0.0,
+                    "fecha": str(row.get("fecha", "")),
+                    "entidad": str(row.get("entidad", "")),
+                    "estado": str(row.get("estado", "")),
+                    "tipo": str(row.get("tipo", "")),
+                    "imagen": str(row.get("imagen", "")),
+                    "novedades": str(row.get("novedades", "")),
+                    "num_guias": int(row.get("num_guias", 0)),
+                    "trackings_preview": str(row.get("trackings_preview", ""))
+                }
+                
+                # Limitar preview de trackings a los primeros 3
+                if pago["trackings_preview"]:
+                    trackings_list = pago["trackings_preview"].split(", ")
+                    if len(trackings_list) > 3:
+                        pago["trackings_preview"] = ", ".join(trackings_list[:3]) + f" (+{len(trackings_list)-3} más)"
+                
+                pagos.append(pago)
+            
+            print(f"Pagos obtenidos: {len(pagos)}")
+            return pagos
+            
+        except Exception as e:
+            print(f"Error en pagos-conductor: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Fallback - devolver datos básicos si todo falla
+            return [
+                {
+                    "referencia_pago": "ERROR_LOADING",
+                    "valor": 0.0,
+                    "fecha": "2025-01-01",
+                    "entidad": "Error",
+                    "estado": "error",
+                    "tipo": "Error",
+                    "imagen": "",
+                    "novedades": "Error cargando datos",
+                    "num_guias": 0,
+                    "trackings_preview": "Error"
+                }
+            ]
