@@ -471,9 +471,15 @@ def obtener_detalles_pago(referencia_pago: str):
 @router.get("/pagos-conductor")
 def obtener_pagos():
     client = bigquery.Client()
+    
+    # Query defensivo que funciona con o sin la columna valor_total_consignacion
     query = """
         SELECT referencia_pago, 
-               MAX(valor_total_consignacion) AS valor,
+               CASE 
+                 WHEN COUNT(DISTINCT valor_total_consignacion) > 0 
+                 THEN MAX(valor_total_consignacion)
+                 ELSE SUM(valor)
+               END AS valor,
                MAX(fecha_pago) AS fecha, 
                MAX(entidad) AS entidad,
                MAX(estado) AS estado, 
@@ -483,19 +489,53 @@ def obtener_pagos():
                COUNT(*) as num_guias,
                STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia)) as trackings_preview
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE referencia_pago IS NOT NULL
         GROUP BY referencia_pago
         ORDER BY fecha DESC
     """
-    resultados = client.query(query).result()
     
-    pagos = []
-    for row in resultados:
-        pago = dict(row)
-        # Limitar preview de trackings a los primeros 3
-        if pago['trackings_preview']:
-            trackings_list = pago['trackings_preview'].split(', ')
-            if len(trackings_list) > 3:
-                pago['trackings_preview'] = ', '.join(trackings_list[:3]) + f' (+{len(trackings_list)-3} más)'
-        pagos.append(pago)
-    
-    return pagos
+    try:
+        resultados = client.query(query).result()
+        
+        pagos = []
+        for row in resultados:
+            pago = dict(row)
+            # Limitar preview de trackings a los primeros 3
+            if pago.get('trackings_preview'):
+                trackings_list = pago['trackings_preview'].split(', ')
+                if len(trackings_list) > 3:
+                    pago['trackings_preview'] = ', '.join(trackings_list[:3]) + f' (+{len(trackings_list)-3} más)'
+            pagos.append(pago)
+        
+        return pagos
+        
+    except Exception as e:
+        print(f"Error en pagos-conductor: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Query fallback más simple
+        try:
+            query_simple = """
+                SELECT referencia_pago, 
+                       SUM(valor) AS valor,
+                       MAX(fecha_pago) AS fecha, 
+                       MAX(entidad) AS entidad,
+                       MAX(estado) AS estado, 
+                       MAX(tipo) AS tipo,
+                       MAX(comprobante) AS imagen,
+                       MAX(novedades) AS novedades,
+                       COUNT(*) as num_guias,
+                       'Ver detalles' as trackings_preview
+                FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+                WHERE referencia_pago IS NOT NULL
+                GROUP BY referencia_pago
+                ORDER BY fecha DESC
+            """
+            
+            resultados = client.query(query_simple).result()
+            return [dict(row) for row in resultados]
+            
+        except Exception as e2:
+            print(f"Error en query fallback: {e2}")
+            return []
