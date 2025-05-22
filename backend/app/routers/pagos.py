@@ -91,9 +91,9 @@ async def registrar_pago_conductor(
     refs_str = "', '".join(referencias_guias)
     
     query_clientes = f"""
-        SELECT referencia, cliente, valor
-        FROM `datos-clientes-441216.pickup_data.COD_Pendiente`
-        WHERE referencia IN ('{refs_str}')
+        SELECT tracking_number as referencia, cliente, Valor as valor
+        FROM `datos-clientes-441216.Conciliaciones.COD_Pendiente`
+        WHERE tracking_number IN ('{refs_str}')
     """
     
     try:
@@ -240,6 +240,19 @@ async def registrar_pago_conductor(
         job.result()  # Esperar a que termine
         
         print("✅ Datos insertados correctamente usando SQL directo")
+        
+        # Actualizar StatusP a "pagado" en COD_Pendiente
+        try:
+            update_query = f"""
+            UPDATE `datos-clientes-441216.Conciliaciones.COD_Pendiente`
+            SET StatusP = 'pagado'
+            WHERE tracking_number IN ('{refs_str}')
+            """
+            client.query(update_query).result()
+            print("✅ StatusP actualizado a 'pagado' en COD_Pendiente")
+        except Exception as e:
+            print(f"⚠️ Error actualizando StatusP: {e}")
+        
         return {"mensaje": "✅ Pago registrado correctamente", "valor_total": valor_pago}
 
     except Exception as e:
@@ -279,7 +292,7 @@ def aprobar_pago(data: dict = Body(...)):
     # 2. Obtener referencias de tracking asociadas
     try:
         resultado = client.query("""
-            SELECT referencia
+            SELECT tracking
             FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
             WHERE referencia_pago = @referencia
         """, job_config=bigquery.QueryJobConfig(
@@ -288,24 +301,21 @@ def aprobar_pago(data: dict = Body(...)):
             ]
         )).result()
 
-        referencias = [r["referencia"] for r in resultado]
+        referencias = [r["tracking"] for r in resultado if r["tracking"]]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al consultar guías asociadas: {e}")
 
     if not referencias:
         raise HTTPException(status_code=404, detail="No se encontraron guías asociadas al pago.")
 
-    # 3. Actualizar guías a "liberado"
+    # 3. Actualizar guías a "liberado" en COD_Pendiente
     try:
-        client.query("""
+        refs_str = "', '".join(referencias)
+        client.query(f"""
             UPDATE `datos-clientes-441216.Conciliaciones.COD_Pendiente`
-            SET estado = 'liberado'
-            WHERE referencia IN UNNEST(@refs)
-        """, job_config=bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ArrayQueryParameter("refs", "STRING", referencias)
-            ]
-        )).result()
+            SET StatusP = 'liberado'
+            WHERE tracking_number IN ('{refs_str}')
+        """).result()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al actualizar estado de guías: {e}")
 
@@ -343,7 +353,7 @@ def rechazar_pago(data: dict = Body(...)):
     # 2. Consultar guías asociadas
     try:
         resultado = client.query("""
-            SELECT referencia
+            SELECT tracking
             FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
             WHERE referencia_pago = @referencia
         """, job_config=bigquery.QueryJobConfig(
@@ -352,7 +362,7 @@ def rechazar_pago(data: dict = Body(...)):
             ]
         )).result()
 
-        referencias = [r["referencia"] for r in resultado]
+        referencias = [r["tracking"] for r in resultado if r["tracking"]]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al consultar guías asociadas: {e}")
 
@@ -361,15 +371,12 @@ def rechazar_pago(data: dict = Body(...)):
 
     # 3. Volver las guías a estado "pendiente"
     try:
-        client.query("""
+        refs_str = "', '".join(referencias)
+        client.query(f"""
             UPDATE `datos-clientes-441216.Conciliaciones.COD_Pendiente`
-            SET estado = 'pendiente'
-            WHERE referencia IN UNNEST(@refs)
-        """, job_config=bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ArrayQueryParameter("refs", "STRING", referencias)
-            ]
-        )).result()
+            SET StatusP = 'pendiente'
+            WHERE tracking_number IN ('{refs_str}')
+        """).result()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al actualizar guías a 'pendiente': {e}")
 
@@ -466,7 +473,7 @@ def obtener_pagos():
     client = bigquery.Client()
     query = """
         SELECT referencia_pago, 
-               SUM(valor) AS valor,
+               MAX(valor_total_consignacion) AS valor,
                MAX(fecha_pago) AS fecha, 
                MAX(entidad) AS entidad,
                MAX(estado) AS estado, 

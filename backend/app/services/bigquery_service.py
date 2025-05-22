@@ -1,67 +1,44 @@
-import os
+# En app/services/bigquery_service.py
+
 from google.cloud import bigquery
-from app.core.config import GOOGLE_CREDENTIALS_PATH
-
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_CREDENTIALS_PATH
-
-client = bigquery.Client()
 
 def obtener_pagos_pendientes():
+    """Obtiene los pagos pendientes para conductores"""
+    client = bigquery.Client()
+    
+    query = """
+        SELECT 
+            tracking_number as tracking,
+            Empleado as conductor,
+            cliente as empresa,
+            Valor as valor,
+            StatusP as estado,
+            '' as novedad
+        FROM `datos-clientes-441216.Conciliaciones.COD_Pendiente`
+        WHERE StatusP = 'pendiente' OR StatusP IS NULL
+        ORDER BY Status_Date DESC
+    """
+    
     try:
-        query = """
-            SELECT 
-                tracking_number AS tracking,
-                Empleado AS conductor,
-                carrier AS empresa,
-                Valor,
-                Status_Date AS fecha
-            FROM `datos-clientes-441216.Conciliaciones.COD_pendiente`
-            WHERE StatusP = 'Pendiente'
-        """
-
         resultados = client.query(query).result()
-
-        pagos = []
-        for row in resultados:
-            pagos.append({
-                "tracking": row.tracking,
-                "conductor": row.conductor,
-                "empresa": row.empresa,
-                "valor": row.Valor,
-                "fecha": str(row.fecha)
-            })
-        return pagos
+        return [dict(row) for row in resultados]
     except Exception as e:
-        print("❌ ERROR EN BIGQUERY:", e)
+        print(f"Error consultando pagos pendientes: {e}")
         return []
 
-
-# Simulación de base de datos temporal para relaciones de prueba
-db_relaciones_temporal = []
-
-def registrar_relacion_pago_guias(referencia: str, guias: list):
-    try:
-        relacion = {
-            "referencia": referencia,
-            "guias": guias,
-        }
-        db_relaciones_temporal.append(relacion)
-        print(f"✅ Relación registrada en prueba: {relacion}")
-        return {"mensaje": "Relación guardada en memoria temporal"}
-    except Exception as e:
-        print("❌ Error al registrar relación:", e)
-        return {"error": str(e)}
-
-def obtener_relaciones_temporales():
-    return db_relaciones_temporal
-
 def obtener_roles():
-    return [
-        {"id_rol": "1", "nombre_rol": "Administrador", "descripcion": "Control total del sistema"},
-        {"id_rol": "2", "nombre_rol": "Conductor", "descripcion": "Registra pagos y entregas"},
-        {"id_rol": "3", "nombre_rol": "Contabilidad", "descripcion": "Conciliación y reportes"},
-        {"id_rol": "4", "nombre_rol": "Operador", "descripcion": "Carga entregas y pagos"},
-        {"id_rol": "5", "nombre_rol": "Director", "descripcion": "Vista general de datos"},
-    ]
-
-
+    """Obtiene los roles disponibles"""
+    client = bigquery.Client()
+    
+    query = """
+        SELECT id_rol, nombre_rol, descripcion
+        FROM `datos-clientes-441216.Conciliaciones.roles`
+        ORDER BY nombre_rol
+    """
+    
+    try:
+        resultados = client.query(query).result()
+        return [dict(row) for row in resultados]
+    except Exception as e:
+        print(f"Error consultando roles: {e}")
+        return []
