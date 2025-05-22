@@ -165,16 +165,19 @@ export default function RegistrarPago() {
             cliente: "por_definir",
           };
           
-          // Validar tracking - solo incluir si es válido
+          // Validar tracking - usar referencia si no hay tracking válido
           if (g.tracking) {
             const trackingStr = String(g.tracking).trim();
-            // Verificar si es un UUID válido o un string válido (no vacío, no "null", no "undefined")
             if (trackingStr && 
                 trackingStr.toLowerCase() !== "null" && 
                 trackingStr.toLowerCase() !== "undefined" &&
                 trackingStr !== "") {
               guiaObj.tracking = trackingStr;
+            } else {
+              guiaObj.tracking = g.referencia; // Usar referencia como fallback
             }
+          } else {
+            guiaObj.tracking = g.referencia; // Usar referencia como fallback
           }
           
           return guiaObj;

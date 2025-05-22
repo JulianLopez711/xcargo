@@ -106,17 +106,18 @@ async def registrar_pago_conductor(
         
         # Validar y limpiar tracking
         tracking_value = guia.get("tracking", "")
-        if tracking_value and tracking_value.lower() not in ["null", "none", ""]:
-            # Solo incluir si es un string válido, no un UUID malformado
+        if tracking_value and str(tracking_value).lower() not in ["null", "none", "", "undefined"]:
+            # Solo incluir si es un string válido
             tracking_clean = str(tracking_value).strip()
             print(f"   - Tracking limpio: '{tracking_clean}' (length: {len(tracking_clean)})")
         else:
-            tracking_clean = ""
-            print(f"   - Tracking vacío o null")
+            # Si no hay tracking, usar la referencia como tracking
+            tracking_clean = referencia_value
+            print(f"   - Tracking usando referencia: '{tracking_clean}'")
         
         # Validar y limpiar cliente
         cliente_value = guia.get("cliente", "no_asignado")
-        if cliente_value and cliente_value.lower() not in ["null", "none", ""]:
+        if cliente_value and str(cliente_value).lower() not in ["null", "none", "", "undefined"]:
             cliente_clean = str(cliente_value).strip()
             print(f"   - Cliente limpio: '{cliente_clean}'")
         else:
@@ -406,6 +407,41 @@ def historial_pagos(
 
     return [dict(row) for row in resultados]
 
+@router.get("/detalles/{referencia_pago}")
+def obtener_detalles_pago(referencia_pago: str):
+    """Obtiene los trackings asociados a un pago específico"""
+    client = bigquery.Client()
+    
+    try:
+        query = """
+            SELECT tracking, referencia, valor
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE referencia_pago = @referencia_pago
+            ORDER BY tracking
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago)
+            ]
+        )
+        
+        resultado = client.query(query, job_config=job_config).result()
+        trackings = []
+        
+        for row in resultado:
+            tracking = row["tracking"] if row["tracking"] else row["referencia"]
+            trackings.append({
+                "tracking": tracking,
+                "referencia": row["referencia"],
+                "valor": float(row["valor"])
+            })
+        
+        return trackings
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener detalles del pago: {str(e)}")
+
 @router.get("/pagos-conductor")
 def obtener_pagos():
     client = bigquery.Client()
@@ -418,10 +454,22 @@ def obtener_pagos():
                MAX(tipo) AS tipo,
                MAX(comprobante) AS imagen,
                MAX(novedades) AS novedades,
-               MAX(referencia) AS referencia
+               COUNT(*) as num_guias,
+               STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia)) as trackings_preview
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
         GROUP BY referencia_pago
         ORDER BY fecha DESC
     """
     resultados = client.query(query).result()
-    return [dict(row) for row in resultados]
+    
+    pagos = []
+    for row in resultados:
+        pago = dict(row)
+        # Limitar preview de trackings a los primeros 3
+        if pago['trackings_preview']:
+            trackings_list = pago['trackings_preview'].split(', ')
+            if len(trackings_list) > 3:
+                pago['trackings_preview'] = ', '.join(trackings_list[:3]) + f' (+{len(trackings_list)-3} más)'
+        pagos.append(pago)
+    
+    return pagos

@@ -4,15 +4,22 @@ import { useEffect, useState } from "react";
 import { saveAs } from "file-saver";
 
 interface Pago {
-  referencia: string;
+  referencia_pago: string;
   valor: number;
   fecha: string;
   entidad: string;
   estado: string;
   tipo: string;
   imagen: string;
-  referencia_pago: string;
   novedades?: string;
+  num_guias: number;
+  trackings_preview: string;
+}
+
+interface DetalleTracking {
+  tracking: string;
+  referencia: string;
+  valor: number;
 }
 
 export default function PagosContabilidad() {
@@ -23,38 +30,35 @@ export default function PagosContabilidad() {
   const [modalVisible, setModalVisible] = useState(false);
   const [novedad, setNovedad] = useState("");
   const [refPagoSeleccionada, setRefPagoSeleccionada] = useState("");
-  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(
-    null
-  );
-  const [detalleTracking, setDetalleTracking] = useState<string[]>([]);
+  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
+  const [detalleTracking, setDetalleTracking] = useState<DetalleTracking[]>([]);
   const [modalDetallesVisible, setModalDetallesVisible] = useState(false);
 
   const obtenerPagos = async () => {
-  try {
-    const res = await fetch("https://api.x-cargo.co/pagos/pagos-conductor");
-    const data = await res.json();
+    try {
+      const res = await fetch("https://api.x-cargo.co/pagos/pagos-conductor");
+      const data = await res.json();
 
-    if (!Array.isArray(data)) {
-      console.error("Respuesta inesperada:", data);
+      if (!Array.isArray(data)) {
+        console.error("Respuesta inesperada:", data);
+        setPagos([]);
+        return;
+      }
+
+      setPagos(data);
+    } catch (err) {
+      console.error("Error cargando pagos:", err);
+      alert("Error al cargar pagos desde el servidor.");
       setPagos([]);
-      return;
     }
-
-    setPagos(data);
-  } catch (err) {
-    console.error("Error cargando pagos:", err);
-    alert("Error al cargar pagos desde el servidor.");
-    setPagos([]);
-  }
-};
-
+  };
 
   useEffect(() => {
     obtenerPagos();
   }, []);
 
   const pagosFiltrados = pagos.filter((p) => {
-    const cumpleReferencia = p.referencia
+    const cumpleReferencia = p.referencia_pago
       .toLowerCase()
       .includes(filtroReferencia.toLowerCase());
     const cumpleDesde = !fechaDesde || p.fecha >= fechaDesde;
@@ -63,13 +67,11 @@ export default function PagosContabilidad() {
   });
 
   const descargarCSV = () => {
-    const encabezado = "ID,Referencia,Valor,Fecha,Entidad,Estado,Tipo\n";
+    const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias\n";
     const filas = pagosFiltrados
       .map(
         (p, idx) =>
-          `${idx + 1},${p.referencia},${p.valor},${p.fecha},${p.entidad},${
-            p.estado
-          },${p.tipo}`
+          `${idx + 1},${p.referencia_pago},${p.valor},${p.fecha},${p.entidad},${p.estado},${p.tipo},${p.num_guias}`
       )
       .join("\n");
 
@@ -85,17 +87,39 @@ export default function PagosContabilidad() {
   const verImagen = (src: string) => {
     setImagenSeleccionada(src);
   };
+
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const res = await fetch(
-        `https://api.x-cargo.co/pagos/detalles/${referenciaPago}`
-      );
+      const res = await fetch(`https://api.x-cargo.co/pagos/detalles/${referenciaPago}`);
       const data = await res.json();
       setDetalleTracking(data);
       setModalDetallesVisible(true);
     } catch (err) {
       console.error("Error cargando detalles:", err);
       alert("Error al cargar detalles del pago.");
+    }
+  };
+
+  const aprobarPago = async (referenciaPago: string) => {
+    try {
+      const user = JSON.parse(localStorage.getItem("user")!);
+      const res = await fetch("https://api.x-cargo.co/pagos/aprobar-pago", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          referencia_pago: referenciaPago,
+          modificado_por: user.email,
+        }),
+      });
+
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.detail || "Error desconocido");
+
+      alert("✅ Pago aprobado correctamente.");
+      obtenerPagos();
+    } catch (error: any) {
+      console.error(error);
+      alert("❌ Error al aprobar el pago: " + error.message);
     }
   };
 
@@ -171,14 +195,15 @@ export default function PagosContabilidad() {
           <thead>
             <tr>
               <th>ID</th>
-              <th>Ref. Comprobante</th>
-              <th>Valor</th>
+              <th>Ref. Pago</th>
+              <th>Valor Total</th>
+              <th>Guías</th>
               <th>Fecha</th>
               <th>Entidad</th>
               <th>Tipo</th>
               <th>Estado</th>
               <th>Comprobante</th>
-              <th>Detalles</th>
+              <th>Trackings</th>
               <th>Novedades</th>
               <th>Acción</th>
             </tr>
@@ -189,14 +214,16 @@ export default function PagosContabilidad() {
               pagosFiltrados.map((p, idx) => (
                 <tr key={idx}>
                   <td>{idx + 1}</td>
-                  <td>{p.referencia}</td>
+                  <td>{p.referencia_pago}</td>
                   <td>${p.valor.toLocaleString()}</td>
+                  <td>{p.num_guias}</td>
                   <td>{p.fecha}</td>
                   <td>{p.entidad}</td>
                   <td>{p.tipo}</td>
                   <td
                     style={{
-                      color: p.estado === "rechazado" ? "crimson" : undefined,
+                      color: p.estado === "rechazado" ? "crimson" : 
+                             p.estado === "aprobado" ? "green" : undefined,
                     }}
                   >
                     {p.estado}
@@ -213,8 +240,9 @@ export default function PagosContabilidad() {
                     <button
                       onClick={() => verDetallesPago(p.referencia_pago)}
                       className="btn-ver"
+                      title={p.trackings_preview}
                     >
-                      Detalles
+                      Detalles ({p.num_guias})
                     </button>
                   </td>
                   <td>
@@ -228,11 +256,11 @@ export default function PagosContabilidad() {
                   </td>
                   <td>
                     <button
-                      onClick={() => alert("✅ Pago aprobado (simulado)")}
+                      onClick={() => aprobarPago(p.referencia_pago)}
                       className="boton-aprobar"
                       disabled={p.estado === "aprobado"}
                     >
-                      Aprobar
+                      {p.estado === "aprobado" ? "Aprobado" : "Aprobar"}
                     </button>
                     <button
                       onClick={() => {
@@ -240,6 +268,7 @@ export default function PagosContabilidad() {
                         setModalVisible(true);
                       }}
                       className="boton-rechazar"
+                      disabled={p.estado === "rechazado"}
                     >
                       Rechazar
                     </button>
@@ -249,7 +278,7 @@ export default function PagosContabilidad() {
             ) : (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={12}
                   style={{ textAlign: "center", padding: "1rem" }}
                 >
                   No hay pagos registrados.
@@ -258,30 +287,48 @@ export default function PagosContabilidad() {
             )}
           </tbody>
         </table>
-        {modalDetallesVisible && (
-  <div className="modal-overlay" onClick={() => setModalDetallesVisible(false)}>
-    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-      <h3>Trackings asociados al pago</h3>
-      {detalleTracking.length > 0 ? (
-        <ul>
-          {detalleTracking.map((ref, idx) => (
-            <li key={idx}>🔹 {ref}</li>
-          ))}
-        </ul>
-      ) : (
-        <p>No hay guías asociadas.</p>
-      )}
-      <button
-        onClick={() => setModalDetallesVisible(false)}
-        className="cerrar-modal"
-        style={{ marginTop: "1rem" }}
-      >
-        ✕ Cerrar
-      </button>
-    </div>
-  </div>
-)}
 
+        {modalDetallesVisible && (
+          <div className="modal-overlay" onClick={() => setModalDetallesVisible(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <h3>Detalles del Pago</h3>
+              {detalleTracking.length > 0 ? (
+                <div>
+                  <table style={{ width: '100%', marginTop: '1rem' }}>
+                    <thead>
+                      <tr>
+                        <th>Tracking</th>
+                        <th>Referencia</th>
+                        <th>Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detalleTracking.map((item, idx) => (
+                        <tr key={idx}>
+                          <td>{item.tracking}</td>
+                          <td>{item.referencia}</td>
+                          <td>${item.valor.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div style={{ marginTop: '1rem', fontWeight: 'bold' }}>
+                    Total: ${detalleTracking.reduce((sum, item) => sum + item.valor, 0).toLocaleString()}
+                  </div>
+                </div>
+              ) : (
+                <p>No hay guías asociadas.</p>
+              )}
+              <button
+                onClick={() => setModalDetallesVisible(false)}
+                className="cerrar-modal"
+                style={{ marginTop: "1rem" }}
+              >
+                ✕ Cerrar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {imagenSeleccionada && (
