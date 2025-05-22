@@ -91,7 +91,7 @@ export default function LiquidacionesClientes() {
             <option value="">Todos</option>
             <option value="Dropi">Dropi</option>
             <option value="Dafiti">Dafiti</option>
-            <option value="Tridy">Tridy</option>
+            <option value="triddi">triddi</option>
           </select>
         </label>
         <label>

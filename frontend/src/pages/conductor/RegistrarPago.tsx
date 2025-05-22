@@ -402,7 +402,7 @@ export default function RegistrarPago() {
                   required
                 >
                   <option value="">Seleccione...</option>
-                  <option value="Bancolombia">Bancolombia</option>
+                  <option value="consignacion">consignacion</option>
                   <option value="Nequi">Nequi</option>
                   <option value="Transferencia">Transferencia</option>
                 </select>

@@ -39,7 +39,7 @@ PASSWORD = os.getenv("EMAIL_PASSWORD")
 DESTINOS = {
     "Dropi": os.getenv("EMAIL_CLIENTE_DROPI"),
     "Dafiti": os.getenv("EMAIL_CLIENTE_DAFITI"),
-    "tridy": os.getenv("EMAIL_CLIENTE_tridy"),
+    "triddi": os.getenv("EMAIL_CLIENTE_triddi"),
 }
 
 def generar_excel_entregas(entregas: list, cliente: str) -> bytes:

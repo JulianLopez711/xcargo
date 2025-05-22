@@ -14,7 +14,7 @@ const entregasMock = [
   {
     id: 2,
     tracking: "TRK002",
-    operador: "Dropy",
+    operador: "Dropi",
     carrier: "Coordinadora",
     ciudad: "Medellín",
     fecha: "2025-05-10",
@@ -39,8 +39,8 @@ export default function EntregasAdmin() {
           <select value={filtroOperador} onChange={(e) => setFiltroOperador(e.target.value)}>
             <option value="">Todos los operadores</option>
             <option value="Dafity">Dafity</option>
-            <option value="Dropy">Dropy</option>
-            <option value="tridy">tridy</option>
+            <option value="Dropi">Dropi</option>
+            <option value="triddi">triddi</option>
           </select>
           <input
             type="date"
