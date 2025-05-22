@@ -154,81 +154,72 @@ async def registrar_pago_conductor(
 
     try:
         tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
-        df = pd.DataFrame(filas)
-
-        # Conversiones de tipos según el esquema de BigQuery
-        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce").dt.date
-        df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce").dt.date
-        df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
         
-        # Convertir hora_pago como STRING simple
-        df["hora_pago"] = df["hora_pago"].astype(str)
-        df["hora_pago"] = df["hora_pago"].apply(lambda x: x if x not in ['None', 'nan', ''] else None)
+        print(f"🚀 Insertando {len(filas)} filas usando consulta SQL directa...")
         
-        # Convertir valor a numérico simple (evitar Decimal por problemas con PyArrow)
-        df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+        # Preparar los valores para la consulta SQL
+        valores_sql = []
+        for fila in filas:
+            # Escapar strings y manejar valores None
+            def escape_value(value, field_type='STRING'):
+                if value is None:
+                    return 'NULL'
+                elif field_type == 'STRING':
+                    # Escapar comillas simples duplicándolas
+                    escaped = str(value).replace("'", "''")
+                    return f"'{escaped}'"
+                elif field_type in ['NUMERIC', 'FLOAT64']:
+                    return str(value)
+                elif field_type == 'DATE':
+                    return f"'{value}'"
+                elif field_type == 'TIMESTAMP':
+                    if value is None:
+                        return 'NULL'
+                    return f"TIMESTAMP('{value}')"
+                else:
+                    return f"'{str(value)}'"
+            
+            valores_fila = f"""(
+                {escape_value(fila['referencia'])},
+                {escape_value(fila['valor'], 'NUMERIC')},
+                {escape_value(fila['fecha'], 'DATE')},
+                {escape_value(fila['entidad'])},
+                {escape_value(fila['estado'])},
+                {escape_value(fila['tipo'])},
+                {escape_value(fila['comprobante'])},
+                {escape_value(fila['novedades'])},
+                {escape_value(fila['creado_en'], 'TIMESTAMP')},
+                {escape_value(fila['creado_por'])},
+                {escape_value(fila['modificado_en'], 'TIMESTAMP')},
+                {escape_value(fila['modificado_por'])},
+                {escape_value(fila['hora_pago'])},
+                {escape_value(fila['correo'])},
+                {escape_value(fila['fecha_pago'], 'DATE')},
+                {escape_value(fila['id_string'])},
+                {escape_value(fila['referencia_pago'])},
+                {escape_value(fila['tracking'])},
+                {escape_value(fila['cliente'])}
+            )"""
+            valores_sql.append(valores_fila)
         
-        # Forzar campos string requeridos
-        required_strings = ["referencia", "entidad", "estado", "tipo", "comprobante", 
-                          "novedades", "creado_por", "modificado_por"]
-        for col in required_strings:
-            df[col] = df[col].astype(str)
-            # Asegurar que no sean None o vacíos para campos requeridos
-            df[col] = df[col].replace(['None', 'nan', ''], 'N/A')
+        # Construir la consulta INSERT
+        query = f"""
+        INSERT INTO `{tabla}` (
+            referencia, valor, fecha, entidad, estado, tipo, comprobante, 
+            novedades, creado_en, creado_por, modificado_en, modificado_por,
+            hora_pago, correo, fecha_pago, id_string, referencia_pago, 
+            tracking, cliente
+        ) VALUES {', '.join(valores_sql)}
+        """
         
-        # Campos string opcionales
-        optional_strings = ["correo", "referencia_pago", "tracking", "cliente", "id_string"]
-        for col in optional_strings:
-            if col in df.columns:
-                df[col] = df[col].astype(str)
-                df[col] = df[col].replace(['None', 'nan', ''], None)
+        print("🔍 Consulta SQL generada:")
+        print(query[:500] + "..." if len(query) > 500 else query)
         
-        # Agregar id_string si no existe (aunque sea nullable)
-        if "id_string" not in df.columns:
-            df["id_string"] = None
-
-        print("📊 Tipos de columnas:")
-        print(df.dtypes)
-        print("🔍 Primeras filas:")
-        print(df.head())
-
-        if df["valor"].isnull().any():
-            raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
-
-        # Definir esquema exacto según BigQuery (modificado para compatibilidad)
-        schema = [
-            bigquery.SchemaField("referencia", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("valor", "NUMERIC", mode="REQUIRED"),
-            bigquery.SchemaField("fecha", "DATE", mode="REQUIRED"),
-            bigquery.SchemaField("entidad", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("estado", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("tipo", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("comprobante", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("novedades", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("creado_en", "TIMESTAMP", mode="NULLABLE"),
-            bigquery.SchemaField("creado_por", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("modificado_en", "TIMESTAMP", mode="NULLABLE"),
-            bigquery.SchemaField("modificado_por", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("hora_pago", "STRING", mode="NULLABLE"),  # Cambiar a STRING temporalmente
-            bigquery.SchemaField("correo", "STRING", mode="NULLABLE"),
-            bigquery.SchemaField("fecha_pago", "DATE", mode="NULLABLE"),
-            bigquery.SchemaField("id_string", "STRING", mode="NULLABLE"),
-            bigquery.SchemaField("referencia_pago", "STRING", mode="NULLABLE"),
-            bigquery.SchemaField("tracking", "STRING", mode="NULLABLE"),
-            bigquery.SchemaField("cliente", "STRING", mode="NULLABLE")
-        ]
-
-        # Insertar con esquema específico
-        job_config = bigquery.LoadJobConfig(
-            schema=schema,
-            write_disposition="WRITE_APPEND",
-            schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
-        )
+        # Ejecutar la consulta
+        job = client.query(query)
+        job.result()  # Esperar a que termine
         
-        print("🚀 Insertando datos en BigQuery con esquema explícito...")
-        client.load_table_from_dataframe(df, tabla, job_config=job_config).result()
-        print("✅ Datos insertados correctamente")
-
+        print("✅ Datos insertados correctamente usando SQL directo")
         return {"mensaje": "✅ Pago registrado correctamente", "valor_total": valor_pago}
 
     except Exception as e:
