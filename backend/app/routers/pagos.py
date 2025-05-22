@@ -111,7 +111,7 @@ async def registrar_pago_conductor(
             "hora_pago": hora_pago,
             "correo": correo,
             "fecha_pago": fecha_pago,
-            "id_string": str(uuid4()),
+            "id_string": uuid4().bytes
             "referencia_pago": referencia,
             "tracking": guia.get("tracking", ""),
             "cliente": guia.get("cliente", "no_asignado")
