@@ -116,6 +116,8 @@ async def registrar_pago_conductor(
             "tracking": guia.get("tracking", ""),
             "cliente": guia.get("cliente", "no_asignado")
         })
+    print(df.dtypes)
+    print(df.head())
 
     try:
         tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
@@ -127,10 +129,15 @@ async def registrar_pago_conductor(
         df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
         df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
 
-        if df["valor"].isnull().any():
-            raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
+        print("Tipos de columnas:")
+        print(df.dtypes)
+        print("Primeras filas:")
+        print(df.head())
 
-        client.load_table_from_dataframe(df, tabla).result()
+    if df["valor"].isnull().any():
+        raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
+
+    client.load_table_from_dataframe(df, tabla).result()
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {str(e)}")
