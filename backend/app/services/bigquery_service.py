@@ -17,7 +17,7 @@ def obtener_pagos_pendientes():
             Valor as valor,
             StatusP as estado,
             '' as novedad
-        FROM `datos-clientes-441216.Conciliaciones.COD_Pendiente`
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendiente`
         WHERE StatusP = 'pendiente' OR StatusP IS NULL
         ORDER BY Status_Date DESC
     """
