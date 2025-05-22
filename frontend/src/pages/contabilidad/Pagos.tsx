@@ -29,15 +29,25 @@ export default function PagosContabilidad() {
   const [detalleTracking, setDetalleTracking] = useState<string[]>([]);
   const [modalDetallesVisible, setModalDetallesVisible] = useState(false);
 
-  const obtenerPagos = () => {
-    fetch("https://api.x-cargo.co/pagos/pagos-conductor")
-      .then((res) => res.json())
-      .then((data) => setPagos(data))
-      .catch((err) => {
-        console.error("Error cargando pagos:", err);
-        alert("Error al cargar los pagos desde el servidor.");
-      });
-  };
+  const obtenerPagos = async () => {
+  try {
+    const res = await fetch("https://api.x-cargo.co/pagos/pagos-conductor");
+    const data = await res.json();
+
+    if (!Array.isArray(data)) {
+      console.error("Respuesta inesperada:", data);
+      setPagos([]);
+      return;
+    }
+
+    setPagos(data);
+  } catch (err) {
+    console.error("Error cargando pagos:", err);
+    alert("Error al cargar pagos desde el servidor.");
+    setPagos([]);
+  }
+};
+
 
   useEffect(() => {
     obtenerPagos();

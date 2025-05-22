@@ -313,3 +313,22 @@ def historial_pagos(
     resultados = client.query(query, job_config=job_config).result()
 
     return [dict(row) for row in resultados]
+@router.get("/pagos-conductor")
+def obtener_pagos():
+    client = bigquery.Client()
+    query = """
+        SELECT referencia_pago, 
+               MAX(valor_pago_total) AS valor,
+               MAX(fecha_pago) AS fecha, 
+               MAX(entidad) AS entidad,
+               MAX(estado) AS estado, 
+               MAX(tipo) AS tipo,
+               MAX(comprobante) AS imagen,
+               MAX(novedades) AS novedades,
+               MAX(referencia) AS referencia
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        GROUP BY referencia_pago
+        ORDER BY fecha DESC
+    """
+    resultados = client.query(query).result()
+    return [dict(row) for row in resultados]
