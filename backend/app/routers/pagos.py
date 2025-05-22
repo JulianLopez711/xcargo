@@ -433,7 +433,57 @@ def historial_pagos(
 
     return [dict(row) for row in resultados]
 
-@router.get("/detalles/{referencia_pago}")
+@router.get("/health")
+def health_check():
+    """Endpoint para verificar que el servidor está funcionando"""
+    try:
+        client = bigquery.Client()
+        # Query simple para verificar conectividad
+        test_query = "SELECT 1 as test"
+        result = client.query(test_query).result()
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "bigquery": "connected"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "timestamp": datetime.utcnow().isoformat(),
+            "error": str(e)
+        }
+
+@router.get("/test-table")
+def test_table_access():
+    """Endpoint para verificar acceso a la tabla pagosconductor"""
+    try:
+        client = bigquery.Client()
+        
+        # Verificar si la tabla existe
+        query = """
+        SELECT COUNT(*) as total
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        LIMIT 1
+        """
+        
+        result = client.query(query).result()
+        total = next(result)["total"]
+        
+        return {
+            "status": "success",
+            "table_exists": True,
+            "total_records": total,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "table_exists": False,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 def obtener_detalles_pago(referencia_pago: str):
     """Obtiene los trackings asociados a un pago específico"""
     client = bigquery.Client()
@@ -472,41 +522,78 @@ def obtener_detalles_pago(referencia_pago: str):
 def obtener_pagos():
     client = bigquery.Client()
     
-    # Query defensivo que funciona con o sin la columna valor_total_consignacion
-    query = """
-        SELECT referencia_pago, 
-               CASE 
-                 WHEN COUNT(DISTINCT valor_total_consignacion) > 0 
-                 THEN MAX(valor_total_consignacion)
-                 ELSE SUM(valor)
-               END AS valor,
-               MAX(fecha_pago) AS fecha, 
-               MAX(entidad) AS entidad,
-               MAX(estado) AS estado, 
-               MAX(tipo) AS tipo,
-               MAX(comprobante) AS imagen,
-               MAX(novedades) AS novedades,
-               COUNT(*) as num_guias,
-               STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia)) as trackings_preview
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-        WHERE referencia_pago IS NOT NULL
-        GROUP BY referencia_pago
-        ORDER BY fecha DESC
-    """
-    
     try:
+        # Primero verificar qué columnas existen en la tabla
+        schema_query = """
+        SELECT column_name
+        FROM `datos-clientes-441216.Conciliaciones.INFORMATION_SCHEMA.COLUMNS`
+        WHERE table_name = 'pagosconductor'
+        """
+        
+        schema_result = client.query(schema_query).result()
+        columnas_existentes = [row["column_name"] for row in schema_result]
+        
+        print(f"Columnas existentes: {columnas_existentes}")
+        
+        # Construir query dinámicamente basado en columnas existentes
+        if "valor_total_consignacion" in columnas_existentes:
+            valor_query = "COALESCE(MAX(valor_total_consignacion), SUM(valor))"
+        else:
+            valor_query = "SUM(valor)"
+            
+        if "tracking" in columnas_existentes:
+            tracking_query = "STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia))"
+        else:
+            tracking_query = "STRING_AGG(DISTINCT referencia, ', ' ORDER BY referencia)"
+        
+        query = f"""
+            SELECT 
+                referencia_pago, 
+                {valor_query} AS valor,
+                MAX(fecha_pago) AS fecha, 
+                MAX(COALESCE(entidad, 'Sin Entidad')) AS entidad,
+                MAX(COALESCE(estado, 'pendiente')) AS estado, 
+                MAX(COALESCE(tipo, 'Sin Tipo')) AS tipo,
+                MAX(COALESCE(comprobante, '')) AS imagen,
+                MAX(COALESCE(novedades, '')) AS novedades,
+                COUNT(*) as num_guias,
+                {tracking_query} as trackings_preview
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE referencia_pago IS NOT NULL 
+              AND referencia_pago != ''
+            GROUP BY referencia_pago
+            ORDER BY MAX(fecha_pago) DESC
+            LIMIT 100
+        """
+        
+        print(f"Query generado: {query}")
+        
         resultados = client.query(query).result()
         
         pagos = []
         for row in resultados:
-            pago = dict(row)
+            pago = {
+                "referencia_pago": row.get("referencia_pago", ""),
+                "valor": float(row.get("valor", 0)) if row.get("valor") else 0.0,
+                "fecha": str(row.get("fecha", "")),
+                "entidad": str(row.get("entidad", "")),
+                "estado": str(row.get("estado", "")),
+                "tipo": str(row.get("tipo", "")),
+                "imagen": str(row.get("imagen", "")),
+                "novedades": str(row.get("novedades", "")),
+                "num_guias": int(row.get("num_guias", 0)),
+                "trackings_preview": str(row.get("trackings_preview", ""))
+            }
+            
             # Limitar preview de trackings a los primeros 3
-            if pago.get('trackings_preview'):
-                trackings_list = pago['trackings_preview'].split(', ')
+            if pago["trackings_preview"]:
+                trackings_list = pago["trackings_preview"].split(", ")
                 if len(trackings_list) > 3:
-                    pago['trackings_preview'] = ', '.join(trackings_list[:3]) + f' (+{len(trackings_list)-3} más)'
+                    pago["trackings_preview"] = ", ".join(trackings_list[:3]) + f" (+{len(trackings_list)-3} más)"
+            
             pagos.append(pago)
         
+        print(f"Pagos obtenidos: {len(pagos)}")
         return pagos
         
     except Exception as e:
@@ -514,28 +601,18 @@ def obtener_pagos():
         import traceback
         traceback.print_exc()
         
-        # Query fallback más simple
-        try:
-            query_simple = """
-                SELECT referencia_pago, 
-                       SUM(valor) AS valor,
-                       MAX(fecha_pago) AS fecha, 
-                       MAX(entidad) AS entidad,
-                       MAX(estado) AS estado, 
-                       MAX(tipo) AS tipo,
-                       MAX(comprobante) AS imagen,
-                       MAX(novedades) AS novedades,
-                       COUNT(*) as num_guias,
-                       'Ver detalles' as trackings_preview
-                FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-                WHERE referencia_pago IS NOT NULL
-                GROUP BY referencia_pago
-                ORDER BY fecha DESC
-            """
-            
-            resultados = client.query(query_simple).result()
-            return [dict(row) for row in resultados]
-            
-        except Exception as e2:
-            print(f"Error en query fallback: {e2}")
-            return []
+        # Fallback - devolver datos básicos si todo falla
+        return [
+            {
+                "referencia_pago": "ERROR_LOADING",
+                "valor": 0.0,
+                "fecha": "2025-01-01",
+                "entidad": "Error",
+                "estado": "error",
+                "tipo": "Error",
+                "imagen": "",
+                "novedades": "Error cargando datos",
+                "num_guias": 0,
+                "trackings_preview": "Error"
+            }
+        ]
