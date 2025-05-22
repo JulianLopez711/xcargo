@@ -181,6 +181,19 @@ export default function RegistrarPago() {
         });
 
         console.log("📦 Guías a enviar:", guiasConCliente);
+        console.log("📦 Guías JSON:", JSON.stringify(guiasConCliente, null, 2));
+
+        // Expandir los logs para ver cada guía individualmente
+        guiasConCliente.forEach((guia, index) => {
+          console.log(`📦 Guía ${index + 1}:`, {
+            referencia: guia.referencia,
+            valor: guia.valor,
+            cliente: guia.cliente,
+            tracking: guia.tracking,
+            referencia_length: guia.referencia?.length,
+            tracking_length: guia.tracking?.length
+          });
+        });
 
         formData.append("correo", correo);
         formData.append(

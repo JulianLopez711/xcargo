@@ -74,7 +74,15 @@ async def registrar_pago_conductor(
     # Leer y validar guías asociadas
     try:
         lista_guias = json.loads(guias)
-    except Exception:
+        print(f"🔍 Guías recibidas: {len(lista_guias)}")
+        for i, guia in enumerate(lista_guias):
+            print(f"🔍 Guía {i+1}: {guia}")
+            if 'referencia' in guia:
+                print(f"   - Referencia: '{guia['referencia']}' (length: {len(str(guia['referencia']))})")
+            if 'tracking' in guia:
+                print(f"   - Tracking: '{guia['tracking']}' (length: {len(str(guia['tracking'])) if guia['tracking'] else 0})")
+    except Exception as e:
+        print(f"❌ Error parsing guías: {e}")
         raise HTTPException(status_code=400, detail="Error al leer las guías")
 
     if not lista_guias:
@@ -93,24 +101,37 @@ async def registrar_pago_conductor(
 
     # Preparar filas para insertar en pagosconductor
     filas = []
-    for guia in lista_guias:
+    for i, guia in enumerate(lista_guias):
+        print(f"🔧 Procesando guía {i+1}: {guia}")
+        
         # Validar y limpiar tracking
         tracking_value = guia.get("tracking", "")
         if tracking_value and tracking_value.lower() not in ["null", "none", ""]:
             # Solo incluir si es un string válido, no un UUID malformado
             tracking_clean = str(tracking_value).strip()
+            print(f"   - Tracking limpio: '{tracking_clean}' (length: {len(tracking_clean)})")
         else:
             tracking_clean = ""
+            print(f"   - Tracking vacío o null")
         
         # Validar y limpiar cliente
         cliente_value = guia.get("cliente", "no_asignado")
         if cliente_value and cliente_value.lower() not in ["null", "none", ""]:
             cliente_clean = str(cliente_value).strip()
+            print(f"   - Cliente limpio: '{cliente_clean}'")
         else:
             cliente_clean = "no_asignado"
+            print(f"   - Cliente por defecto: '{cliente_clean}'")
 
-        filas.append({
-            "referencia": str(guia["referencia"]),
+        # Validar referencia - forzar como string para evitar problemas con BigQuery
+        referencia_value = str(guia["referencia"]).strip()
+        # Agregar prefijo para evitar que BigQuery lo interprete como UUID
+        if referencia_value.isdigit() and len(referencia_value) == 16:
+            referencia_value = f"REF_{referencia_value}"
+        print(f"   - Referencia procesada: '{referencia_value}' (length: {len(referencia_value)})")
+
+        fila = {
+            "referencia": referencia_value,
             "valor": float(guia.get("valor", valor_pago)),
             "fecha": fecha_pago,
             "entidad": entidad,
@@ -126,34 +147,33 @@ async def registrar_pago_conductor(
             "correo": correo,
             "fecha_pago": fecha_pago,
             "referencia_pago": referencia,
-            "tracking": tracking_clean,
+            # "tracking": tracking_clean,  # Temporalmente comentado
             "cliente": cliente_clean
-        })
+        }
+        
+        print(f"   ✅ Fila preparada: {fila}")
+        filas.append(fila)
 
     try:
         tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
         df = pd.DataFrame(filas)
 
-        # Conversiones de tipos más explícitas
+        # Conversiones de tipos más explícitas y forzadas
         df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
         df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce")
         df["hora_pago"] = df["hora_pago"].astype(str)
         df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
         df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
         
-        # Asegurar que los campos de texto sean strings
-        df["referencia"] = df["referencia"].astype(str)
-        df["entidad"] = df["entidad"].astype(str)
-        df["estado"] = df["estado"].astype(str)
-        df["tipo"] = df["tipo"].astype(str)
-        df["comprobante"] = df["comprobante"].astype(str)
-        df["novedades"] = df["novedades"].astype(str)
-        df["creado_por"] = df["creado_por"].astype(str)
-        df["modificado_por"] = df["modificado_por"].astype(str)
-        df["correo"] = df["correo"].astype(str)
-        df["referencia_pago"] = df["referencia_pago"].astype(str)
-        df["tracking"] = df["tracking"].astype(str)
-        df["cliente"] = df["cliente"].astype(str)
+        # Forzar TODOS los campos como strings explícitamente
+        string_columns = ["referencia", "entidad", "estado", "tipo", "comprobante", 
+                         "novedades", "creado_por", "modificado_por", "correo", 
+                         "referencia_pago", "cliente"]
+        
+        for col in string_columns:
+            if col in df.columns:
+                df[col] = df[col].astype(str)
+                print(f"   - Columna '{col}' convertida a string")
 
         print("📊 Tipos de columnas:")
         print(df.dtypes)
@@ -166,7 +186,8 @@ async def registrar_pago_conductor(
         # Insertar con configuración específica para evitar problemas de UUID
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND",
-            autodetect=False  # Desactivar autodetección para evitar problemas con UUIDs
+            autodetect=False,  # Desactivar autodetección para evitar problemas con UUIDs
+            schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
         )
         
         client.load_table_from_dataframe(df, tabla, job_config=job_config).result()
@@ -226,13 +247,21 @@ def aprobar_pago(data: dict = Body(...)):
 
     # 3. Actualizar guías a "liberado"
     try:
+        # Ajustar referencias si tienen el prefijo REF_
+        referencias_para_query = []
+        for ref in referencias:
+            if ref.startswith("REF_"):
+                referencias_para_query.append(ref[4:])  # Quitar prefijo REF_
+            else:
+                referencias_para_query.append(ref)
+        
         client.query("""
             UPDATE `datos-clientes-441216.Conciliaciones.COD_Pendiente`
             SET estado = 'liberado'
             WHERE referencia IN UNNEST(@refs)
         """, job_config=bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ArrayQueryParameter("refs", "STRING", referencias)
+                bigquery.ArrayQueryParameter("refs", "STRING", referencias_para_query)
             ]
         )).result()
     except Exception as e:
