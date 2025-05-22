@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Request
 from fastapi.responses import JSONResponse
 from google.cloud import bigquery
@@ -111,7 +110,7 @@ async def registrar_pago_conductor(
             "hora_pago": hora_pago,
             "correo": correo,
             "fecha_pago": fecha_pago,
-            "id_string": str(uuid4()),
+            # "id_string": str(uuid4()),  # <-- Elimina o comenta esta línea
             "referencia_pago": referencia,
             "tracking": str(guia.get("tracking", "")),
             "cliente": str(guia.get("cliente", "no_asignado"))
