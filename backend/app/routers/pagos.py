@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body,Query
+
+from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Request
+from fastapi.responses import JSONResponse
 from google.cloud import bigquery
 from typing import Optional
 from datetime import datetime
@@ -6,13 +8,14 @@ from uuid import uuid4
 import pandas as pd
 import os
 import json
+import traceback
 
 router = APIRouter(prefix="/pagos", tags=["Pagos"])
 
 @router.post("/registrar-conductor")
 async def registrar_pago_conductor(
     correo: str = Form(...),
-    valor_pago: float = Form(...),
+    valor_pago_str: str = Form(...),
     fecha_pago: str = Form(...),
     hora_pago: str = Form(...),
     tipo: str = Form(...),
@@ -23,10 +26,16 @@ async def registrar_pago_conductor(
 ):
     client = bigquery.Client()
 
+    # Validar conversión segura de valor
+    try:
+        valor_pago = float(valor_pago_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="El valor del pago no es válido.")
+
     # Validación 1: por referencia_pago única
     verificar = client.query("""
         SELECT COUNT(*) as total
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductores`
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
         WHERE referencia_pago = @ref
     """, job_config=bigquery.QueryJobConfig(
         query_parameters=[
@@ -43,7 +52,7 @@ async def registrar_pago_conductor(
     # Validación 2: mismo usuario + fecha/hora/valor
     verificar_duplicado = client.query("""
         SELECT COUNT(*) as total
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductores`
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
         WHERE correo = @correo
           AND fecha_pago = @fecha
           AND hora_pago = @hora
@@ -109,19 +118,25 @@ async def registrar_pago_conductor(
         })
 
     try:
-        tabla = "datos-clientes-441216.Conciliaciones.pagosconductores"
+        tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
         df = pd.DataFrame(filas)
-        df["fecha"] = pd.to_datetime(df["fecha"])
-        df["fecha_pago"] = pd.to_datetime(df["fecha_pago"])
+
+        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+        df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce")
         df["hora_pago"] = df["hora_pago"].astype(str)
-        df["valor"] = df["valor"].astype(float)
-        df["creado_en"] = pd.to_datetime(df["creado_en"])
+        df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+        df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
+
+        if df["valor"].isnull().any():
+            raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
 
         client.load_table_from_dataframe(df, tabla).result()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {str(e)}")
 
     return {"mensaje": "✅ Pago registrado correctamente", "valor_total": valor_pago}
+
 
 
 

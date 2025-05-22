@@ -11,6 +11,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
+        "https://localhost:5173",
         "https://gestion.x-cargo.co",
     ],
     allow_credentials=True,
