@@ -1,6 +1,9 @@
-# En app/services/bigquery_service.py
-
+import os
 from google.cloud import bigquery
+from app.core.config import GOOGLE_CREDENTIALS_PATH
+
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_CREDENTIALS_PATH
+
 
 def obtener_pagos_pendientes():
     """Obtiene los pagos pendientes para conductores"""
