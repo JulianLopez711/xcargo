@@ -90,7 +90,7 @@ export default function PagosContabilidad() {
 
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const res = await fetch(`https://api.x-cargo.co/pagos/detalles/${referenciaPago}`);
+      const res = await fetch(`https://api.x-cargo.co/pagos/detalles-pago/${referenciaPago}`);
       const data = await res.json();
       setDetalleTracking(data);
       setModalDetallesVisible(true);

@@ -484,7 +484,7 @@ def test_table_access():
             "error": str(e),
             "timestamp": datetime.utcnow().isoformat()
         }
-@router.get("/detalles-pago")
+@router.get("/detalles-pago/{referencia_pago}")
 def obtener_detalles_pago(referencia_pago: str):
     """Obtiene los trackings asociados a un pago específico"""
     client = bigquery.Client()
