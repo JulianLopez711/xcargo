@@ -120,27 +120,29 @@ async def registrar_pago_conductor(
     print(df.head())
 
     try:
-        tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
-        df = pd.DataFrame(filas)
+    tabla = "datos-clientes-441216.Conciliaciones.pagosconductores"
+    df = pd.DataFrame(filas)
 
-        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
-        df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce")
-        df["hora_pago"] = df["hora_pago"].astype(str)
-        df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
-        df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
+    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+    df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce")
+    df["hora_pago"] = df["hora_pago"].astype(str)
+    df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+    df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
 
-        print("Tipos de columnas:")
-        print(df.dtypes)
-        print("Primeras filas:")
-        print(df.head())
+    print("Tipos de columnas:")
+    print(df.dtypes)
+    print(df.head())
 
     if df["valor"].isnull().any():
         raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
 
     client.load_table_from_dataframe(df, tabla).result()
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {str(e)}")
+
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {str(e)}")
+
 
     return {"mensaje": "✅ Pago registrado correctamente", "valor_total": valor_pago}
 
