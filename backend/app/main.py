@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routers import guias, ocr, pagos, operador, asistente, pagoCliente, contabilidad, auth, roles, conciliacion, cruces, entregas
+from app.routers import (
+    guias, ocr, pagos, operador, asistente, 
+    pagoCliente, contabilidad, auth, roles, 
+    conciliacion, cruces, entregas, admin
+)
 
 app = FastAPI()
 
@@ -24,15 +28,16 @@ def root():
     return {"message": "API XCargo backend funcionando"}
 
 # Registrar todas las rutas
-app.include_router(guias.router)
-app.include_router(ocr.router)
-app.include_router(pagos.router)
-app.include_router(operador.router)
-app.include_router(pagoCliente.router)
-app.include_router(roles.router)
-app.include_router(auth.router)
-app.include_router(conciliacion.router)
-app.include_router(cruces.router)
-app.include_router(contabilidad.router)
-app.include_router(asistente.router)
-app.include_router(entregas.router)  
+app.include_router(auth.router)           # /auth
+app.include_router(admin.router)          # /admin - ¡FALTABA ESTE!
+app.include_router(roles.router)          # /roles
+app.include_router(guias.router)          # /api/guias
+app.include_router(operador.router)       # /api/operador
+app.include_router(ocr.router)            # /ocr
+app.include_router(pagos.router)          # /pagos
+app.include_router(pagoCliente.router)    # sin prefix definido
+app.include_router(contabilidad.router)   # /contabilidad
+app.include_router(conciliacion.router)   # /conciliacion
+app.include_router(cruces.router)         # /cruces
+app.include_router(entregas.router)       # /entregas
+app.include_router(asistente.router)      # /asistente
