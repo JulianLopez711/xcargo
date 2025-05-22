@@ -166,9 +166,10 @@ export default function RegistrarPago() {
 
         formData.append("correo", correo);
         formData.append(
-          "valor_pago",
+          "valor_pago_str",
           parseValorMonetario(p.datos.valor).toString()
         );
+
         formData.append("fecha_pago", p.datos.fecha);
         formData.append(
           "hora_pago",
