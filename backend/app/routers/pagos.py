@@ -55,7 +55,7 @@ async def registrar_pago_conductor(
         WHERE correo = @correo
           AND fecha_pago = @fecha
           AND hora_pago = @hora
-          AND valor = @valor
+          AND valor_total_consignacion = @valor
     """, job_config=bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("correo", "STRING", correo),
@@ -79,14 +79,30 @@ async def registrar_pago_conductor(
             print(f"🔍 Guía {i+1}: {guia}")
             if 'referencia' in guia:
                 print(f"   - Referencia: '{guia['referencia']}' (length: {len(str(guia['referencia']))})")
-            if 'tracking' in guia:
-                print(f"   - Tracking: '{guia['tracking']}' (length: {len(str(guia['tracking'])) if guia['tracking'] else 0})")
     except Exception as e:
         print(f"❌ Error parsing guías: {e}")
         raise HTTPException(status_code=400, detail="Error al leer las guías")
 
     if not lista_guias:
         raise HTTPException(status_code=400, detail="Debe asociar al menos una guía")
+
+    # Obtener información de clientes desde COD_Pendiente
+    referencias_guias = [str(guia["referencia"]) for guia in lista_guias]
+    refs_str = "', '".join(referencias_guias)
+    
+    query_clientes = f"""
+        SELECT referencia, cliente, valor
+        FROM `datos-clientes-441216.pickup_data.COD_Pendiente`
+        WHERE referencia IN ('{refs_str}')
+    """
+    
+    try:
+        resultado_clientes = client.query(query_clientes).result()
+        clientes_data = {row["referencia"]: {"cliente": row["cliente"], "valor": row["valor"]} for row in resultado_clientes}
+        print(f"🔍 Datos de clientes obtenidos: {len(clientes_data)} registros")
+    except Exception as e:
+        print(f"❌ Error consultando clientes: {e}")
+        clientes_data = {}
 
     # Guardar imagen del comprobante
     nombre_archivo = f"{uuid4()}_{comprobante.filename}"
@@ -104,33 +120,34 @@ async def registrar_pago_conductor(
     for i, guia in enumerate(lista_guias):
         print(f"🔧 Procesando guía {i+1}: {guia}")
         
+        # Validar referencia
+        referencia_value = str(guia["referencia"]).strip()
+        print(f"   - Referencia procesada: '{referencia_value}' (length: {len(referencia_value)})")
+
+        # Obtener cliente y valor desde COD_Pendiente
+        if referencia_value in clientes_data:
+            cliente_clean = clientes_data[referencia_value]["cliente"] or "Sin Cliente"
+            valor_individual = float(clientes_data[referencia_value]["valor"]) if clientes_data[referencia_value]["valor"] else float(guia.get("valor", 0))
+            print(f"   - Cliente desde COD_Pendiente: '{cliente_clean}'")
+            print(f"   - Valor individual desde COD_Pendiente: {valor_individual}")
+        else:
+            cliente_clean = "Sin Cliente"
+            valor_individual = float(guia.get("valor", 0))
+            print(f"   - Cliente por defecto: '{cliente_clean}' (no encontrado en COD_Pendiente)")
+        
         # Validar y limpiar tracking
         tracking_value = guia.get("tracking", "")
         if tracking_value and str(tracking_value).lower() not in ["null", "none", "", "undefined"]:
-            # Solo incluir si es un string válido
             tracking_clean = str(tracking_value).strip()
             print(f"   - Tracking limpio: '{tracking_clean}' (length: {len(tracking_clean)})")
         else:
             # Si no hay tracking, usar la referencia como tracking
             tracking_clean = referencia_value
             print(f"   - Tracking usando referencia: '{tracking_clean}'")
-        
-        # Validar y limpiar cliente
-        cliente_value = guia.get("cliente", "no_asignado")
-        if cliente_value and str(cliente_value).lower() not in ["null", "none", "", "undefined"]:
-            cliente_clean = str(cliente_value).strip()
-            print(f"   - Cliente limpio: '{cliente_clean}'")
-        else:
-            cliente_clean = "no_asignado"
-            print(f"   - Cliente por defecto: '{cliente_clean}'")
-
-        # Validar referencia - mantener como string simple
-        referencia_value = str(guia["referencia"]).strip()
-        print(f"   - Referencia procesada: '{referencia_value}' (length: {len(referencia_value)})")
 
         fila = {
             "referencia": referencia_value,
-            "valor": float(guia.get("valor", valor_pago)),
+            "valor": valor_individual,  # Valor individual del tracking
             "fecha": fecha_pago,
             "entidad": entidad,
             "estado": "pagado",
@@ -144,10 +161,11 @@ async def registrar_pago_conductor(
             "hora_pago": hora_pago,
             "correo": correo,
             "fecha_pago": fecha_pago,
-            "id_string": None,  # Campo nullable
-            "referencia_pago": referencia,
+            "id_string": None,
+            "referencia_pago": referencia,  # Referencia de la consignación
+            "valor_total_consignacion": valor_pago,  # Valor total de la consignación
             "tracking": tracking_clean,
-            "cliente": cliente_clean
+            "cliente": cliente_clean  # Cliente desde COD_Pendiente
         }
         
         print(f"   ✅ Fila preparada: {fila}")
@@ -198,6 +216,7 @@ async def registrar_pago_conductor(
                 {escape_value(fila['fecha_pago'], 'DATE')},
                 {escape_value(fila['id_string'])},
                 {escape_value(fila['referencia_pago'])},
+                {escape_value(fila['valor_total_consignacion'], 'NUMERIC')},
                 {escape_value(fila['tracking'])},
                 {escape_value(fila['cliente'])}
             )"""
@@ -209,7 +228,7 @@ async def registrar_pago_conductor(
             referencia, valor, fecha, entidad, estado, tipo, comprobante, 
             novedades, creado_en, creado_por, modificado_en, modificado_por,
             hora_pago, correo, fecha_pago, id_string, referencia_pago, 
-            tracking, cliente
+            valor_total_consignacion, tracking, cliente
         ) VALUES {', '.join(valores_sql)}
         """
         
