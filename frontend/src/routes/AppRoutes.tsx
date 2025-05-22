@@ -73,7 +73,7 @@ export default function AppRoutes() {
           element={<DashboardContabilidad />}
         />
         <Route path="/contabilidad/calendario" element={<CalendarioConciliacion />} />
-        <Route path="/contabilidad/historial" element={<HistorialOperador />} />
+        <Route path="/contabilidad/historial" element={<HistorialPagos />} />
         <Route path="/contabilidad/pagos" element={<PagosContabilidad />} />
         <Route
           path="/contabilidad/entregas"
