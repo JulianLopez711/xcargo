@@ -92,12 +92,12 @@ async def registrar_pago_conductor(
     comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
     creado_en = datetime.utcnow()
 
-    # Preparar filas para insertar en pagosconductores
+    # Preparar filas para insertar en pagosconductor
     filas = []
     for guia in lista_guias:
         filas.append({
-            "referencia": guia["referencia"],
-            "valor": guia.get("valor", valor_pago),
+            "referencia": str(guia["referencia"]),
+            "valor": float(guia.get("valor", valor_pago)),
             "fecha": fecha_pago,
             "entidad": entidad,
             "estado": "pagado",
@@ -113,40 +113,36 @@ async def registrar_pago_conductor(
             "fecha_pago": fecha_pago,
             "id_string": str(uuid4()),
             "referencia_pago": referencia,
-            "tracking": guia.get("tracking", ""),
-            "cliente": guia.get("cliente", "no_asignado")
+            "tracking": str(guia.get("tracking", "")),
+            "cliente": str(guia.get("cliente", "no_asignado"))
         })
-    print(df.dtypes)
-    print(df.head())
 
     try:
-    tabla = "datos-clientes-441216.Conciliaciones.pagosconductores"
-    df = pd.DataFrame(filas)
+        tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
+        df = pd.DataFrame(filas)
 
-    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
-    df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce")
-    df["hora_pago"] = df["hora_pago"].astype(str)
-    df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
-    df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
+        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+        df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce")
+        df["hora_pago"] = df["hora_pago"].astype(str)
+        df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+        df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
 
-    print("Tipos de columnas:")
-    print(df.dtypes)
-    print(df.head())
+        print("📊 Tipos de columnas:")
+        print(df.dtypes)
+        print("🔍 Primeras filas:")
+        print(df.head())
 
-    if df["valor"].isnull().any():
-        raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
+        if df["valor"].isnull().any():
+            raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
 
-    client.load_table_from_dataframe(df, tabla).result()
+        client.load_table_from_dataframe(df, tabla).result()
 
-except Exception as e:
-    import traceback
-    traceback.print_exc()
-    raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {str(e)}")
+        return {"mensaje": "✅ Pago registrado correctamente", "valor_total": valor_pago}
 
-
-    return {"mensaje": "✅ Pago registrado correctamente", "valor_total": valor_pago}
-
-
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {str(e)}")
 
 
 @router.post("/aprobar-pago")
