@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body
+from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body,Query
 from google.cloud import bigquery
+from typing import Optional
 from datetime import datetime
 from uuid import uuid4
 import pandas as pd
@@ -258,3 +259,57 @@ def rechazar_pago(data: dict = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error al actualizar guías a 'pendiente': {e}")
 
     return {"mensaje": "❌ Pago rechazado correctamente. Guías actualizadas."}
+
+
+
+
+@router.get("/historial")
+def historial_pagos(
+    estado: Optional[str] = Query(None),
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None),
+    referencia: Optional[str] = Query(None)
+):
+    client = bigquery.Client()
+
+    condiciones = []
+    parametros = []
+
+    if estado:
+        condiciones.append("estado = @estado")
+        parametros.append(bigquery.ScalarQueryParameter("estado", "STRING", estado))
+
+    if desde:
+        condiciones.append("fecha_pago >= @desde")
+        parametros.append(bigquery.ScalarQueryParameter("desde", "DATE", desde))
+
+    if hasta:
+        condiciones.append("fecha_pago <= @hasta")
+        parametros.append(bigquery.ScalarQueryParameter("hasta", "DATE", hasta))
+
+    if referencia:
+        condiciones.append("referencia_pago LIKE @referencia")
+        parametros.append(bigquery.ScalarQueryParameter("referencia", "STRING", f"%{referencia}%"))
+
+    where_clause = "WHERE " + " AND ".join(condiciones) if condiciones else ""
+
+    query = f"""
+        SELECT
+            referencia_pago,
+            MAX(valor_pago_total) AS valor,
+            MAX(fecha_pago) AS fecha,
+            MAX(entidad) AS entidad,
+            MAX(estado) AS estado,
+            MAX(tipo) AS tipo,
+            MAX(comprobante) AS imagen,
+            MAX(novedades) AS novedades
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        {where_clause}
+        GROUP BY referencia_pago
+        ORDER BY fecha DESC
+    """
+
+    job_config = bigquery.QueryJobConfig(query_parameters=parametros)
+    resultados = client.query(query, job_config=job_config).result()
+
+    return [dict(row) for row in resultados]

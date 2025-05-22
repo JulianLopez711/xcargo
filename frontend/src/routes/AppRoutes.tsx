@@ -19,6 +19,7 @@ import EntregasContabilidad from "../pages/contabilidad/Entregas";
 import CrucesContabilidad from "../pages/contabilidad/Cruces";
 import PagoEntregas from "../pages/contabilidad/PagoEntregas";
 import CalendarioConciliacion from "../pages/contabilidad/CalendarioConciliacion";
+import HistorialPagos from "../pages/contabilidad/HistorialPagos";
 
 // Operador
 import DashboardOperador from "../pages/operador/Dashboard";
@@ -72,6 +73,7 @@ export default function AppRoutes() {
           element={<DashboardContabilidad />}
         />
         <Route path="/contabilidad/calendario" element={<CalendarioConciliacion />} />
+        <Route path="/contabilidad/historial" element={<HistorialOperador />} />
         <Route path="/contabilidad/pagos" element={<PagosContabilidad />} />
         <Route
           path="/contabilidad/entregas"
