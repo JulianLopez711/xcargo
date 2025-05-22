@@ -123,11 +123,8 @@ async def registrar_pago_conductor(
             cliente_clean = "no_asignado"
             print(f"   - Cliente por defecto: '{cliente_clean}'")
 
-        # Validar referencia - forzar como string para evitar problemas con BigQuery
+        # Validar referencia - mantener como string simple
         referencia_value = str(guia["referencia"]).strip()
-        # Agregar prefijo para evitar que BigQuery lo interprete como UUID
-        if referencia_value.isdigit() and len(referencia_value) == 16:
-            referencia_value = f"REF_{referencia_value}"
         print(f"   - Referencia procesada: '{referencia_value}' (length: {len(referencia_value)})")
 
         fila = {
@@ -146,8 +143,9 @@ async def registrar_pago_conductor(
             "hora_pago": hora_pago,
             "correo": correo,
             "fecha_pago": fecha_pago,
+            "id_string": None,  # Campo nullable
             "referencia_pago": referencia,
-            # "tracking": tracking_clean,  # Temporalmente comentado
+            "tracking": tracking_clean,
             "cliente": cliente_clean
         }
         
@@ -158,22 +156,38 @@ async def registrar_pago_conductor(
         tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
         df = pd.DataFrame(filas)
 
-        # Conversiones de tipos más explícitas y forzadas
-        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
-        df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce")
-        df["hora_pago"] = df["hora_pago"].astype(str)
-        df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+        # Conversiones de tipos según el esquema de BigQuery
+        df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce").dt.date
+        df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce").dt.date
         df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
         
-        # Forzar TODOS los campos como strings explícitamente
-        string_columns = ["referencia", "entidad", "estado", "tipo", "comprobante", 
-                         "novedades", "creado_por", "modificado_por", "correo", 
-                         "referencia_pago", "cliente"]
+        # Convertir hora_pago a formato TIME (HH:MM:SS)
+        df["hora_pago"] = df["hora_pago"].astype(str)
+        # Asegurar formato HH:MM:SS
+        df["hora_pago"] = df["hora_pago"].apply(lambda x: x if len(x) == 8 else f"{x}:00" if len(x) == 5 else x)
         
-        for col in string_columns:
+        # Convertir valor a NUMERIC (Decimal)
+        from decimal import Decimal
+        df["valor"] = df["valor"].apply(lambda x: Decimal(str(x)) if pd.notna(x) else None)
+        
+        # Forzar campos string requeridos
+        required_strings = ["referencia", "entidad", "estado", "tipo", "comprobante", 
+                          "novedades", "creado_por", "modificado_por"]
+        for col in required_strings:
+            df[col] = df[col].astype(str)
+            # Asegurar que no sean None o vacíos para campos requeridos
+            df[col] = df[col].replace(['None', 'nan', ''], 'N/A')
+        
+        # Campos string opcionales
+        optional_strings = ["correo", "referencia_pago", "tracking", "cliente", "id_string"]
+        for col in optional_strings:
             if col in df.columns:
                 df[col] = df[col].astype(str)
-                print(f"   - Columna '{col}' convertida a string")
+                df[col] = df[col].replace(['None', 'nan'], None)
+        
+        # Agregar id_string si no existe (aunque sea nullable)
+        if "id_string" not in df.columns:
+            df["id_string"] = None
 
         print("📊 Tipos de columnas:")
         print(df.dtypes)
@@ -183,20 +197,47 @@ async def registrar_pago_conductor(
         if df["valor"].isnull().any():
             raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
 
-        # Insertar con configuración específica para evitar problemas de UUID
+        # Definir esquema exacto según BigQuery
+        schema = [
+            bigquery.SchemaField("referencia", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("valor", "NUMERIC", mode="REQUIRED"),
+            bigquery.SchemaField("fecha", "DATE", mode="REQUIRED"),
+            bigquery.SchemaField("entidad", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("estado", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("tipo", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("comprobante", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("novedades", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("creado_en", "TIMESTAMP", mode="NULLABLE"),
+            bigquery.SchemaField("creado_por", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("modificado_en", "TIMESTAMP", mode="NULLABLE"),
+            bigquery.SchemaField("modificado_por", "STRING", mode="REQUIRED"),
+            bigquery.SchemaField("hora_pago", "TIME", mode="NULLABLE"),
+            bigquery.SchemaField("correo", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("fecha_pago", "DATE", mode="NULLABLE"),
+            bigquery.SchemaField("id_string", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("referencia_pago", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("tracking", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("cliente", "STRING", mode="NULLABLE")
+        ]
+
+        # Insertar con esquema específico
         job_config = bigquery.LoadJobConfig(
+            schema=schema,
             write_disposition="WRITE_APPEND",
-            autodetect=False,  # Desactivar autodetección para evitar problemas con UUIDs
             schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
         )
         
+        print("🚀 Insertando datos en BigQuery con esquema explícito...")
         client.load_table_from_dataframe(df, tabla, job_config=job_config).result()
+        print("✅ Datos insertados correctamente")
 
         return {"mensaje": "✅ Pago registrado correctamente", "valor_total": valor_pago}
 
     except Exception as e:
         import traceback
         traceback.print_exc()
+        print(f"❌ Error detallado: {str(e)}")
+        print(f"❌ Tipo de error: {type(e)}")
         raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {str(e)}")
 
 
@@ -247,21 +288,13 @@ def aprobar_pago(data: dict = Body(...)):
 
     # 3. Actualizar guías a "liberado"
     try:
-        # Ajustar referencias si tienen el prefijo REF_
-        referencias_para_query = []
-        for ref in referencias:
-            if ref.startswith("REF_"):
-                referencias_para_query.append(ref[4:])  # Quitar prefijo REF_
-            else:
-                referencias_para_query.append(ref)
-        
         client.query("""
             UPDATE `datos-clientes-441216.Conciliaciones.COD_Pendiente`
             SET estado = 'liberado'
             WHERE referencia IN UNNEST(@refs)
         """, job_config=bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ArrayQueryParameter("refs", "STRING", referencias_para_query)
+                bigquery.ArrayQueryParameter("refs", "STRING", referencias)
             ]
         )).result()
     except Exception as e:
