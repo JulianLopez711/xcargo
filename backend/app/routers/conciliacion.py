@@ -9,6 +9,9 @@ from decimal import Decimal
 
 router = APIRouter(prefix="/conciliacion", tags=["Conciliacion"])
 
+# Aumentar límite a 50MB
+MAX_FILE_SIZE = 50 * 1024 * 1024
+
 class MovimientoBanco:
     def __init__(self, fila_csv: str):
         # Parsear CSV con separador ; del banco
@@ -49,15 +52,29 @@ async def cargar_archivo_banco(file: UploadFile = File(...)):
     if not (file.filename.endswith((".csv", ".CSV"))):
         raise HTTPException(status_code=400, detail="El archivo debe ser CSV")
 
+    # VALIDAR TAMAÑO DEL ARCHIVO
     content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413, 
+            detail=f"Archivo demasiado grande. Máximo permitido: {MAX_FILE_SIZE // (1024*1024)}MB"
+        )
+    
+    # MEJORAR MANEJO DE ENCODING
     try:
         # Intentar UTF-8 primero, luego latin-1 para archivos de bancos
         decoded = content.decode("utf-8-sig")
     except UnicodeDecodeError:
         try:
             decoded = content.decode("latin-1")
-        except:
-            decoded = content.decode("cp1252")  # Windows encoding común en bancos
+        except UnicodeDecodeError:
+            try:
+                decoded = content.decode("cp1252")  # Windows encoding común en bancos
+            except UnicodeDecodeError:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="No se pudo decodificar el archivo. Verifique la codificación."
+                )
     
     lineas = decoded.strip().split('\n')
     registros = []
@@ -99,7 +116,7 @@ async def cargar_archivo_banco(file: UploadFile = File(...)):
             error_msg += f" Errores encontrados: {'; '.join(errores[:5])}"
         raise HTTPException(status_code=400, detail=error_msg)
 
-    # Guardar en BigQuery
+    # MEJORAR MANEJO DE ERRORES DE BIGQUERY
     client = bigquery.Client()
     table_id = "datos-clientes-441216.Conciliaciones.banco_movimientos"
     
@@ -107,6 +124,10 @@ async def cargar_archivo_banco(file: UploadFile = File(...)):
         # Usar consulta SQL para insertar (más confiable que insert_rows_json)
         valores_sql = []
         for reg in registros:
+            # ESCAPAR COMILLAS CORRECTAMENTE
+            descripcion_escaped = reg['descripcion'].replace("'", "''").replace('"', '""')
+            linea_escaped = reg['linea_original'].replace("'", "''").replace('"', '""')
+            
             valores_sql.append(f"""(
                 '{reg['id']}',
                 DATE('{reg['fecha']}'),
@@ -114,14 +135,14 @@ async def cargar_archivo_banco(file: UploadFile = File(...)):
                 '{reg['cuenta']}',
                 '{reg['codigo']}',
                 '{reg['cod_transaccion']}',
-                '{reg['descripcion'].replace("'", "''")}',
+                '{descripcion_escaped}',
                 '{reg['tipo']}',
                 '{reg['estado_conciliacion']}',
                 {reg['match_manual']},
                 {reg['confianza_match']},
                 '{reg['observaciones']}',
                 TIMESTAMP('{reg['cargado_en']}'),
-                '{reg['linea_original'].replace("'", "''")}'
+                '{linea_escaped}'
             )""")
         
         query = f"""

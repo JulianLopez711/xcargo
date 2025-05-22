@@ -6,7 +6,13 @@ interface ResultadoConciliacion {
   fecha_banco: string;
   valor_banco: number;
   descripcion_banco: string;
-  estado_match: "conciliado_exacto" | "conciliado_aproximado" | "multiple_match" | "diferencia_valor" | "diferencia_fecha" | "sin_match";
+  estado_match:
+    | "conciliado_exacto"
+    | "conciliado_aproximado"
+    | "multiple_match"
+    | "diferencia_valor"
+    | "diferencia_fecha"
+    | "sin_match";
   confianza: number;
   referencia_pago?: string;
   fecha_pago?: string;
@@ -61,15 +67,42 @@ export default function CrucesInteligentes() {
   const [subiendo, setSubiendo] = useState(false);
   const [mensaje, setMensaje] = useState("");
   const [procesandoConciliacion, setProcesandoConciliacion] = useState(false);
-  const [resultadoConciliacion, setResultadoConciliacion] = useState<ResumenConciliacion | null>(null);
-  const [estadisticasGenerales, setEstadisticasGenerales] = useState<EstadisticasGenerales | null>(null);
+  const [resultadoConciliacion, setResultadoConciliacion] =
+    useState<ResumenConciliacion | null>(null);
+  const [estadisticasGenerales, setEstadisticasGenerales] =
+    useState<EstadisticasGenerales | null>(null);
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
-  const [modalDetalle, setModalDetalle] = useState<ResultadoConciliacion | null>(null);
+  const [modalDetalle, setModalDetalle] =
+    useState<ResultadoConciliacion | null>(null);
+
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
+
+    if (file) {
+      // Validar tipo de archivo
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        setMensaje("❌ Solo se permiten archivos CSV");
+        return;
+      }
+
+      // Validar tamaño
+      if (file.size > MAX_FILE_SIZE) {
+        setMensaje(
+          `❌ El archivo es demasiado grande. Máximo permitido: ${
+            MAX_FILE_SIZE / (1024 * 1024)
+          }MB`
+        );
+        return;
+      }
+
+      // Mostrar información del archivo
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      setMensaje(`📄 Archivo seleccionado: ${file.name} (${sizeMB}MB)`);
+    }
+
     setArchivo(file);
-    setMensaje("");
   };
 
   const handleUpload = async () => {
@@ -81,23 +114,82 @@ export default function CrucesInteligentes() {
     const formData = new FormData();
     formData.append("file", archivo);
     setSubiendo(true);
-    setMensaje("");
+    setMensaje("📤 Subiendo archivo...");
 
     try {
-      const res = await fetch("https://api.x-cargo.co/conciliacion/cargar-banco-excel", {
-        method: "POST",
-        body: formData,
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 minutos timeout
+
+      const res = await fetch(
+        "https://api.x-cargo.co/conciliacion/cargar-banco-excel",
+        {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      // Manejar diferentes tipos de errores HTTP
+      if (!res.ok) {
+        let errorMsg = "Error desconocido";
+
+        try {
+          const errorData = await res.json();
+          errorMsg =
+            errorData.detail || errorData.message || `Error ${res.status}`;
+        } catch {
+          // Si no puede parsear JSON, usar mensaje por código de estado
+          switch (res.status) {
+            case 413:
+              errorMsg = "El archivo es demasiado grande para el servidor";
+              break;
+            case 400:
+              errorMsg = "Formato de archivo inválido";
+              break;
+            case 500:
+              errorMsg = "Error interno del servidor";
+              break;
+            default:
+              errorMsg = `Error HTTP ${res.status}`;
+          }
+        }
+
+        throw new Error(errorMsg);
+      }
 
       const result = await res.json();
-      if (!res.ok) throw new Error(result.detail || "Error al subir archivo");
-
-      setMensaje(`✅ ${result.mensaje}. Procesadas: ${result.consignaciones_procesadas} consignaciones.`);
+      setMensaje(
+        `✅ ${result.mensaje}. Procesadas: ${result.consignaciones_procesadas} consignaciones.`
+      );
       setArchivo(null);
+
+      // Limpiar el input
+      const fileInput = document.querySelector(
+        'input[type="file"]'
+      ) as HTMLInputElement;
+      if (fileInput) fileInput.value = "";
+
       cargarEstadisticas();
     } catch (err: any) {
-      console.error(err);
-      setMensaje("❌ Error: " + err.message);
+      console.error("Error en upload:", err);
+
+      // Manejar diferentes tipos de errores
+      let errorMessage = "Error desconocido";
+
+      if (err.name === "AbortError") {
+        errorMessage = "La subida fue cancelada por timeout (5 minutos)";
+      } else if (err.message.includes("CORS")) {
+        errorMessage =
+          "Error de configuración del servidor (CORS). Contacta al administrador.";
+      } else if (err.message.includes("Failed to fetch")) {
+        errorMessage = "No se pudo conectar al servidor. Verifica tu conexión.";
+      } else {
+        errorMessage = err.message;
+      }
+
+      setMensaje("❌ " + errorMessage);
     } finally {
       setSubiendo(false);
     }
@@ -108,12 +200,16 @@ export default function CrucesInteligentes() {
     setMensaje("");
 
     try {
-      const res = await fetch("https://api.x-cargo.co/conciliacion/conciliacion-automatica");
+      const res = await fetch(
+        "https://api.x-cargo.co/conciliacion/conciliacion-automatica"
+      );
       if (!res.ok) throw new Error("Error al ejecutar conciliación");
-      
+
       const data: ResumenConciliacion = await res.json();
       setResultadoConciliacion(data);
-      setMensaje(`✅ Conciliación completada. Procesados: ${data.resumen.total_movimientos_banco} movimientos.`);
+      setMensaje(
+        `✅ Conciliación completada. Procesados: ${data.resumen.total_movimientos_banco} movimientos.`
+      );
       cargarEstadisticas();
     } catch (err: any) {
       console.error("Error en conciliación:", err);
@@ -125,7 +221,9 @@ export default function CrucesInteligentes() {
 
   const cargarEstadisticas = async () => {
     try {
-      const res = await fetch("https://api.x-cargo.co/conciliacion/resumen-conciliacion");
+      const res = await fetch(
+        "https://api.x-cargo.co/conciliacion/resumen-conciliacion"
+      );
       if (res.ok) {
         const data: EstadisticasGenerales = await res.json();
         setEstadisticasGenerales(data);
@@ -135,19 +233,26 @@ export default function CrucesInteligentes() {
     }
   };
 
-  const marcarConciliadoManual = async (idBanco: string, referenciaPago?: string) => {
+  const marcarConciliadoManual = async (
+    idBanco: string,
+    referenciaPago?: string
+  ) => {
     try {
-      const observaciones = prompt("Observaciones (opcional):") || "Conciliado manualmente";
-      
-      const res = await fetch("https://api.x-cargo.co/conciliacion/marcar-conciliado-manual", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id_banco: idBanco,
-          referencia_pago: referenciaPago || "",
-          observaciones
-        }),
-      });
+      const observaciones =
+        prompt("Observaciones (opcional):") || "Conciliado manualmente";
+
+      const res = await fetch(
+        "https://api.x-cargo.co/conciliacion/marcar-conciliado-manual",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id_banco: idBanco,
+            referencia_pago: referenciaPago || "",
+            observaciones,
+          }),
+        }
+      );
 
       if (!res.ok) throw new Error("Error al marcar como conciliado");
 
@@ -160,12 +265,12 @@ export default function CrucesInteligentes() {
 
   const getEstadoColor = (estado: string) => {
     const colores = {
-      conciliado_exacto: "#22c55e",     // Verde
+      conciliado_exacto: "#22c55e", // Verde
       conciliado_aproximado: "#3b82f6", // Azul
-      multiple_match: "#f59e0b",        // Amarillo
-      diferencia_valor: "#ef4444",      // Rojo
-      diferencia_fecha: "#f97316",      // Naranja
-      sin_match: "#6b7280"              // Gris
+      multiple_match: "#f59e0b", // Amarillo
+      diferencia_valor: "#ef4444", // Rojo
+      diferencia_fecha: "#f97316", // Naranja
+      sin_match: "#6b7280", // Gris
     };
     return colores[estado as keyof typeof colores] || "#6b7280";
   };
@@ -177,14 +282,15 @@ export default function CrucesInteligentes() {
       multiple_match: "⚠️ Múltiples Matches",
       diferencia_valor: "💰 Diferencia en Valor",
       diferencia_fecha: "📅 Diferencia en Fecha",
-      sin_match: "❌ Sin Match"
+      sin_match: "❌ Sin Match",
     };
     return textos[estado as keyof typeof textos] || estado;
   };
 
-  const resultadosFiltrados = resultadoConciliacion?.resultados.filter(r => 
-    filtroEstado === "todos" || r.estado_match === filtroEstado
-  ) || [];
+  const resultadosFiltrados =
+    resultadoConciliacion?.resultados.filter(
+      (r) => filtroEstado === "todos" || r.estado_match === filtroEstado
+    ) || [];
 
   useEffect(() => {
     cargarEstadisticas();
@@ -201,15 +307,19 @@ export default function CrucesInteligentes() {
           <div className="estadisticas-grid">
             <div className="stat-card">
               <h4>Total Movimientos</h4>
-              <p>{estadisticasGenerales.totales.movimientos.toLocaleString()}</p>
+              <p>
+                {estadisticasGenerales.totales.movimientos.toLocaleString()}
+              </p>
             </div>
             <div className="stat-card">
               <h4>Valor Total</h4>
               <p>${estadisticasGenerales.totales.valor.toLocaleString()}</p>
             </div>
-            {estadisticasGenerales.resumen_por_estado.map(estado => (
+            {estadisticasGenerales.resumen_por_estado.map((estado) => (
               <div key={estado.estado_conciliacion} className="stat-card">
-                <h4>{estado.estado_conciliacion.replace('_', ' ').toUpperCase()}</h4>
+                <h4>
+                  {estado.estado_conciliacion.replace("_", " ").toUpperCase()}
+                </h4>
                 <p>{estado.cantidad} mov.</p>
                 <small>${estado.valor_total.toLocaleString()}</small>
               </div>
@@ -218,37 +328,65 @@ export default function CrucesInteligentes() {
         </div>
       )}
 
-      {/* Carga de archivo */}
+      {/* Carga de archivo mejorada */}
       <div className="carga-csv">
         <h3>📁 Cargar Archivo del Banco</h3>
         <div className="upload-section">
-          <label>
-            Seleccionar archivo CSV del banco:
-            <input 
-              type="file" 
-              accept=".csv,.CSV" 
-              onChange={handleFileChange} 
-            />
-          </label>
-          <button 
-            className="boton-accion" 
-            onClick={handleUpload} 
-            disabled={subiendo}
+          <div className="file-input-wrapper">
+            <label>
+              Seleccionar archivo CSV del banco:
+              <input
+                type="file"
+                accept=".csv,.CSV"
+                onChange={handleFileChange}
+                disabled={subiendo}
+              />
+            </label>
+            {archivo && (
+              <div className="file-info">
+                <span className="file-name">📄 {archivo.name}</span>
+                <span className="file-size">
+                  ({(archivo.size / (1024 * 1024)).toFixed(2)}MB)
+                </span>
+              </div>
+            )}
+          </div>
+
+          <button
+            className="boton-accion"
+            onClick={handleUpload}
+            disabled={subiendo || !archivo}
           >
-            {subiendo ? "Subiendo..." : "Subir Archivo"}
+            {subiendo ? (
+              <span>
+                <span className="spinner">🔄</span> Subiendo...
+              </span>
+            ) : (
+              "Subir Archivo"
+            )}
           </button>
         </div>
-        
-        <button 
-          className="boton-conciliar" 
-          onClick={ejecutarConciliacion} 
+
+        <button
+          className="boton-conciliar"
+          onClick={ejecutarConciliacion}
           disabled={procesandoConciliacion}
         >
-          {procesandoConciliacion ? "🔄 Procesando..." : "🤖 Ejecutar Conciliación Automática"}
+          {procesandoConciliacion
+            ? "🔄 Procesando..."
+            : "🤖 Ejecutar Conciliación Automática"}
         </button>
-        
+
         {mensaje && (
-          <div className={`mensaje-estado ${mensaje.includes('✅') ? 'success' : 'error'}`}>
+          <div
+            className={`mensaje-estado ${
+              mensaje.includes("✅")
+                ? "success"
+                : mensaje.includes("📤") || mensaje.includes("📄")
+                ? "info"
+                : "error"
+            }`}
+          >
             {mensaje}
           </div>
         )}
@@ -258,32 +396,44 @@ export default function CrucesInteligentes() {
       {resultadoConciliacion && (
         <div className="resultados-conciliacion">
           <h3>📊 Resultados de Conciliación</h3>
-          
+
           {/* Resumen de resultados */}
           <div className="resumen-resultados">
             <div className="resumen-grid">
               <div className="resumen-item success">
-                <span className="numero">{resultadoConciliacion.resumen.conciliado_exacto}</span>
+                <span className="numero">
+                  {resultadoConciliacion.resumen.conciliado_exacto}
+                </span>
                 <span className="etiqueta">Exactos</span>
               </div>
               <div className="resumen-item info">
-                <span className="numero">{resultadoConciliacion.resumen.conciliado_aproximado}</span>
+                <span className="numero">
+                  {resultadoConciliacion.resumen.conciliado_aproximado}
+                </span>
                 <span className="etiqueta">Aproximados</span>
               </div>
               <div className="resumen-item warning">
-                <span className="numero">{resultadoConciliacion.resumen.multiple_match}</span>
+                <span className="numero">
+                  {resultadoConciliacion.resumen.multiple_match}
+                </span>
                 <span className="etiqueta">Múltiples</span>
               </div>
               <div className="resumen-item error">
-                <span className="numero">{resultadoConciliacion.resumen.diferencia_valor}</span>
+                <span className="numero">
+                  {resultadoConciliacion.resumen.diferencia_valor}
+                </span>
                 <span className="etiqueta">Dif. Valor</span>
               </div>
               <div className="resumen-item error">
-                <span className="numero">{resultadoConciliacion.resumen.diferencia_fecha}</span>
+                <span className="numero">
+                  {resultadoConciliacion.resumen.diferencia_fecha}
+                </span>
                 <span className="etiqueta">Dif. Fecha</span>
               </div>
               <div className="resumen-item neutral">
-                <span className="numero">{resultadoConciliacion.resumen.sin_match}</span>
+                <span className="numero">
+                  {resultadoConciliacion.resumen.sin_match}
+                </span>
                 <span className="etiqueta">Sin Match</span>
               </div>
             </div>
@@ -293,10 +443,15 @@ export default function CrucesInteligentes() {
           <div className="filtros-conciliacion">
             <label>
               Filtrar por estado:
-              <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
+              <select
+                value={filtroEstado}
+                onChange={(e) => setFiltroEstado(e.target.value)}
+              >
                 <option value="todos">Todos</option>
                 <option value="conciliado_exacto">Conciliado Exacto</option>
-                <option value="conciliado_aproximado">Conciliado Aproximado</option>
+                <option value="conciliado_aproximado">
+                  Conciliado Aproximado
+                </option>
                 <option value="multiple_match">Múltiples Matches</option>
                 <option value="diferencia_valor">Diferencia Valor</option>
                 <option value="diferencia_fecha">Diferencia Fecha</option>
@@ -304,7 +459,8 @@ export default function CrucesInteligentes() {
               </select>
             </label>
             <span className="contador-filtro">
-              Mostrando {resultadosFiltrados.length} de {resultadoConciliacion.resultados.length}
+              Mostrando {resultadosFiltrados.length} de{" "}
+              {resultadoConciliacion.resultados.length}
             </span>
           </div>
 
@@ -325,13 +481,26 @@ export default function CrucesInteligentes() {
               </thead>
               <tbody>
                 {resultadosFiltrados.map((resultado, idx) => (
-                  <tr key={idx} style={{ borderLeft: `4px solid ${getEstadoColor(resultado.estado_match)}` }}>
-                    <td>{new Date(resultado.fecha_banco).toLocaleDateString()}</td>
+                  <tr
+                    key={idx}
+                    style={{
+                      borderLeft: `4px solid ${getEstadoColor(
+                        resultado.estado_match
+                      )}`,
+                    }}
+                  >
+                    <td>
+                      {new Date(resultado.fecha_banco).toLocaleDateString()}
+                    </td>
                     <td>${resultado.valor_banco.toLocaleString()}</td>
                     <td>
-                      <span 
-                        className="estado-badge" 
-                        style={{ backgroundColor: getEstadoColor(resultado.estado_match) }}
+                      <span
+                        className="estado-badge"
+                        style={{
+                          backgroundColor: getEstadoColor(
+                            resultado.estado_match
+                          ),
+                        }}
                       >
                         {getEstadoTexto(resultado.estado_match)}
                       </span>
@@ -339,12 +508,16 @@ export default function CrucesInteligentes() {
                     <td>
                       {resultado.confianza > 0 && (
                         <div className="confianza-bar">
-                          <div 
-                            className="confianza-fill" 
-                            style={{ 
+                          <div
+                            className="confianza-fill"
+                            style={{
                               width: `${resultado.confianza}%`,
-                              backgroundColor: resultado.confianza >= 80 ? '#22c55e' : 
-                                             resultado.confianza >= 60 ? '#f59e0b' : '#ef4444'
+                              backgroundColor:
+                                resultado.confianza >= 80
+                                  ? "#22c55e"
+                                  : resultado.confianza >= 60
+                                  ? "#f59e0b"
+                                  : "#ef4444",
                             }}
                           ></div>
                           <span>{resultado.confianza}%</span>
@@ -353,16 +526,18 @@ export default function CrucesInteligentes() {
                     </td>
                     <td>{resultado.referencia_pago || "-"}</td>
                     <td>
-                      {resultado.diferencia_valor && resultado.diferencia_valor > 0 && (
-                        <div className="diferencia">
-                          💰 ${resultado.diferencia_valor.toLocaleString()}
-                        </div>
-                      )}
-                      {resultado.diferencia_dias && resultado.diferencia_dias > 0 && (
-                        <div className="diferencia">
-                          📅 {resultado.diferencia_dias} día(s)
-                        </div>
-                      )}
+                      {resultado.diferencia_valor &&
+                        resultado.diferencia_valor > 0 && (
+                          <div className="diferencia">
+                            💰 ${resultado.diferencia_valor.toLocaleString()}
+                          </div>
+                        )}
+                      {resultado.diferencia_dias &&
+                        resultado.diferencia_dias > 0 && (
+                          <div className="diferencia">
+                            📅 {resultado.diferencia_dias} día(s)
+                          </div>
+                        )}
                     </td>
                     <td>
                       <div className="observaciones">
@@ -376,20 +551,25 @@ export default function CrucesInteligentes() {
                     </td>
                     <td>
                       <div className="acciones">
-                        <button 
-                          className="btn-detalle" 
+                        <button
+                          className="btn-detalle"
                           onClick={() => setModalDetalle(resultado)}
                         >
                           👁 Ver
                         </button>
-                        
-                        {(resultado.estado_match === "sin_match" || 
+
+                        {(resultado.estado_match === "sin_match" ||
                           resultado.estado_match === "multiple_match" ||
                           resultado.estado_match === "diferencia_valor" ||
                           resultado.estado_match === "diferencia_fecha") && (
-                          <button 
-                            className="btn-conciliar-manual" 
-                            onClick={() => marcarConciliadoManual(resultado.id_banco, resultado.referencia_pago)}
+                          <button
+                            className="btn-conciliar-manual"
+                            onClick={() =>
+                              marcarConciliadoManual(
+                                resultado.id_banco,
+                                resultado.referencia_pago
+                              )
+                            }
                           >
                             ✅ Conciliar
                           </button>
@@ -407,17 +587,22 @@ export default function CrucesInteligentes() {
       {/* Modal de detalle */}
       {modalDetalle && (
         <div className="modal-overlay" onClick={() => setModalDetalle(null)}>
-          <div className="modal-content detalle-conciliacion" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal-content detalle-conciliacion"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3>Detalle de Conciliación</h3>
-            
+
             <div className="detalle-grid">
               <div className="detalle-seccion">
                 <h4>📊 Datos del Banco</h4>
                 <div className="detalle-item">
-                  <strong>Fecha:</strong> {new Date(modalDetalle.fecha_banco).toLocaleDateString()}
+                  <strong>Fecha:</strong>{" "}
+                  {new Date(modalDetalle.fecha_banco).toLocaleDateString()}
                 </div>
                 <div className="detalle-item">
-                  <strong>Valor:</strong> ${modalDetalle.valor_banco.toLocaleString()}
+                  <strong>Valor:</strong> $
+                  {modalDetalle.valor_banco.toLocaleString()}
                 </div>
                 <div className="detalle-item">
                   <strong>Descripción:</strong> {modalDetalle.descripcion_banco}
@@ -434,10 +619,13 @@ export default function CrucesInteligentes() {
                     <strong>Referencia:</strong> {modalDetalle.referencia_pago}
                   </div>
                   <div className="detalle-item">
-                    <strong>Fecha:</strong> {modalDetalle.fecha_pago && new Date(modalDetalle.fecha_pago).toLocaleDateString()}
+                    <strong>Fecha:</strong>{" "}
+                    {modalDetalle.fecha_pago &&
+                      new Date(modalDetalle.fecha_pago).toLocaleDateString()}
                   </div>
                   <div className="detalle-item">
-                    <strong>Valor:</strong> ${modalDetalle.valor_pago?.toLocaleString()}
+                    <strong>Valor:</strong> $
+                    {modalDetalle.valor_pago?.toLocaleString()}
                   </div>
                   <div className="detalle-item">
                     <strong>Entidad:</strong> {modalDetalle.entidad_pago}
@@ -449,37 +637,54 @@ export default function CrucesInteligentes() {
                     <strong>Guías:</strong> {modalDetalle.num_guias}
                   </div>
                   <div className="detalle-item">
-                    <strong>Trackings:</strong> 
+                    <strong>Trackings:</strong>
                     <div className="trackings-list">
-                      {modalDetalle.trackings?.split(', ').map((tracking, idx) => (
-                        <span key={idx} className="tracking-item">{tracking}</span>
-                      ))}
+                      {modalDetalle.trackings
+                        ?.split(", ")
+                        .map((tracking, idx) => (
+                          <span key={idx} className="tracking-item">
+                            {tracking}
+                          </span>
+                        ))}
                     </div>
                   </div>
                 </div>
               )}
 
-              {modalDetalle.matches_posibles && modalDetalle.matches_posibles.length > 0 && (
-                <div className="detalle-seccion">
-                  <h4>🔍 Matches Posibles</h4>
-                  <div className="matches-list">
-                    {modalDetalle.matches_posibles.map((match, idx) => (
-                      <div key={idx} className="match-item">
-                        <div><strong>Ref:</strong> {match.referencia_pago}</div>
-                        <div><strong>Fecha:</strong> {new Date(match.fecha_pago).toLocaleDateString()}</div>
-                        <div><strong>Valor:</strong> ${match.valor_pago.toLocaleString()}</div>
-                        <div><strong>Score:</strong> {match.score.toFixed(1)}</div>
-                      </div>
-                    ))}
+              {modalDetalle.matches_posibles &&
+                modalDetalle.matches_posibles.length > 0 && (
+                  <div className="detalle-seccion">
+                    <h4>🔍 Matches Posibles</h4>
+                    <div className="matches-list">
+                      {modalDetalle.matches_posibles.map((match, idx) => (
+                        <div key={idx} className="match-item">
+                          <div>
+                            <strong>Ref:</strong> {match.referencia_pago}
+                          </div>
+                          <div>
+                            <strong>Fecha:</strong>{" "}
+                            {new Date(match.fecha_pago).toLocaleDateString()}
+                          </div>
+                          <div>
+                            <strong>Valor:</strong> $
+                            {match.valor_pago.toLocaleString()}
+                          </div>
+                          <div>
+                            <strong>Score:</strong> {match.score.toFixed(1)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
               <div className="detalle-seccion">
                 <h4>📋 Análisis</h4>
                 <div className="detalle-item">
-                  <strong>Estado:</strong> 
-                  <span style={{ color: getEstadoColor(modalDetalle.estado_match) }}>
+                  <strong>Estado:</strong>
+                  <span
+                    style={{ color: getEstadoColor(modalDetalle.estado_match) }}
+                  >
                     {getEstadoTexto(modalDetalle.estado_match)}
                   </span>
                 </div>
@@ -493,22 +698,25 @@ export default function CrucesInteligentes() {
             </div>
 
             <div className="modal-acciones">
-              {(modalDetalle.estado_match === "sin_match" || 
+              {(modalDetalle.estado_match === "sin_match" ||
                 modalDetalle.estado_match === "multiple_match" ||
                 modalDetalle.estado_match === "diferencia_valor" ||
                 modalDetalle.estado_match === "diferencia_fecha") && (
-                <button 
+                <button
                   className="btn-conciliar-manual"
                   onClick={() => {
-                    marcarConciliadoManual(modalDetalle.id_banco, modalDetalle.referencia_pago);
+                    marcarConciliadoManual(
+                      modalDetalle.id_banco,
+                      modalDetalle.referencia_pago
+                    );
                     setModalDetalle(null);
                   }}
                 >
                   ✅ Conciliar Manualmente
                 </button>
               )}
-              <button 
-                className="btn-cerrar" 
+              <button
+                className="btn-cerrar"
                 onClick={() => setModalDetalle(null)}
               >
                 ✕ Cerrar
@@ -517,8 +725,6 @@ export default function CrucesInteligentes() {
           </div>
         </div>
       )}
-
-      
     </div>
   );
 }

@@ -1,110 +1,266 @@
+/* Cruces.css - Estilos para Conciliación Bancaria */
+
 .cruces-container {
-  padding: 2rem;
+  padding: 20px;
   max-width: 1400px;
   margin: 0 auto;
+  background: #f8fafc;
+  min-height: 100vh;
 }
 
-.estadisticas-panel {
-  background: #f8fafc;
-  border-radius: 8px;
-  padding: 1.5rem;
+.titulo {
+  color: #1e293b;
+  font-size: 2rem;
+  font-weight: 600;
   margin-bottom: 2rem;
+  text-align: center;
+  border-bottom: 3px solid #3b82f6;
+  padding-bottom: 1rem;
+}
+
+/* ===================
+   ESTADÍSTICAS PANEL
+   =================== */
+
+.estadisticas-panel {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+}
+
+.estadisticas-panel h3 {
+  color: #374151;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
 }
 
 .estadisticas-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1rem;
-  margin-top: 1rem;
 }
 
 .stat-card {
-  background: white;
-  padding: 1rem;
-  border-radius: 6px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 1.5rem;
+  border-radius: 10px;
   text-align: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
 }
 
 .stat-card h4 {
-  margin: 0 0 0.5rem 0;
-  font-size: 0.9rem;
-  color: #6b7280;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .stat-card p {
+  font-size: 1.75rem;
+  font-weight: 700;
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: bold;
-  color: #1f2937;
 }
 
 .stat-card small {
-  color: #6b7280;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  opacity: 0.8;
 }
+
+/* ===================
+   CARGA DE ARCHIVO
+   =================== */
 
 .carga-csv {
   background: white;
-  border-radius: 8px;
-  padding: 1.5rem;
+  border-radius: 12px;
+  padding: 24px;
   margin-bottom: 2rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+}
+
+.carga-csv h3 {
+  color: #374151;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
 }
 
 .upload-section {
   display: flex;
-  align-items: end;
+  flex-direction: column;
   gap: 1rem;
-  margin-bottom: 1rem;
+  margin-bottom: 2rem;
 }
 
-.upload-section label {
-  flex: 1;
+.file-input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.file-input-wrapper label {
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+}
+
+.file-input-wrapper input[type="file"] {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  background: #f9fafb;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.file-input-wrapper input[type="file"]:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.file-input-wrapper input[type="file"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #f0f9ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.file-name {
+  font-weight: 500;
+  color: #1e40af;
+}
+
+.file-size {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.boton-accion, .boton-conciliar {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.boton-accion {
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: white;
+}
+
+.boton-accion:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1d4ed8, #1e40af);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
 }
 
 .boton-conciliar {
-  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  background: linear-gradient(135deg, #10b981, #059669);
   color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 6px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
+  font-size: 1.1rem;
+  padding: 16px 32px;
 }
 
-.boton-conciliar:hover {
+.boton-conciliar:hover:not(:disabled) {
+  background: linear-gradient(135deg, #059669, #047857);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
 }
 
-.boton-conciliar:disabled {
-  background: #9ca3af;
+.boton-accion:disabled, .boton-conciliar:disabled {
+  opacity: 0.6;
   cursor: not-allowed;
   transform: none;
 }
 
+.spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ===================
+   MENSAJES DE ESTADO
+   =================== */
+
 .mensaje-estado {
-  padding: 0.75rem;
-  border-radius: 6px;
+  padding: 12px 16px;
+  border-radius: 8px;
   margin-top: 1rem;
+  font-weight: 500;
+  border-left: 4px solid;
 }
 
 .mensaje-estado.success {
-  background: #d1fae5;
-  color: #065f46;
-  border: 1px solid #34d399;
+  background-color: #dcfce7;
+  color: #166534;
+  border-left-color: #22c55e;
 }
 
 .mensaje-estado.error {
-  background: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #f87171;
+  background-color: #fef2f2;
+  color: #dc2626;
+  border-left-color: #ef4444;
 }
 
-.resumen-resultados {
+.mensaje-estado.info {
+  background-color: #dbeafe;
+  color: #1e40af;
+  border-left-color: #3b82f6;
+}
+
+/* ===================
+   RESULTADOS CONCILIACIÓN
+   =================== */
+
+.resultados-conciliacion {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+}
+
+.resultados-conciliacion h3 {
+  color: #374151;
+  font-size: 1.25rem;
+  font-weight: 600;
   margin-bottom: 1.5rem;
+}
+
+/* Resumen de resultados */
+.resumen-resultados {
+  margin-bottom: 2rem;
 }
 
 .resumen-grid {
@@ -115,141 +271,187 @@
 
 .resumen-item {
   padding: 1rem;
-  border-radius: 6px;
+  border-radius: 8px;
   text-align: center;
   color: white;
+  font-weight: 600;
 }
 
 .resumen-item.success {
-  background: #22c55e;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
 }
+
 .resumen-item.info {
-  background: #3b82f6;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
 }
+
 .resumen-item.warning {
-  background: #f59e0b;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
 }
+
 .resumen-item.error {
-  background: #ef4444;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
 }
+
 .resumen-item.neutral {
-  background: #6b7280;
+  background: linear-gradient(135deg, #6b7280, #4b5563);
 }
 
 .resumen-item .numero {
   display: block;
-  font-size: 2rem;
-  font-weight: bold;
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
 }
 
 .resumen-item .etiqueta {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   opacity: 0.9;
 }
 
+/* Filtros */
 .filtros-conciliacion {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.filtros-conciliacion label {
+  font-weight: 500;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filtros-conciliacion select {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: white;
+  font-size: 14px;
 }
 
 .contador-filtro {
-  font-size: 0.9rem;
   color: #6b7280;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
+/* ===================
+   TABLA DE CONCILIACIÓN
+   =================== */
+
 .tabla-conciliacion {
-  background: white;
+  overflow-x: auto;
   border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
 }
 
 .tabla-conciliacion table {
   width: 100%;
   border-collapse: collapse;
+  background: white;
 }
 
 .tabla-conciliacion th {
   background: #f8fafc;
-  padding: 0.75rem;
-  text-align: left;
-  font-weight: 600;
   color: #374151;
-  border-bottom: 1px solid #e5e7eb;
+  font-weight: 600;
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 2px solid #e5e7eb;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .tabla-conciliacion td {
-  padding: 0.75rem;
+  padding: 12px 16px;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: top;
+  font-size: 0.875rem;
+}
+
+.tabla-conciliacion tr:hover {
+  background: #f9fafb;
 }
 
 .estado-badge {
   display: inline-block;
-  padding: 0.25rem 0.5rem;
-  border-radius: 9999px;
+  padding: 4px 8px;
+  border-radius: 12px;
   font-size: 0.75rem;
-  font-weight: 500;
+  font-weight: 600;
   color: white;
+  text-transform: uppercase;
+  letter-spacing: 0.25px;
 }
 
 .confianza-bar {
-  position: relative;
-  background: #f3f4f6;
-  border-radius: 4px;
+  width: 80px;
   height: 20px;
-  min-width: 60px;
+  background: #f3f4f6;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .confianza-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
   height: 100%;
-  border-radius: 4px;
+  border-radius: 10px;
   transition: width 0.3s ease;
 }
 
 .confianza-bar span {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  position: relative;
+  z-index: 1;
   font-size: 0.75rem;
-  font-weight: 500;
+  font-weight: 600;
   color: #374151;
 }
 
 .diferencia {
-  font-size: 0.8rem;
-  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  color: #dc2626;
+  margin-bottom: 2px;
 }
 
 .observaciones {
-  font-size: 0.9rem;
-  color: #6b7280;
+  max-width: 200px;
 }
 
 .matches-posibles {
   display: block;
-  font-size: 0.8rem;
-  color: #f59e0b;
-  font-weight: 500;
+  font-size: 0.7rem;
+  color: #6b7280;
+  font-style: italic;
+  margin-top: 4px;
 }
 
 .acciones {
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.btn-detalle,
-.btn-conciliar-manual {
-  padding: 0.25rem 0.5rem;
+.btn-detalle, .btn-conciliar-manual {
+  padding: 6px 12px;
   border: none;
-  border-radius: 4px;
-  font-size: 0.8rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
 }
 
 .btn-detalle {
@@ -270,106 +472,202 @@
   background: #16a34a;
 }
 
+/* ===================
+   MODAL DE DETALLE
+   =================== */
+
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  padding: 20px;
 }
 
 .modal-content {
   background: white;
-  border-radius: 8px;
-  padding: 2rem;
-  max-width: 800px;
-  max-height: 80vh;
+  border-radius: 12px;
+  max-width: 900px;
+  width: 100%;
+  max-height: 90vh;
   overflow-y: auto;
-  margin: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.detalle-conciliacion {
+  padding: 24px;
+}
+
+.detalle-conciliacion h3 {
+  color: #374151;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 0.5rem;
 }
 
 .detalle-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 1.5rem;
-  margin: 1.5rem 0;
+  margin-bottom: 2rem;
 }
 
 .detalle-seccion {
   background: #f8fafc;
-  padding: 1rem;
-  border-radius: 6px;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
 }
 
 .detalle-seccion h4 {
-  margin: 0 0 1rem 0;
   color: #1f2937;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .detalle-item {
   margin-bottom: 0.75rem;
+  font-size: 0.875rem;
 }
 
 .detalle-item strong {
-  display: inline-block;
-  min-width: 100px;
   color: #374151;
+  font-weight: 600;
+  margin-right: 0.5rem;
 }
 
 .trackings-list {
   margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .tracking-item {
-  display: inline-block;
-  background: #ddd6fe;
-  color: #5b21b6;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  margin: 0.25rem 0.25rem 0 0;
-  font-size: 0.8rem;
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .matches-list {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.75rem;
 }
 
 .match-item {
   background: white;
-  padding: 0.75rem;
-  border-radius: 4px;
+  padding: 1rem;
+  border-radius: 6px;
   border: 1px solid #e5e7eb;
+  font-size: 0.875rem;
 }
 
 .match-item div {
   margin-bottom: 0.25rem;
-  font-size: 0.9rem;
 }
 
 .modal-acciones {
   display: flex;
-  justify-content: flex-end;
   gap: 1rem;
-  margin-top: 1.5rem;
+  justify-content: flex-end;
   padding-top: 1.5rem;
   border-top: 1px solid #e5e7eb;
+}
+
+.btn-conciliar-manual {
+  background: #22c55e;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-conciliar-manual:hover {
+  background: #16a34a;
 }
 
 .btn-cerrar {
   background: #6b7280;
   color: white;
+  padding: 10px 20px;
   border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
+  border-radius: 6px;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 0.2s ease;
 }
 
 .btn-cerrar:hover {
   background: #4b5563;
+}
+
+/* ===================
+   RESPONSIVE DESIGN
+   =================== */
+
+@media (max-width: 768px) {
+  .cruces-container {
+    padding: 10px;
+  }
+  
+  .titulo {
+    font-size: 1.5rem;
+  }
+  
+  .estadisticas-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+  
+  .resumen-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .filtros-conciliacion {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .tabla-conciliacion {
+    font-size: 0.75rem;
+  }
+  
+  .detalle-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .modal-acciones {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 480px) {
+  .estadisticas-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .resumen-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .acciones {
+    flex-direction: column;
+  }
 }
