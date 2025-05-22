@@ -5,7 +5,7 @@ import LoadingSpinner from "../../components/LoadingSpinner";
 
 // Tipos de datos
 
-type GuiaPago = { referencia: string; valor: number };
+type GuiaPago = { referencia: string; valor: number; tracking?: string };
 type DatosPago = {
   valor: string;
   fecha: string;
@@ -158,11 +158,21 @@ export default function RegistrarPago() {
         const usuario = JSON.parse(localStorage.getItem("user")!);
         const correo = usuario.email;
 
-        const guiasConCliente = guias.map((g) => ({
-          referencia: g.referencia,
-          valor: g.valor,
-          cliente: "por_definir", // si ya tienes el cliente, cámbialo
-        }));
+        const guiasConCliente = guias.map((g) => {
+          const guiaObj: any = {
+            referencia: g.referencia,
+            valor: g.valor,
+            cliente: "por_definir", // si ya tienes el cliente, cámbialo
+          };
+          // Si tienes tracking y es un UUID válido, inclúyelo, si no, omítelo o pon null
+          // Aquí asumimos que g.tracking puede existir
+          if (g.tracking && /^[0-9a-fA-F-]{36}$/.test(g.tracking)) {
+            guiaObj.tracking = g.tracking;
+          } else {
+            guiaObj.tracking = null;
+          }
+          return guiaObj;
+        });
 
         formData.append("correo", correo);
         formData.append(
