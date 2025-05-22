@@ -4,7 +4,6 @@ import "../../styles/RegistrarPago.css";
 import LoadingSpinner from "../../components/LoadingSpinner";
 
 // Tipos de datos
-
 type GuiaPago = { referencia: string; valor: number; tracking?: string };
 type DatosPago = {
   valor: string;
@@ -158,28 +157,36 @@ export default function RegistrarPago() {
         const usuario = JSON.parse(localStorage.getItem("user")!);
         const correo = usuario.email;
 
+        // Limpiar y validar las guías antes de enviarlas
         const guiasConCliente = guias.map((g) => {
           const guiaObj: any = {
-            referencia: g.referencia,
-            valor: g.valor,
-            cliente: "por_definir", // si ya tienes el cliente, cámbialo
+            referencia: String(g.referencia).trim(),
+            valor: Number(g.valor),
+            cliente: "por_definir",
           };
-          // Si tienes tracking y es un UUID válido, inclúyelo, si no, omítelo o pon null
-          // Aquí asumimos que g.tracking puede existir
-          if (g.tracking && /^[0-9a-fA-F-]{36}$/.test(g.tracking)) {
-            guiaObj.tracking = g.tracking;
-          } else {
-            guiaObj.tracking = null;
+          
+          // Validar tracking - solo incluir si es válido
+          if (g.tracking) {
+            const trackingStr = String(g.tracking).trim();
+            // Verificar si es un UUID válido o un string válido (no vacío, no "null", no "undefined")
+            if (trackingStr && 
+                trackingStr.toLowerCase() !== "null" && 
+                trackingStr.toLowerCase() !== "undefined" &&
+                trackingStr !== "") {
+              guiaObj.tracking = trackingStr;
+            }
           }
+          
           return guiaObj;
         });
+
+        console.log("📦 Guías a enviar:", guiasConCliente);
 
         formData.append("correo", correo);
         formData.append(
           "valor_pago_str",
           parseValorMonetario(p.datos.valor).toString()
         );
-
         formData.append("fecha_pago", p.datos.fecha);
         formData.append(
           "hora_pago",
@@ -190,6 +197,17 @@ export default function RegistrarPago() {
         formData.append("referencia", p.datos.referencia);
         formData.append("guias", JSON.stringify(guiasConCliente));
         formData.append("comprobante", p.archivo);
+
+        console.log("📡 Enviando datos:", {
+          correo,
+          valor: parseValorMonetario(p.datos.valor),
+          fecha: p.datos.fecha,
+          hora: p.datos.hora,
+          tipo: p.datos.tipo,
+          entidad: p.datos.entidad,
+          referencia: p.datos.referencia,
+          guias: guiasConCliente
+        });
 
         const response = await fetch(
           "https://api.x-cargo.co/pagos/registrar-conductor",
@@ -203,6 +221,8 @@ export default function RegistrarPago() {
         if (!response.ok) {
           throw new Error(result.detail || "Error al registrar pago");
         }
+
+        console.log("✅ Pago registrado:", result);
       }
 
       alert("✅ Pagos registrados correctamente.");

@@ -94,6 +94,21 @@ async def registrar_pago_conductor(
     # Preparar filas para insertar en pagosconductor
     filas = []
     for guia in lista_guias:
+        # Validar y limpiar tracking
+        tracking_value = guia.get("tracking", "")
+        if tracking_value and tracking_value.lower() not in ["null", "none", ""]:
+            # Solo incluir si es un string válido, no un UUID malformado
+            tracking_clean = str(tracking_value).strip()
+        else:
+            tracking_clean = ""
+        
+        # Validar y limpiar cliente
+        cliente_value = guia.get("cliente", "no_asignado")
+        if cliente_value and cliente_value.lower() not in ["null", "none", ""]:
+            cliente_clean = str(cliente_value).strip()
+        else:
+            cliente_clean = "no_asignado"
+
         filas.append({
             "referencia": str(guia["referencia"]),
             "valor": float(guia.get("valor", valor_pago)),
@@ -110,21 +125,35 @@ async def registrar_pago_conductor(
             "hora_pago": hora_pago,
             "correo": correo,
             "fecha_pago": fecha_pago,
-            # "id_string": str(uuid4()),  # <-- Elimina o comenta esta línea
             "referencia_pago": referencia,
-            "tracking": str(guia.get("tracking", "")),
-            "cliente": str(guia.get("cliente", "no_asignado"))
+            "tracking": tracking_clean,
+            "cliente": cliente_clean
         })
 
     try:
         tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
         df = pd.DataFrame(filas)
 
+        # Conversiones de tipos más explícitas
         df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
         df["fecha_pago"] = pd.to_datetime(df["fecha_pago"], errors="coerce")
         df["hora_pago"] = df["hora_pago"].astype(str)
         df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
         df["creado_en"] = pd.to_datetime(df["creado_en"], errors="coerce")
+        
+        # Asegurar que los campos de texto sean strings
+        df["referencia"] = df["referencia"].astype(str)
+        df["entidad"] = df["entidad"].astype(str)
+        df["estado"] = df["estado"].astype(str)
+        df["tipo"] = df["tipo"].astype(str)
+        df["comprobante"] = df["comprobante"].astype(str)
+        df["novedades"] = df["novedades"].astype(str)
+        df["creado_por"] = df["creado_por"].astype(str)
+        df["modificado_por"] = df["modificado_por"].astype(str)
+        df["correo"] = df["correo"].astype(str)
+        df["referencia_pago"] = df["referencia_pago"].astype(str)
+        df["tracking"] = df["tracking"].astype(str)
+        df["cliente"] = df["cliente"].astype(str)
 
         print("📊 Tipos de columnas:")
         print(df.dtypes)
@@ -134,7 +163,13 @@ async def registrar_pago_conductor(
         if df["valor"].isnull().any():
             raise HTTPException(status_code=400, detail="Valor inválido en al menos una guía.")
 
-        client.load_table_from_dataframe(df, tabla).result()
+        # Insertar con configuración específica para evitar problemas de UUID
+        job_config = bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND",
+            autodetect=False  # Desactivar autodetección para evitar problemas con UUIDs
+        )
+        
+        client.load_table_from_dataframe(df, tabla, job_config=job_config).result()
 
         return {"mensaje": "✅ Pago registrado correctamente", "valor_total": valor_pago}
 
@@ -204,6 +239,7 @@ def aprobar_pago(data: dict = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error al actualizar estado de guías: {e}")
 
     return {"mensaje": "✅ Pago aprobado y guías liberadas correctamente"}
+
 @router.post("/rechazar-pago")
 def rechazar_pago(data: dict = Body(...)):
     referencia_pago = data.get("referencia_pago")
@@ -268,9 +304,6 @@ def rechazar_pago(data: dict = Body(...)):
 
     return {"mensaje": "❌ Pago rechazado correctamente. Guías actualizadas."}
 
-
-
-
 @router.get("/historial")
 def historial_pagos(
     estado: Optional[str] = Query(None),
@@ -304,7 +337,7 @@ def historial_pagos(
     query = f"""
         SELECT
             referencia_pago,
-            SUM(valor) AS valor
+            SUM(valor) AS valor,
             MAX(fecha_pago) AS fecha,
             MAX(entidad) AS entidad,
             MAX(estado) AS estado,
@@ -321,6 +354,7 @@ def historial_pagos(
     resultados = client.query(query, job_config=job_config).result()
 
     return [dict(row) for row in resultados]
+
 @router.get("/pagos-conductor")
 def obtener_pagos():
     client = bigquery.Client()
