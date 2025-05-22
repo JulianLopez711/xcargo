@@ -26,7 +26,7 @@ async def registrar_pago_conductor(
     # Validación 1: por referencia_pago única
     verificar = client.query("""
         SELECT COUNT(*) as total
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductores`
         WHERE referencia_pago = @ref
     """, job_config=bigquery.QueryJobConfig(
         query_parameters=[
@@ -43,11 +43,11 @@ async def registrar_pago_conductor(
     # Validación 2: mismo usuario + fecha/hora/valor
     verificar_duplicado = client.query("""
         SELECT COUNT(*) as total
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductores`
         WHERE correo = @correo
           AND fecha_pago = @fecha
           AND hora_pago = @hora
-          AND valor_pago_total = @valor
+          AND valor = @valor
     """, job_config=bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("correo", "STRING", correo),
@@ -81,56 +81,45 @@ async def registrar_pago_conductor(
         f.write(await comprobante.read())
 
     comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
-    fecha_hora_registro = datetime.utcnow().isoformat()
+    creado_en = datetime.utcnow()
 
-    # Preparar filas para insertar
+    # Preparar filas para insertar en pagosconductores
     filas = []
     for guia in lista_guias:
         filas.append({
+            "referencia": guia["referencia"],
+            "valor": guia.get("valor", valor_pago),
+            "fecha": fecha_pago,
+            "entidad": entidad,
+            "estado": "pagado",
+            "tipo": tipo,
+            "comprobante": comprobante_url,
+            "novedades": "",
+            "creado_en": creado_en,
+            "creado_por": correo,
+            "modificado_en": None,
+            "modificado_por": correo,
+            "hora_pago": hora_pago,
             "correo": correo,
             "fecha_pago": fecha_pago,
-            "hora_pago": hora_pago,
-            "valor": valor_pago,
-            "valor_pago_total": valor_pago,
-            "entidad": entidad,
-            "tipo": tipo,
-            "referencia": guia["referencia"],
+            "id_string": str(uuid4()),
             "referencia_pago": referencia,
-            "comprobante": comprobante_url,
-            "estado": "pagado",
-            "fecha_registro": fecha_hora_registro,
-            "modificado_por": correo,
+            "tracking": guia.get("tracking", ""),
             "cliente": guia.get("cliente", "no_asignado")
         })
 
-    # Insertar en pagosconductor
     try:
-        tabla = "datos-clientes-441216.Conciliaciones.pagosconductor"
+        tabla = "datos-clientes-441216.Conciliaciones.pagosconductores"
         df = pd.DataFrame(filas)
+        df["fecha"] = pd.to_datetime(df["fecha"])
         df["fecha_pago"] = pd.to_datetime(df["fecha_pago"])
         df["hora_pago"] = df["hora_pago"].astype(str)
         df["valor"] = df["valor"].astype(float)
-        df["valor_pago_total"] = df["valor_pago_total"].astype(float)
-        df["fecha_registro"] = pd.to_datetime(df["fecha_registro"])
+        df["creado_en"] = pd.to_datetime(df["creado_en"])
 
         client.load_table_from_dataframe(df, tabla).result()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al registrar el pago: {e}")
-
-    # Actualizar estado de las guías a "en revisión"
-    try:
-        referencias_guias = [guia["referencia"] for guia in lista_guias]
-        client.query(f"""
-            UPDATE `datos-clientes-441216.Conciliaciones.COD_Pendiente`
-            SET estado = 'en revisión'
-            WHERE referencia IN UNNEST(@refs)
-        """, job_config=bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ArrayQueryParameter("refs", "STRING", referencias_guias)
-            ]
-        )).result()
-    except Exception as e:
-        print("Error al actualizar estado de guías:", e)
 
     return {"mensaje": "✅ Pago registrado correctamente", "valor_total": valor_pago}
 
@@ -296,7 +285,7 @@ def historial_pagos(
     query = f"""
         SELECT
             referencia_pago,
-            MAX(valor_pago_total) AS valor,
+            SUM(valor) AS valor
             MAX(fecha_pago) AS fecha,
             MAX(entidad) AS entidad,
             MAX(estado) AS estado,
@@ -318,7 +307,7 @@ def obtener_pagos():
     client = bigquery.Client()
     query = """
         SELECT referencia_pago, 
-               MAX(valor_pago_total) AS valor,
+               SUM(valor) AS valor,
                MAX(fecha_pago) AS fecha, 
                MAX(entidad) AS entidad,
                MAX(estado) AS estado, 
