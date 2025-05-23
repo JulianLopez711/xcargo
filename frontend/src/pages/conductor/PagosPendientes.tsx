@@ -22,7 +22,7 @@ export default function PagosPendientes() {
   const itemsPorPagina = 20;
 
   useEffect(() => {
-    fetch("https://api.x-cargo.co/api/operador/obtener_guias_pendientes_conductor")
+    fetch("https://api.x-cargo.co/api/guias/pendientes")
       .then((res) => res.json())
       .then((data) => {
         const pagosConId = data.map((p: Omit<Pago, "id">, i: number) => ({

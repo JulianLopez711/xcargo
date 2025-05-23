@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import "../../styles/RegistrarPago.css";
+import "../../styles/conductor/FormularioPagoConductor.css";
 import LoadingSpinner from "../../components/LoadingSpinner";
 
 // Tipos de datos
