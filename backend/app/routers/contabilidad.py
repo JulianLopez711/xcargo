@@ -22,7 +22,7 @@ def obtener_resumen_contabilidad():
             GROUP BY cliente, estado
         """
 
-        # Pendientes desde COD_Pendiente
+        # Pendientes desde COD_pendiente
         query_pendientes = """
             SELECT 
               cliente,
@@ -30,7 +30,7 @@ def obtener_resumen_contabilidad():
               COUNT(*) AS guias,
               SUM(valor) AS valor,
               SUM(valor) AS pendiente
-            FROM `datos-clientes-441216.pickup_data.COD_Pendiente`
+            FROM `datos-clientes-441216.pickup_data.COD_pendiente`
             GROUP BY cliente
         """
 

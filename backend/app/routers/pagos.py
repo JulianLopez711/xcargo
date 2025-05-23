@@ -86,13 +86,13 @@ async def registrar_pago_conductor(
     if not lista_guias:
         raise HTTPException(status_code=400, detail="Debe asociar al menos una guía")
 
-    # Obtener información de clientes desde COD_Pendiente
+    # Obtener información de clientes desde COD_pendiente
     referencias_guias = [str(guia["referencia"]) for guia in lista_guias]
     refs_str = "', '".join(referencias_guias)
     
     query_clientes = f"""
         SELECT tracking_number as referencia, cliente, Valor as valor
-        FROM `datos-clientes-441216.Conciliaciones.COD_Pendiente`
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendiente`
         WHERE tracking_number IN ('{refs_str}')
     """
     
@@ -124,16 +124,16 @@ async def registrar_pago_conductor(
         referencia_value = str(guia["referencia"]).strip()
         print(f"   - Referencia procesada: '{referencia_value}' (length: {len(referencia_value)})")
 
-        # Obtener cliente y valor desde COD_Pendiente
+        # Obtener cliente y valor desde COD_pendiente
         if referencia_value in clientes_data:
             cliente_clean = clientes_data[referencia_value]["cliente"] or "Sin Cliente"
             valor_individual = float(clientes_data[referencia_value]["valor"]) if clientes_data[referencia_value]["valor"] else float(guia.get("valor", 0))
-            print(f"   - Cliente desde COD_Pendiente: '{cliente_clean}'")
-            print(f"   - Valor individual desde COD_Pendiente: {valor_individual}")
+            print(f"   - Cliente desde COD_pendiente: '{cliente_clean}'")
+            print(f"   - Valor individual desde COD_pendiente: {valor_individual}")
         else:
             cliente_clean = "Sin Cliente"
             valor_individual = float(guia.get("valor", 0))
-            print(f"   - Cliente por defecto: '{cliente_clean}' (no encontrado en COD_Pendiente)")
+            print(f"   - Cliente por defecto: '{cliente_clean}' (no encontrado en COD_pendiente)")
         
         # Validar y limpiar tracking
         tracking_value = guia.get("tracking", "")
@@ -165,7 +165,7 @@ async def registrar_pago_conductor(
             "referencia_pago": referencia,  # Referencia de la consignación
             "valor_total_consignacion": valor_pago,  # Valor total de la consignación
             "tracking": tracking_clean,
-            "cliente": cliente_clean  # Cliente desde COD_Pendiente
+            "cliente": cliente_clean  # Cliente desde COD_pendiente
         }
         
         print(f"   ✅ Fila preparada: {fila}")
@@ -241,15 +241,15 @@ async def registrar_pago_conductor(
         
         print("✅ Datos insertados correctamente usando SQL directo")
         
-        # Actualizar StatusP a "pagado" en COD_Pendiente
+        # Actualizar StatusP a "pagado" en COD_pendiente
         try:
             update_query = f"""
-            UPDATE `datos-clientes-441216.Conciliaciones.COD_Pendiente`
+            UPDATE `datos-clientes-441216.Conciliaciones.COD_pendiente`
             SET StatusP = 'pagado'
             WHERE tracking_number IN ('{refs_str}')
             """
             client.query(update_query).result()
-            print("✅ StatusP actualizado a 'pagado' en COD_Pendiente")
+            print("✅ StatusP actualizado a 'pagado' en COD_pendiente")
         except Exception as e:
             print(f"⚠️ Error actualizando StatusP: {e}")
         
@@ -308,11 +308,11 @@ def aprobar_pago(data: dict = Body(...)):
     if not referencias:
         raise HTTPException(status_code=404, detail="No se encontraron guías asociadas al pago.")
 
-    # 3. Actualizar guías a "liberado" en COD_Pendiente
+    # 3. Actualizar guías a "liberado" en COD_pendiente
     try:
         refs_str = "', '".join(referencias)
         client.query(f"""
-            UPDATE `datos-clientes-441216.Conciliaciones.COD_Pendiente`
+            UPDATE `datos-clientes-441216.Conciliaciones.COD_pendiente`
             SET StatusP = 'liberado'
             WHERE tracking_number IN ('{refs_str}')
         """).result()
@@ -373,7 +373,7 @@ def rechazar_pago(data: dict = Body(...)):
     try:
         refs_str = "', '".join(referencias)
         client.query(f"""
-            UPDATE `datos-clientes-441216.Conciliaciones.COD_Pendiente`
+            UPDATE `datos-clientes-441216.Conciliaciones.COD_pendiente`
             SET StatusP = 'pendiente'
             WHERE tracking_number IN ('{refs_str}')
         """).result()
