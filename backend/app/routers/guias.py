@@ -17,17 +17,16 @@ async def obtener_guias_pendientes_conductor(
     Obtiene las guías pendientes de pago para conductores desde BigQuery
     """
     try:
-        # Query para obtener los COD pendientes
         query = """
         SELECT 
             tracking_number AS tracking,
             Empleado AS conductor,
             cliente AS empresa,
             Valor AS valor,
-            'pendiente' as estado,
+            StatusP as estado,
             '' as novedad
         FROM `datos-clientes-441216.Conciliaciones.COD_pendiente`
-        WHERE Valor > 0
+        WHERE Valor > 0 AND LOWER(StatusP) = 'pendiente'
         ORDER BY tracking_number DESC
         """
         
@@ -51,6 +50,7 @@ async def obtener_guias_pendientes_conductor(
     except Exception as e:
         print(f"Error al obtener guías pendientes: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error al obtener guías pendientes: {str(e)}")
+
 
 @router.get("/pendientes/conductor/{correo_conductor}")
 async def obtener_guias_pendientes_por_conductor(
