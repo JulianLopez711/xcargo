@@ -67,12 +67,12 @@ async def obtener_guias_pendientes_por_conductor(
             Empleado AS conductor,
             cliente AS empresa,
             Valor AS valor,
-            'pendiente' as estado,
+            StatusP as estado,
             '' as novedad
-        FROM `datos-clientes-441216.Conciliaciones.COD_pendiente`
-        WHERE Valor > 0 
-        AND LOWER(Empleado) = LOWER(@correo_conductor)
-        ORDER BY tracking_number DESC
+            FROM `datos-clientes-441216.Conciliaciones.COD_pendiente`
+            WHERE Valor > 0 AND LOWER(StatusP) = 'pendiente'
+            ORDER BY tracking_number DESC
+
         """
 
         job_config = bigquery.QueryJobConfig(
