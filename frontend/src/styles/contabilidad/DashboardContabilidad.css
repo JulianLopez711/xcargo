@@ -101,9 +101,8 @@
 }
 
 .selector-cliente select:focus {
-  outline: none;
-  ring: 2px;
-  ring-color: #059669;
+  outline: 2px solid #059669;
+  outline-offset: 2px;
   border-color: #059669;
 }
 
