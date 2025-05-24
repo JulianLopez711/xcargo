@@ -1,5 +1,5 @@
 const CACHE_NAME = "xcargo-v1";
-const urlsToCache = ["/", "/index.html", "/icons/LogoX.png", "/iconsLogoX.png"];
+const urlsToCache = ["/", "/index.html", "/icons/Logo192.png", "/icons/Logo512.png"];
 
 self.addEventListener("install", (event) => {
   console.log("[SW] Instalado");

@@ -8,6 +8,3 @@ html, body, #root {
   font-family: 'Inter', sans-serif;
   background-color: #f9fafb;
 }
-body {
-  overscroll-behavior-y: contain; /* evita rebotes raros en móviles */
-}
