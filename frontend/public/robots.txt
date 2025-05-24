@@ -1,0 +1,9 @@
+User-agent: *
+Disallow: /admin/
+Disallow: /api/
+Disallow: /login
+Disallow: /roles
+Disallow: /usuarios
+Allow: /
+
+Sitemap: https://gestion.x-cargo.co/sitemap.xml

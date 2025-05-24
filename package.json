@@ -5,6 +5,7 @@
   },
   "devDependencies": {
     "@types/file-saver": "^2.0.7",
-    "@types/xlsx": "^0.0.35"
+    "@types/xlsx": "^0.0.35",
+    "vite-plugin-pwa": "^1.0.0"
   }
 }
