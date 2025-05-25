@@ -1,7 +1,9 @@
+// frontend/src/pages/contabilidad/Entregas.tsx
 import { useState, useEffect } from "react";
 import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
 import { useNavigate } from "react-router-dom";
+import LoadingSpinner from "../../components/LoadingSpinner";
 import "../../styles/contabilidad/Entregas.css";
 
 interface Liquidacion {
@@ -66,7 +68,7 @@ export default function LiquidacionesClientes() {
       if (data.entregas && Array.isArray(data.entregas)) {
         setLiquidaciones(data.entregas);
         setEstadisticas(data.estadisticas);
-        setMensaje(`✅ Cargadas ${data.entregas.length} entregas`);
+        setMensaje(`✅ Cargadas ${data.entregas.length} entregas exitosamente`);
       } else {
         throw new Error("Formato de respuesta inválido");
       }
@@ -111,6 +113,11 @@ export default function LiquidacionesClientes() {
   });
 
   const exportarExcel = () => {
+    if (datosFiltrados.length === 0) {
+      alert("No hay datos para exportar");
+      return;
+    }
+
     const hoja = datosFiltrados.map((e) => ({
       Tracking: e.tracking,
       Fecha: e.fecha,
@@ -128,24 +135,17 @@ export default function LiquidacionesClientes() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Liquidaciones");
     
-    // Ajustar ancho de columnas
+    // Configurar anchos de columna
     const colWidths = [
-      { wch: 15 }, // Tracking
-      { wch: 12 }, // Fecha
-      { wch: 15 }, // Tipo
-      { wch: 10 }, // Cliente
-      { wch: 12 }, // Valor
-      { wch: 12 }, // Estado
-      { wch: 20 }, // Ref. Pago
-      { wch: 25 }, // Conductor
-      { wch: 15 }, // Entidad Pago
-      { wch: 15 }  // Fecha Conciliación
+      { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 10 }, { wch: 12 },
+      { wch: 12 }, { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 15 }
     ];
     ws['!cols'] = colWidths;
 
     const excelBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
     const blob = new Blob([excelBuffer], { type: "application/octet-stream" });
-    saveAs(blob, `liquidaciones-${new Date().toISOString().split("T")[0]}.xlsx`);
+    const fecha = new Date().toISOString().split("T")[0];
+    saveAs(blob, `liquidaciones-${fecha}.xlsx`);
   };
 
   const irAPago = () => {
@@ -164,26 +164,61 @@ export default function LiquidacionesClientes() {
     });
   };
 
+  const formatearFecha = (fecha: string) => {
+    return new Date(fecha).toLocaleDateString('es-CO', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit'
+    });
+  };
+
+  const formatearMoneda = (valor: number) => {
+    return valor.toLocaleString('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    });
+  };
+
   const total = datosFiltrados.reduce((sum, e) => sum + e.valor, 0);
   const clientesUnicos = Array.from(new Set(liquidaciones.map(e => e.cliente))).sort();
 
   return (
     <div className="entregas-page">
-      <h2 className="entregas-title">Liquidaciones por Cliente</h2>
+      {/* Header */}
+      <div className="page-header">
+        <h1 className="page-title">📦 Liquidaciones por Cliente</h1>
+        <p className="page-subtitle">
+          Gestión integral de entregas y liquidaciones por cliente
+        </p>
+      </div>
 
-      {/* Estadísticas de resumen */}
+      {/* Resumen Ejecutivo */}
       {resumenClientes.length > 0 && (
-        <div className="resumen-clientes">
-          <h3>📊 Resumen Ejecutivo</h3>
+        <div className="resumen-section">
+          <h3 className="section-title">📊 Resumen Ejecutivo</h3>
           <div className="resumen-grid">
             {resumenClientes.map((cliente) => (
               <div key={cliente.cliente} className="resumen-card">
-                <h4>{cliente.cliente}</h4>
+                <h4 className="cliente-name">{cliente.cliente}</h4>
                 <div className="resumen-stats">
-                  <span>Entregas: {cliente.total_entregas}</span>
-                  <span>Valor: ${cliente.valor_total.toLocaleString()}</span>
-                  <span>Conciliadas: {cliente.porcentaje_conciliadas}%</span>
-                  <span>Promedio: ${cliente.valor_promedio_entrega.toLocaleString()}</span>
+                  <div className="stat-row">
+                    <span className="stat-label">Total entregas:</span>
+                    <span className="stat-value">{cliente.total_entregas.toLocaleString()}</span>
+                  </div>
+                  <div className="stat-row">
+                    <span className="stat-label">Valor total:</span>
+                    <span className="stat-value">{formatearMoneda(cliente.valor_total)}</span>
+                  </div>
+                  <div className="stat-row">
+                    <span className="stat-label">Conciliadas:</span>
+                    <span className="stat-value highlight">{cliente.porcentaje_conciliadas.toFixed(1)}%</span>
+                  </div>
+                  <div className="stat-row">
+                    <span className="stat-label">Promedio:</span>
+                    <span className="stat-value">{formatearMoneda(cliente.valor_promedio_entrega)}</span>
+                  </div>
                 </div>
               </div>
             ))}
@@ -192,153 +227,224 @@ export default function LiquidacionesClientes() {
       )}
 
       {/* Filtros */}
-      <div className="entregas-filtros">
-        <label>
-          Cliente:
-          <select value={clienteFiltro} onChange={(e) => setClienteFiltro(e.target.value)}>
-            <option value="">Todos los clientes</option>
-            {clientesUnicos.map(cliente => (
-              <option key={cliente} value={cliente}>{cliente}</option>
-            ))}
-          </select>
-        </label>
-        
-        <label>
-          Desde:
-          <input type="date" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
-        </label>
-        
-        <label>
-          Hasta:
-          <input type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
-        </label>
+      <div className="filtros-section">
+        <h3 className="section-title">🔍 Filtros de Búsqueda</h3>
+        <div className="filtros-grid">
+          <div className="filtro-group">
+            <label className="filtro-label">Cliente:</label>
+            <select 
+              className="filtro-select"
+              value={clienteFiltro} 
+              onChange={(e) => setClienteFiltro(e.target.value)}
+            >
+              <option value="">Todos los clientes</option>
+              {clientesUnicos.map(cliente => (
+                <option key={cliente} value={cliente}>{cliente}</option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="filtro-group">
+            <label className="filtro-label">Fecha desde:</label>
+            <input 
+              type="date" 
+              className="filtro-input"
+              value={fechaDesde} 
+              onChange={(e) => setFechaDesde(e.target.value)} 
+            />
+          </div>
+          
+          <div className="filtro-group">
+            <label className="filtro-label">Fecha hasta:</label>
+            <input 
+              type="date" 
+              className="filtro-input"
+              value={fechaHasta} 
+              onChange={(e) => setFechaHasta(e.target.value)} 
+            />
+          </div>
 
-        <label className="checkbox-label">
-          <input 
-            type="checkbox" 
-            checked={soloConciliadas} 
-            onChange={(e) => setSoloConciliadas(e.target.checked)} 
-          />
-          Solo conciliadas
-        </label>
+          <div className="filtro-group checkbox-group">
+            <label className="checkbox-label">
+              <input 
+                type="checkbox" 
+                className="filtro-checkbox"
+                checked={soloConciliadas} 
+                onChange={(e) => setSoloConciliadas(e.target.checked)} 
+              />
+              Solo entregas conciliadas
+            </label>
+          </div>
+        </div>
         
-        <button className="boton-accion" onClick={exportarExcel} disabled={cargando}>
-          📥 Exportar Excel
-        </button>
-        
-        <button className="boton-accion secondary" onClick={cargarEntregas} disabled={cargando}>
-          🔄 Actualizar
-        </button>
+        <div className="filtros-actions">
+          <button 
+            className="boton-accion secondary" 
+            onClick={cargarEntregas} 
+            disabled={cargando}
+          >
+            {cargando ? "⏳" : "🔄"} {cargando ? "Cargando..." : "Actualizar"}
+          </button>
+          <button 
+            className="boton-accion primary" 
+            onClick={exportarExcel} 
+            disabled={cargando || datosFiltrados.length === 0}
+          >
+            📥 Exportar Excel
+          </button>
+        </div>
       </div>
 
-      {/* Mensaje de estado */}
+      {/* Mensaje de Estado */}
       {mensaje && (
-        <div className={`mensaje-estado ${mensaje.includes('✅') ? 'success' : 'error'}`}>
-          {mensaje}
+        <div className={`mensaje-card ${mensaje.includes('✅') ? 'success' : 'error'}`}>
+          <span className="mensaje-text">{mensaje}</span>
         </div>
       )}
 
-      {/* Estadísticas actuales */}
+      {/* Estadísticas Actuales */}
       {estadisticas && (
-        <div className="estadisticas-actuales">
-          <div className="stat-item">
-            <span className="stat-label">Total entregas:</span>
-            <span className="stat-value">{estadisticas.total_entregas}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">Valor total:</span>
-            <span className="stat-value">${estadisticas.valor_total.toLocaleString()}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">Filtrado:</span>
-            <span className="stat-value">{datosFiltrados.length} registros</span>
+        <div className="estadisticas-card">
+          <div className="estadisticas-grid">
+            <div className="stat-item">
+              <span className="stat-number">{estadisticas.total_entregas.toLocaleString()}</span>
+              <span className="stat-label">Total entregas</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-number">{formatearMoneda(estadisticas.valor_total)}</span>
+              <span className="stat-label">Valor total</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-number">{datosFiltrados.length.toLocaleString()}</span>
+              <span className="stat-label">Registros filtrados</span>
+            </div>
           </div>
         </div>
       )}
 
-      <div className="entregas-total">
-        <strong>Total filtrado:</strong> ${total.toLocaleString()}
-        {datosFiltrados.length !== liquidaciones.length && (
-          <span className="filtro-info">
-            ({datosFiltrados.length} de {liquidaciones.length} registros)
-          </span>
-        )}
+      {/* Total y Acciones */}
+      <div className="total-section">
+        <div className="total-content">
+          <div className="total-info">
+            <span className="total-label">Total filtrado:</span>
+            <span className="total-value">{formatearMoneda(total)}</span>
+            {datosFiltrados.length !== liquidaciones.length && (
+              <span className="total-details">
+                ({datosFiltrados.length.toLocaleString()} de {liquidaciones.length.toLocaleString()} registros)
+              </span>
+            )}
+          </div>
+          
+          {datosFiltrados.length > 0 && (
+            <button 
+              className="boton-accion primary" 
+              onClick={irAPago}
+              style={{ fontSize: '1.1rem', padding: '1rem 2rem' }}
+            >
+              💸 Procesar Liquidación ({datosFiltrados.length} entregas)
+            </button>
+          )}
+        </div>
       </div>
 
-      {datosFiltrados.length > 0 && (
-        <button className="boton-accion primary" onClick={irAPago}>
-          💸 Procesar Liquidación ({datosFiltrados.length} entregas)
-        </button>
-      )}
-
-      {/* Tabla de entregas */}
+      {/* Tabla de Entregas */}
       <div className="entregas-tabla-container">
         {cargando ? (
-          <div className="loading-container">
-            <div className="loading-spinner"></div>
-            <span>Cargando entregas...</span>
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+            <LoadingSpinner />
+          </div>
+        ) : datosFiltrados.length === 0 ? (
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '3rem', 
+            color: '#6b7280',
+            fontSize: '1.1rem'
+          }}>
+            {liquidaciones.length === 0 ? 
+              "📋 No hay entregas disponibles en el sistema." : 
+              "🔍 No hay entregas que coincidan con los filtros aplicados."
+            }
           </div>
         ) : (
           <table className="entregas-tabla">
             <thead>
               <tr>
-                <th>Tracking</th>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>Cliente</th>
-                <th>Valor</th>
-                <th>Estado</th>
-                <th>Conductor</th>
-                <th>Entidad</th>
-                <th>Conciliación</th>
+                <th style={{ width: '120px' }}>Tracking</th>
+                <th style={{ width: '100px' }}>Fecha</th>
+                <th style={{ width: '80px' }}>Tipo</th>
+                <th style={{ width: '100px' }}>Cliente</th>
+                <th style={{ width: '100px', textAlign: 'right' }}>Valor</th>
+                <th style={{ width: '120px', textAlign: 'center' }}>Estado</th>
+                <th style={{ width: '120px' }}>Conductor</th>
+                <th style={{ width: '100px' }}>Entidad</th>
+                <th style={{ width: '110px' }}>Conciliación</th>
               </tr>
             </thead>
             <tbody>
-              {datosFiltrados.length > 0 ? (
-                datosFiltrados.map((e, idx) => (
-                  <tr key={idx} className={`estado-${e.estado_conciliacion.toLowerCase().replace(' ', '-')}`}>
-                    <td>
-                      <span className="tracking-code">{e.tracking}</span>
-                    </td>
-                    <td>{new Date(e.fecha).toLocaleDateString()}</td>
-                    <td>
-                      <span className="tipo-badge">{e.tipo}</span>
-                    </td>
-                    <td>
-                      <span className="cliente-badge">{e.cliente}</span>
-                    </td>
-                    <td className="valor-cell">${e.valor.toLocaleString()}</td>
-                    <td>
-                      <span className={`estado-badge ${e.estado_conciliacion.toLowerCase().replace(' ', '-')}`}>
-                        {e.estado_conciliacion}
-                      </span>
-                    </td>
-                    <td className="conductor-cell">
-                      {e.correo_conductor.split('@')[0]}
-                    </td>
-                    <td>{e.entidad_pago}</td>
-                    <td className="conciliacion-cell">
-                      {e.fecha_conciliacion ? 
-                        new Date(e.fecha_conciliacion).toLocaleDateString() : 
-                        "Pendiente"
+              {datosFiltrados.map((entrega, idx) => (
+                <tr key={`${entrega.tracking}-${idx}`}>
+                  <td>
+                    <span className="tracking-code">{entrega.tracking}</span>
+                  </td>
+                  <td>{formatearFecha(entrega.fecha)}</td>
+                  <td>
+                    <span className="tipo-badge">{entrega.tipo}</span>
+                  </td>
+                  <td>
+                    <span className="cliente-badge">{entrega.cliente}</span>
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <span className="valor-money">
+                      {formatearMoneda(entrega.valor)}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <span className={`estado-badge estado-${entrega.estado_conciliacion.toLowerCase().replace(/\s+/g, '-')}`}>
+                      {entrega.estado_conciliacion}
+                    </span>
+                  </td>
+                  <td>
+                    <span 
+                      className="conductor-name" 
+                      title={entrega.correo_conductor}
+                    >
+                      {entrega.correo_conductor.split('@')[0]}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="entidad-name">{entrega.entidad_pago}</span>
+                  </td>
+                  <td>
+                    <span className="fecha-conciliacion">
+                      {entrega.fecha_conciliacion ? 
+                        formatearFecha(entrega.fecha_conciliacion) : 
+                        <span className="pendiente">Pendiente</span>
                       }
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={9} className="no-data">
-                    {liquidaciones.length === 0 ? 
-                      "No hay entregas disponibles." : 
-                      "No hay entregas que coincidan con los filtros aplicados."
-                    }
+                    </span>
                   </td>
                 </tr>
-              )}
+              ))}
             </tbody>
           </table>
         )}
       </div>
+
+      {/* Información adicional */}
+      {datosFiltrados.length > 0 && (
+        <div style={{ 
+          marginTop: '2rem', 
+          padding: '1rem', 
+          background: 'white', 
+          borderRadius: '8px',
+          border: '1px solid #e5e7eb',
+          textAlign: 'center',
+          color: '#6b7280',
+          fontSize: '0.9rem'
+        }}>
+          💡 <strong>Tip:</strong> Usa los filtros para encontrar entregas específicas. 
+          Puedes exportar los datos filtrados a Excel para análisis detallado.
+        </div>
+      )}
     </div>
   );
 }

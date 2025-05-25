@@ -1,5 +1,8 @@
+// EJEMPLO: frontend/src/pages/conductor/PagosPendientes.tsx ACTUALIZADO
+
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { Button, Card, Table } from "../../components/ui";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import "../../styles/conductor/PagosPendientes.css";
 
@@ -13,43 +16,64 @@ interface Pago {
   novedad?: string;
 }
 
+const ITEMS_POR_PAGINA = 20;
+
 export default function PagosPendientes() {
   const [pagos, setPagos] = useState<Pago[]>([]);
   const [seleccionados, setSeleccionados] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const navigate = useNavigate();
-  const itemsPorPagina = 20;
+
+  // Configuración de columnas para la tabla
+  const columns = [
+    { key: 'checkbox', header: '', width: '50px', align: 'center' as const },
+    { key: 'tracking', header: 'Tracking', width: '150px' },
+    { key: 'conductor', header: 'Conductor', width: '120px' },
+    { key: 'empresa', header: 'Empresa', width: '120px' },
+    { key: 'valor', header: 'Valor', width: '100px', align: 'right' as const },
+    { key: 'estado', header: 'Estado', width: '100px', align: 'center' as const },
+    { key: 'novedad', header: 'Novedad', width: '200px' },
+  ];
 
   useEffect(() => {
-    fetch("https://api.x-cargo.co/api/guias/pendientes")
-      .then((res) => res.json())
-      .then((data) => {
+    const cargarPagos = async () => {
+      try {
+        const res = await fetch("https://api.x-cargo.co/api/guias/pendientes");
+        const data = await res.json();
         const pagosConId = data.map((p: Omit<Pago, "id">, i: number) => ({
           id: i + 1,
           ...p,
         }));
         setPagos(pagosConId);
-        setIsLoading(false);
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error("Error cargando pagos:", err);
+      } finally {
         setIsLoading(false);
-      });
+      }
+    };
+
+    cargarPagos();
   }, []);
 
-  if (isLoading) return <LoadingSpinner />;
-
-  const totalPaginas = Math.ceil(pagos.length / itemsPorPagina);
+  const totalPaginas = Math.ceil(pagos.length / ITEMS_POR_PAGINA);
   const paginatedPagos = pagos.slice(
-    (currentPage - 1) * itemsPorPagina,
-    currentPage * itemsPorPagina
+    (currentPage - 1) * ITEMS_POR_PAGINA,
+    currentPage * ITEMS_POR_PAGINA
   );
 
   const toggleSeleccion = (id: number) => {
     setSeleccionados((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
     );
+  };
+
+  const toggleTodos = () => {
+    if (seleccionados.length === paginatedPagos.length) {
+      setSeleccionados([]);
+    } else {
+      setSeleccionados(paginatedPagos.map(p => p.id));
+    }
   };
 
   const totalSeleccionado = pagos
@@ -76,84 +100,169 @@ export default function PagosPendientes() {
     });
   };
 
+  // Preparar datos para la tabla
+  const tableData = paginatedPagos.map((pago) => ({
+    id: pago.id,
+    checkbox: (
+      <input
+        type="checkbox"
+        checked={seleccionados.includes(pago.id)}
+        onChange={() => toggleSeleccion(pago.id)}
+        className="checkbox-custom"
+        aria-label={`Seleccionar guía ${pago.tracking}`}
+      />
+    ),
+    tracking: <span className="tracking-code">{pago.tracking}</span>,
+    conductor: pago.conductor,
+    empresa: pago.empresa,
+    valor: (
+      <span className="valor-money">
+        ${pago.valor.toLocaleString()}
+      </span>
+    ),
+    estado: (
+      <span className={`estado-badge estado-${pago.estado || 'pendiente'}`}>
+        {pago.estado || 'pendiente'}
+      </span>
+    ),
+    novedad: (
+      <span className={pago.novedad ? "novedad-text" : "novedad-empty"}>
+        {pago.novedad || "-"}
+      </span>
+    ),
+  }));
+
+  if (isLoading) {
+    return (
+      <div className="loading-container">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
   return (
     <div className="pagos-pendientes">
-      <h1>Pagos Pendientes</h1>
-
-      <div className="resumen-cabecera">
-        <p className="resumen-total con-fondo">
-          Total pendiente: <strong className="valor-total">${totalGlobal.toLocaleString()}</strong>
+      {/* Header */}
+      <div className="page-header">
+        <h1 className="page-title">💰 Pagos Pendientes</h1>
+        <p className="page-subtitle">
+          Gestiona tus guías pendientes de pago
         </p>
       </div>
 
-      <div className="tabla-pagos">
-        <table>
-          <thead>
-            <tr>
-              <th></th>
-              <th>Tracking</th>
-              <th>Conductor</th>
-              <th>Empresa</th>
-              <th>Valor</th>
-              <th>Estado</th>
-              <th>Novedad</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginatedPagos.length === 0 ? (
-              <tr>
-                <td colSpan={7}>No hay pagos pendientes.</td>
-              </tr>
-            ) : (
-              paginatedPagos.map((pago) => (
-                <tr key={pago.id} className={pago.estado === "rechazado" ? "fila-rechazada" : ""}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={seleccionados.includes(pago.id)}
-                      onChange={() => toggleSeleccion(pago.id)}
-                    />
-                  </td>
-                  <td>{pago.tracking}</td>
-                  <td>{pago.conductor}</td>
-                  <td>{pago.empresa}</td>
-                  <td>${pago.valor.toLocaleString()}</td>
-                  <td>{pago.estado || "pendiente"}</td>
-                  <td style={{ fontStyle: "italic", color: "#dc2626" }}>
-                    {pago.novedad || "-"}
-                  </td>
-                </tr>
-              ))
+      {/* Resumen Total */}
+      <Card className="resumen-card" padding="md">
+        <div className="resumen-content">
+          <div className="resumen-info">
+            <span className="resumen-label">Total pendiente:</span>
+            <span className="resumen-valor">${totalGlobal.toLocaleString()}</span>
+          </div>
+          <div className="resumen-stats">
+            <span>{pagos.length} guías</span>
+            <span>•</span>
+            <span>{seleccionados.length} seleccionadas</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* Controles de Tabla */}
+      <Card className="table-controls" padding="sm">
+        <div className="controls-row">
+          <div className="controls-left">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleTodos}
+              icon={seleccionados.length === paginatedPagos.length ? "☑️" : "☐"}
+            >
+              {seleccionados.length === paginatedPagos.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
+            </Button>
+          </div>
+          
+          <div className="controls-right">
+            {seleccionados.length > 0 && (
+              <div className="selection-summary">
+                <span className="selection-count">
+                  {seleccionados.length} seleccionada{seleccionados.length !== 1 ? 's' : ''}
+                </span>
+                <span className="selection-total">
+                  ${totalSeleccionado.toLocaleString()}
+                </span>
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      </Card>
 
-      <div className="paginacion">
-        <button
-          disabled={currentPage === 1}
-          onClick={() => setCurrentPage((prev) => prev - 1)}
-        >
-          ← Anterior
-        </button>
-        <span>
-          Página {currentPage} de {totalPaginas}
-        </span>
-        <button
-          disabled={currentPage === totalPaginas}
-          onClick={() => setCurrentPage((prev) => prev + 1)}
-        >
-          Siguiente →
-        </button>
-      </div>
+      {/* Tabla */}
+      <Card padding="sm">
+        <Table
+          columns={columns}
+          data={tableData}
+          loading={isLoading}
+          emptyMessage="No hay pagos pendientes"
+          responsive={true}
+        />
+      </Card>
 
-      <div className="resumen-seleccion">
-        Total seleccionado: <strong>${totalSeleccionado.toLocaleString()}</strong>
-      </div>
+      {/* Paginación */}
+      {totalPaginas > 1 && (
+        <Card className="pagination-card" padding="sm">
+          <div className="pagination-controls">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(prev => prev - 1)}
+              icon="←"
+            >
+              Anterior
+            </Button>
+            
+            <div className="pagination-info">
+              <span>Página {currentPage} de {totalPaginas}</span>
+              <small>({pagos.length} total)</small>
+            </div>
+            
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={currentPage === totalPaginas}
+              onClick={() => setCurrentPage(prev => prev + 1)}
+            >
+              Siguiente
+              <span>→</span>
+            </Button>
+          </div>
+        </Card>
+      )}
 
-      <button className="boton-pagar" onClick={handlePagar}>
-        Pagar
-      </button>
+      {/* Botón de Pago */}
+      {seleccionados.length > 0 && (
+        <div className="floating-action">
+          <Card className="action-card" padding="md">
+            <div className="action-content">
+              <div className="action-summary">
+                <span className="action-count">
+                  {seleccionados.length} guía{seleccionados.length !== 1 ? 's' : ''} seleccionada{seleccionados.length !== 1 ? 's' : ''}
+                </span>
+                <span className="action-total">
+                  Total: ${totalSeleccionado.toLocaleString()}
+                </span>
+              </div>
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={handlePagar}
+                icon="💳"
+                className="action-button"
+              >
+                Procesar Pago
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

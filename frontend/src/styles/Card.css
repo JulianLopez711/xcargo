@@ -1,0 +1,48 @@
+.card {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.card--border {
+  border: 1px solid var(--border);
+}
+
+.card--hover {
+  cursor: pointer;
+}
+
+.card--hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Padding variants */
+.card--padding-sm {
+  padding: var(--spacing-md);
+}
+
+.card--padding-md {
+  padding: var(--spacing-lg);
+}
+
+.card--padding-lg {
+  padding: var(--spacing-xl);
+}
+
+/* Responsive padding */
+@media (max-width: 768px) {
+  .card--padding-sm {
+    padding: var(--spacing-sm);
+  }
+  
+  .card--padding-md {
+    padding: var(--spacing-md);
+  }
+  
+  .card--padding-lg {
+    padding: var(--spacing-lg);
+  }
+}

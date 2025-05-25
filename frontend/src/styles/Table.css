@@ -1,0 +1,109 @@
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table-header {
+  background: var(--secondary-color);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+
+.table-header--left { text-align: left; }
+.table-header--center { text-align: center; }
+.table-header--right { text-align: right; }
+
+.table-cell {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+.table-cell--left { text-align: left; }
+.table-cell--center { text-align: center; }
+.table-cell--right { text-align: right; }
+
+.table-row {
+  transition: background-color 0.2s ease;
+}
+
+.table-row:hover {
+  background-color: rgba(16, 185, 129, 0.02);
+}
+
+.table-row:last-child .table-cell {
+  border-bottom: none;
+}
+
+.table-empty {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.table-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xl);
+  gap: var(--spacing-md);
+  background: var(--white);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.table-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top: 3px solid var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Responsive Table */
+.table--responsive {
+  min-width: 600px;
+}
+
+@media (max-width: 768px) {
+  .table-header,
+  .table-cell {
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-size: var(--font-size-xs);
+  }
+  
+  .table--responsive {
+    min-width: 500px;
+  }
+}
+
+@media (max-width: 480px) {
+  .table-header,
+  .table-cell {
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+  
+  .table--responsive {
+    min-width: 400px;
+  }
+}
