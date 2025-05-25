@@ -30,7 +30,9 @@ def hash_clave(plain_password: str) -> str:
 @router.post("/login")
 def login(data: LoginRequest):
     client = bigquery.Client()
-    query = """
+    
+    # 1. Verificar credenciales
+    query_cred = """
         SELECT correo, hashed_password, rol, clave_defecto
         FROM `datos-clientes-441216.Conciliaciones.credenciales`
         WHERE correo = @correo
@@ -41,7 +43,7 @@ def login(data: LoginRequest):
             bigquery.ScalarQueryParameter("correo", "STRING", data.correo)
         ]
     )
-    result = client.query(query, job_config=job_config).result()
+    result = client.query(query_cred, job_config=job_config).result()
     rows = list(result)
 
     if not rows:
@@ -51,10 +53,54 @@ def login(data: LoginRequest):
     if not bcrypt.checkpw(data.password.encode(), cred["hashed_password"].encode()):
         raise HTTPException(status_code=401, detail="Contraseña incorrecta")
 
+    # 2. Obtener permisos del usuario
+    query_permisos = """
+        SELECT p.id_permiso, p.nombre, p.modulo, p.ruta
+        FROM `datos-clientes-441216.Conciliaciones.rol_permisos` rp
+        JOIN `datos-clientes-441216.Conciliaciones.permisos` p 
+        ON rp.id_permiso = p.id_permiso
+        WHERE rp.id_rol = @rol
+    """
+    job_config_permisos = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("rol", "STRING", cred["rol"])
+        ]
+    )
+    permisos_result = client.query(query_permisos, job_config=job_config_permisos).result()
+    permisos = [{"id": row["id_permiso"], "nombre": row["nombre"], "modulo": row["modulo"], "ruta": row["ruta"]} for row in permisos_result]
+
+    # 3. Obtener ruta por defecto del rol
+    query_ruta = """
+        SELECT ruta_defecto
+        FROM `datos-clientes-441216.Conciliaciones.roles`
+        WHERE id_rol = @rol
+        LIMIT 1
+    """
+    job_config_ruta = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("rol", "STRING", cred["rol"])
+        ]
+    )
+    ruta_result = client.query(query_ruta, job_config=job_config_ruta).result()
+    ruta_rows = list(ruta_result)
+    
+    # 4. Determinar ruta de redirección
+    ruta_defecto = None
+    if ruta_rows and ruta_rows[0]["ruta_defecto"]:
+        ruta_defecto = ruta_rows[0]["ruta_defecto"]
+    elif permisos:
+        # Fallback: usar la primera ruta disponible de los permisos
+        ruta_defecto = permisos[0]["ruta"]
+    else:
+        # Fallback final
+        ruta_defecto = "/"
+
     return {
         "correo": cred["correo"],
         "rol": cred["rol"],
-        "clave_defecto": cred["clave_defecto"]
+        "clave_defecto": cred["clave_defecto"],
+        "permisos": permisos,
+        "ruta_defecto": ruta_defecto
     }
 
 @router.post("/cambiar-clave")

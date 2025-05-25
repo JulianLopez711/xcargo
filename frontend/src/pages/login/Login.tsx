@@ -9,7 +9,6 @@ const XCargoLogin: React.FC = () => {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -19,11 +18,6 @@ const XCargoLogin: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-
-    if (!selectedRole) {
-      setError("Por favor selecciona un rol");
-      return;
-    }
 
     if (!email || !password) {
       setError("Por favor completa todos los campos");
@@ -45,20 +39,6 @@ const XCargoLogin: React.FC = () => {
         throw new Error(data.detail || "Error al iniciar sesión");
       }
 
-      const rolMapeo: Record<string, string> = {
-        administrador: "admin",
-        contabilidad: "contabilidad",
-        conductor: "conductor",
-        operador: "operador",
-      };
-
-      const rolEsperado = rolMapeo[selectedRole.toLowerCase()];
-      const rolDesdeBackend = data.rol?.toLowerCase();
-
-      if (rolEsperado !== rolDesdeBackend) {
-        throw new Error("Rol incorrecto. Verifica tu selección.");
-      }
-
       if (data.clave_defecto) {
         localStorage.setItem("correo_recuperacion", data.correo);
         login({ email: data.correo, role: data.rol });
@@ -67,8 +47,20 @@ const XCargoLogin: React.FC = () => {
       }
 
       // Guardar usuario en contexto
-      login({ email: data.correo, role: data.rol });
-      setIsSubmitted(true);
+     login({ email: data.correo, role: data.rol });
+// Redirección directa usando la ruta del backend
+if (data.ruta_defecto) {
+  navigate(data.ruta_defecto);
+} else {
+  // Fallback si no hay ruta definida
+  const rutasPorRol: Record<string, string> = {
+    admin: "/admin/dashboard",
+    contabilidad: "/contabilidad/dashboard",
+    conductor: "/conductor/pagos", 
+    operador: "/operador/dashboard",
+  };
+  navigate(rutasPorRol[data.rol] || "/");
+}
 
     } catch (error: any) {
       setError(error.message || "Error de conexión. Contacta al administrador.");
@@ -76,19 +68,6 @@ const XCargoLogin: React.FC = () => {
       setIsLoading(false);
     }
   };
-
-  useEffect(() => {
-    if (isSubmitted && selectedRole) {
-      const rutasPorRol: Record<string, string> = {
-        administrador: "/admin/dashboard",
-        contabilidad: "/contabilidad/dashboard",
-        conductor: "/conductor/pagos",
-        operador: "/operador/dashboard",
-      };
-
-      navigate(rutasPorRol[selectedRole] || "/");
-    }
-  }, [isSubmitted, selectedRole, navigate]);
 
   const roles = [
     { key: "operador", label: "Operador", icon: "📦" },
@@ -187,38 +166,6 @@ const XCargoLogin: React.FC = () => {
               >
                 {showPassword ? "👁️‍🗨️" : "👁️"}
               </button>
-            </div>
-          </div>
-
-          {/* Role Selection */}
-          <div className="form-group">
-            <label className="form-label">
-              <svg className="label-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M16 7C16 9.20914 14.2091 11 12 11C9.79086 11 8 9.20914 8 7C8 4.79086 9.79086 3 12 3C14.2091 3 16 4.79086 16 7Z" stroke="currentColor" strokeWidth="2"/>
-                <path d="M12 14C8.13401 14 5 17.134 5 21H19C19 17.134 15.866 14 12 14Z" stroke="currentColor" strokeWidth="2"/>
-              </svg>
-              Selecciona tu rol
-            </label>
-            <div className="role-grid">
-              {roles.map((rol) => (
-                <button
-                  key={rol.key}
-                  type="button"
-                  className={`role-button ${selectedRole === rol.key ? "active" : ""}`}
-                  onClick={() => {
-                    setSelectedRole(rol.key);
-                    if (error) setError("");
-                  }}
-                  disabled={isLoading}
-                  aria-pressed={selectedRole === rol.key}
-                >
-                  <span className="role-icon">{rol.icon}</span>
-                  <span className="role-label">{rol.label}</span>
-                  {selectedRole === rol.key && (
-                    <span className="role-check">✓</span>
-                  )}
-                </button>
-              ))}
             </div>
           </div>
 

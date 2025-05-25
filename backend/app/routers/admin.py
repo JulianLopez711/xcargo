@@ -150,3 +150,165 @@ async def restablecer_clave(
     )
     bq_client.query(query, job_config=job_config).result()
     return {"mensaje": "Clave restablecida a valor por defecto (123456)"}
+
+@router.get("/permisos")
+async def listar_permisos(user = Depends(verificar_admin)):
+    query = f"""
+        SELECT id_permiso, nombre, descripcion, modulo, ruta
+        FROM `{PROJECT_ID}.{DATASET}.permisos`
+        ORDER BY modulo, nombre
+    """
+    result = bq_client.query(query).result()
+    return [dict(row) for row in result]
+
+# Obtener permisos de un rol específico
+@router.get("/rol/{id_rol}/permisos")
+async def obtener_permisos_rol(id_rol: str, user = Depends(verificar_admin)):
+    query = f"""
+        SELECT p.id_permiso, p.nombre, p.descripcion, p.modulo, p.ruta
+        FROM `{PROJECT_ID}.{DATASET}.rol_permisos` rp
+        JOIN `{PROJECT_ID}.{DATASET}.permisos` p ON rp.id_permiso = p.id_permiso
+        WHERE rp.id_rol = @id_rol
+        ORDER BY p.modulo, p.nombre
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("id_rol", "STRING", id_rol)
+        ]
+    )
+    result = bq_client.query(query, job_config=job_config).result()
+    return [dict(row) for row in result]
+
+# Asignar/actualizar permisos de un rol
+@router.post("/rol/{id_rol}/permisos")
+async def asignar_permisos_rol(
+    id_rol: str,
+    permisos_ids: list = Form(...),
+    user = Depends(verificar_admin)
+):
+    # 1. Eliminar permisos actuales del rol
+    delete_query = f"""
+        DELETE FROM `{PROJECT_ID}.{DATASET}.rol_permisos`
+        WHERE id_rol = @id_rol
+    """
+    job_config_delete = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("id_rol", "STRING", id_rol)
+        ]
+    )
+    bq_client.query(delete_query, job_config=job_config_delete).result()
+
+    # 2. Insertar nuevos permisos
+    if permisos_ids:
+        values = []
+        for permiso_id in permisos_ids:
+            values.append(f"('{id_rol}', '{permiso_id}')")
+        
+        insert_query = f"""
+            INSERT INTO `{PROJECT_ID}.{DATASET}.rol_permisos` (id_rol, id_permiso)
+            VALUES {','.join(values)}
+        """
+        bq_client.query(insert_query).result()
+
+    return {"mensaje": f"Permisos actualizados para el rol {id_rol}"}
+
+# Crear nuevo permiso
+@router.post("/crear-permiso")
+async def crear_permiso(
+    id_permiso: str = Form(...),
+    nombre: str = Form(...),
+    descripcion: str = Form(None),
+    modulo: str = Form(...),
+    ruta: str = Form(None),
+    user = Depends(verificar_admin)
+):
+    query = f"""
+        INSERT INTO `{PROJECT_ID}.{DATASET}.permisos`
+        (id_permiso, nombre, descripcion, modulo, ruta)
+        VALUES (@id_permiso, @nombre, @descripcion, @modulo, @ruta)
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("id_permiso", "STRING", id_permiso),
+            bigquery.ScalarQueryParameter("nombre", "STRING", nombre),
+            bigquery.ScalarQueryParameter("descripcion", "STRING", descripcion),
+            bigquery.ScalarQueryParameter("modulo", "STRING", modulo),
+            bigquery.ScalarQueryParameter("ruta", "STRING", ruta),
+        ]
+    )
+    bq_client.query(query, job_config=job_config).result()
+    return {"mensaje": "Permiso creado correctamente"}
+
+# Listar todos los roles con sus permisos
+@router.get("/roles-con-permisos")
+async def listar_roles_con_permisos(user = Depends(verificar_admin)):
+    query = f"""
+        SELECT 
+            r.id_rol,
+            r.nombre_rol, 
+            r.descripcion,
+            r.ruta_defecto,
+            ARRAY_AGG(
+                STRUCT(
+                    p.id_permiso,
+                    p.nombre as permiso_nombre,
+                    p.modulo
+                )
+            ) as permisos
+        FROM `{PROJECT_ID}.{DATASET}.roles` r
+        LEFT JOIN `{PROJECT_ID}.{DATASET}.rol_permisos` rp ON r.id_rol = rp.id_rol
+        LEFT JOIN `{PROJECT_ID}.{DATASET}.permisos` p ON rp.id_permiso = p.id_permiso
+        GROUP BY r.id_rol, r.nombre_rol, r.descripcion, r.ruta_defecto
+        ORDER BY r.nombre_rol
+    """
+    result = bq_client.query(query).result()
+    return [dict(row) for row in result]
+
+# Actualizar ruta por defecto de un rol
+@router.post("/rol/{id_rol}/ruta-defecto")
+async def actualizar_ruta_defecto(
+    id_rol: str,
+    ruta_defecto: str = Form(...),
+    user = Depends(verificar_admin)
+):
+    query = f"""
+        UPDATE `{PROJECT_ID}.{DATASET}.roles`
+        SET ruta_defecto = @ruta_defecto
+        WHERE id_rol = @id_rol
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("id_rol", "STRING", id_rol),
+            bigquery.ScalarQueryParameter("ruta_defecto", "STRING", ruta_defecto),
+        ]
+    )
+    bq_client.query(query, job_config=job_config).result()
+    return {"mensaje": f"Ruta por defecto actualizada para {id_rol}"}
+
+# Eliminar permiso
+@router.delete("/permiso/{id_permiso}")
+async def eliminar_permiso(id_permiso: str, user = Depends(verificar_admin)):
+    # 1. Eliminar de rol_permisos primero
+    delete_rel_query = f"""
+        DELETE FROM `{PROJECT_ID}.{DATASET}.rol_permisos`
+        WHERE id_permiso = @id_permiso
+    """
+    job_config_rel = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("id_permiso", "STRING", id_permiso)
+        ]
+    )
+    bq_client.query(delete_rel_query, job_config=job_config_rel).result()
+
+    # 2. Eliminar el permiso
+    delete_query = f"""
+        DELETE FROM `{PROJECT_ID}.{DATASET}.permisos`
+        WHERE id_permiso = @id_permiso
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("id_permiso", "STRING", id_permiso)
+        ]
+    )
+    bq_client.query(delete_query, job_config=job_config).result()
+    return {"mensaje": "Permiso eliminado correctamente"}

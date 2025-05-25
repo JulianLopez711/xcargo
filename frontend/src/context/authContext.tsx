@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 interface User {
   email: string;
   role: string;
+  permisos?: Array<{id: string, nombre: string, modulo: string, ruta: string}>; // AGREGAR ESTA LÍNEA
 }
 
 interface AuthContextType {
