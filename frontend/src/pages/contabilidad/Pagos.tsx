@@ -36,7 +36,7 @@ export default function PagosContabilidad() {
 
   const obtenerPagos = async () => {
     try {
-      const res = await fetch("https://api.x-cargo.co/pagos/pagos-conductor");
+      const res = await fetch("http://localhost:8000/pagos/pagos-conductor");
       const data = await res.json();
 
       if (!Array.isArray(data)) {
@@ -90,7 +90,7 @@ export default function PagosContabilidad() {
 
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const res = await fetch(`https://api.x-cargo.co/pagos/detalles-pago/${referenciaPago}`);
+      const res = await fetch(`http://localhost:8000/pagos/detalles-pago/${referenciaPago}`);
       const data = await res.json();
       setDetalleTracking(data);
       setModalDetallesVisible(true);
@@ -103,7 +103,7 @@ export default function PagosContabilidad() {
   const aprobarPago = async (referenciaPago: string) => {
     try {
       const user = JSON.parse(localStorage.getItem("user")!);
-      const res = await fetch("https://api.x-cargo.co/pagos/aprobar-pago", {
+      const res = await fetch("http://localhost:8000/pagos/aprobar-pago", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -131,7 +131,7 @@ export default function PagosContabilidad() {
 
     try {
       const user = JSON.parse(localStorage.getItem("user")!);
-      const res = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
+      const res = await fetch("http://localhost:8000/pagos/rechazar-pago", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

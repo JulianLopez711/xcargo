@@ -67,7 +67,7 @@ export default function ChatBotBubble() {
   const cargarEstadoUsuario = async () => {
     try {
       const res = await fetch(
-        `https://api.x-cargo.co/asistente/estado-usuario/${correoUsuario}`
+        `http://localhost:8000/asistente/estado-usuario/${correoUsuario}`
       );
       const data = await res.json();
       setEstadoUsuario(data.resumen);
@@ -106,7 +106,7 @@ export default function ChatBotBubble() {
     setCargando(true);
 
     try {
-      const res = await fetch("https://api.x-cargo.co/asistente/chat", {
+      const res = await fetch("http://localhost:8000/asistente/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

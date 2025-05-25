@@ -20,7 +20,7 @@ export default function FormCrearUsuario() {
     formData.append("rol", rol);
 
     try {
-      const res = await fetch("https://api.x-cargo.co/admin/crear-usuario", {
+      const res = await fetch("http://localhost:8000/admin/crear-usuario", {
         method: "POST",
         body: formData,
       });

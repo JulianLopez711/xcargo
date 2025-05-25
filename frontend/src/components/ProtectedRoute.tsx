@@ -4,6 +4,9 @@ import { useAuth } from "../context/authContext";
 
 // Función para verificar si el usuario tiene un permiso específico
 function userHasPermission(user: any, requiredPermission: string): boolean {
+  console.log("🔍 DEBUG - Usuario:", user);
+  console.log("🔍 DEBUG - Permiso requerido:", requiredPermission);
+  console.log("🔍 DEBUG - Permisos del usuario:", user.permisos);
   if (!user.permisos) return false;
   return user.permisos.some((permiso: any) => permiso.id === requiredPermission);
 }

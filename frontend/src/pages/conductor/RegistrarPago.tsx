@@ -67,7 +67,7 @@ export default function RegistrarPago() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
+      const response = await fetch("http://localhost:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -226,7 +226,7 @@ export default function RegistrarPago() {
         });
 
         const response = await fetch(
-          "https://api.x-cargo.co/pagos/registrar-conductor",
+          "http://localhost:8000/pagos/registrar-conductor",
           {
             method: "POST",
             body: formData,

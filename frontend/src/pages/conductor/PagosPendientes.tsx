@@ -39,7 +39,7 @@ export default function PagosPendientes() {
   useEffect(() => {
     const cargarPagos = async () => {
       try {
-        const res = await fetch("https://api.x-cargo.co/api/guias/pendientes");
+        const res = await fetch("http://localhost:8000/api/guias/pendientes");
         const data = await res.json();
         const pagosConId = data.map((p: Omit<Pago, "id">, i: number) => ({
           id: i + 1,

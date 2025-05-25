@@ -11,7 +11,6 @@ import EntregasAdmin from "../pages/admin/Entregas";
 import RoleManagement from "../pages/admin/RoleManagement";
 import GeneralSettings from "../pages/admin/GeneralSettings";
 
-
 // Contabilidad
 import DashboardContabilidad from "../pages/contabilidad/Dashboard";
 import PagosContabilidad from "../pages/contabilidad/Pagos";
@@ -45,82 +44,194 @@ export default function AppRoutes() {
     <Routes>
       <Route path="/" element={<Login />} />
 
-      {/* ADMIN */}
+      {/* ADMIN - Usando permisos específicos */}
       <Route
         element={
-          <ProtectedRoute allowedRoles={["admin"]}>
+          <ProtectedRoute requiredPermission="admin_dashboard">
             <Layout />
           </ProtectedRoute>
         }
       >
-        <Route path="/admin/dashboard" element={<DashboardAdmin />} />
-        <Route path="/admin/usuarios" element={<UserManagement />} />
-        <Route path="/admin/entregas" element={<EntregasAdmin />} />
-        <Route path="/admin/roles" element={<RoleManagement />} />
-        <Route path="/admin/configuracion" element={<GeneralSettings />} />
+        <Route 
+          path="/admin/dashboard" 
+          element={
+            <ProtectedRoute requiredPermission="admin_dashboard">
+              <DashboardAdmin />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/admin/usuarios" 
+          element={
+            <ProtectedRoute requiredPermission="admin_usuarios">
+              <UserManagement />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/admin/entregas" 
+          element={
+            <ProtectedRoute requiredPermission="admin_dashboard">
+              <EntregasAdmin />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/admin/roles" 
+          element={
+            <ProtectedRoute requiredPermission="admin_roles">
+              <RoleManagement />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/admin/configuracion" 
+          element={
+            <ProtectedRoute requiredPermission="admin_dashboard">
+              <GeneralSettings />
+            </ProtectedRoute>
+          } 
+        />
       </Route>
 
-      {/* CONTABILIDAD */}
+      {/* CONTABILIDAD - Usando permisos específicos */}
       <Route
         element={
-          <ProtectedRoute allowedRoles={["contabilidad"]}>
+          <ProtectedRoute requiredPermission="contabilidad_dashboard">
             <Layout />
           </ProtectedRoute>
         }
       >
         <Route
           path="/contabilidad/dashboard"
-          element={<DashboardContabilidad />}
+          element={
+            <ProtectedRoute requiredPermission="contabilidad_dashboard">
+              <DashboardContabilidad />
+            </ProtectedRoute>
+          }
         />
-        <Route path="/contabilidad/calendario" element={<CalendarioConciliacion />} />
-        <Route path="/contabilidad/historial" element={<HistorialPagos />} />
-        <Route path="/contabilidad/pagos" element={<PagosContabilidad />} />
+        <Route 
+          path="/contabilidad/calendario" 
+          element={
+            <ProtectedRoute requiredPermission="contabilidad_dashboard">
+              <CalendarioConciliacion />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/contabilidad/historial" 
+          element={
+            <ProtectedRoute requiredPermission="contabilidad_dashboard">
+              <HistorialPagos />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/contabilidad/pagos" 
+          element={
+            <ProtectedRoute requiredPermission="contabilidad_pagos">
+              <PagosContabilidad />
+            </ProtectedRoute>
+          } 
+        />
         <Route
           path="/contabilidad/entregas"
-          element={<EntregasContabilidad />}
+          element={
+            <ProtectedRoute requiredPermission="contabilidad_dashboard">
+              <EntregasContabilidad />
+            </ProtectedRoute>
+          }
         />
-        <Route path="/contabilidad/cruces" element={<CrucesContabilidad />} />
+        <Route 
+          path="/contabilidad/cruces" 
+          element={
+            <ProtectedRoute requiredPermission="contabilidad_dashboard">
+              <CrucesContabilidad />
+            </ProtectedRoute>
+          } 
+        />
         <Route
           path="/contabilidad/pago-entregas"
           element={
-            <ProtectedRoute allowedRoles={["contabilidad"]}>
+            <ProtectedRoute requiredPermission="contabilidad_pagos">
               <PagoEntregas />
             </ProtectedRoute>
           }
         />
       </Route>
 
-      {/* OPERADOR */}
+      {/* OPERADOR - Usando permisos específicos */}
       <Route
         element={
-          <ProtectedRoute allowedRoles={["operador"]}>
+          <ProtectedRoute requiredPermission="operador_dashboard">
             <Layout />
           </ProtectedRoute>
         }
       >
-        <Route path="/operador/dashboard" element={<DashboardOperador />} />
-        <Route path="/operador/historial" element={<HistorialOperador />} />
-        <Route path="/operador/registrar" element={<RegistrarPagoOperador />} />
-        <Route path="/operador/pago" element={<PagoOperador />} />
+        <Route 
+          path="/operador/dashboard" 
+          element={
+            <ProtectedRoute requiredPermission="operador_dashboard">
+              <DashboardOperador />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/operador/historial" 
+          element={
+            <ProtectedRoute requiredPermission="operador_dashboard">
+              <HistorialOperador />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/operador/registrar" 
+          element={
+            <ProtectedRoute requiredPermission="operador_dashboard">
+              <RegistrarPagoOperador />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/operador/pago" 
+          element={
+            <ProtectedRoute requiredPermission="operador_dashboard">
+              <PagoOperador />
+            </ProtectedRoute>
+          } 
+        />
       </Route>
 
-      {/* CONDUCTOR */}
+      {/* CONDUCTOR - Usando permisos específicos */}
       <Route
         element={
-          <ProtectedRoute allowedRoles={["conductor"]}>
+          <ProtectedRoute requiredPermission="conductor_pagos">
             <Layout />
           </ProtectedRoute>
         }
       >
-        <Route path="/conductor/pagos" element={<PagosPendientes />} />
-        <Route path="/conductor/pago" element={<FormularioPagoConductor />} />
+        <Route 
+          path="/conductor/pagos" 
+          element={
+            <ProtectedRoute requiredPermission="conductor_pagos">
+              <PagosPendientes />
+            </ProtectedRoute>
+          } 
+        />
+        <Route 
+          path="/conductor/pago" 
+          element={
+            <ProtectedRoute requiredPermission="conductor_pagos">
+              <FormularioPagoConductor />
+            </ProtectedRoute>
+          } 
+        />
       </Route>
 
       {/* PÚBLICO - Recuperación de contraseña */}
       <Route path="/recuperar-clave" element={<RecuperarClave />} />
       <Route path="/verificar-codigo" element={<VerificarCodigo />} />
       <Route path="/cambiar-clave" element={<NuevaClave />} />
-
 
       {/* Redirección genérica */}
       <Route path="*" element={<Navigate to="/" />} />
