@@ -89,7 +89,7 @@ export default function RoleManagement() {
     }
   };
 
-  const mostrarMensaje = (texto: string, tipo: "success" | "error" = "success") => {
+  const mostrarMensaje = (texto: string, _tipo: "success" | "error" = "success") => {
     setMessage(texto);
     setTimeout(() => setMessage(""), 3000);
   };
