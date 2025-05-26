@@ -21,7 +21,7 @@ export default function FormCrearUsuario() {
   useEffect(() => {
     const cargarRoles = async () => {
       try {
-        const response = await fetch("http://localhost:8000/admin/roles-con-permisos");
+        const response = await fetch("https://api.x-cargo.co/admin/roles-con-permisos");
         if (response.ok) {
           const data = await response.json();
           setRoles(data);
@@ -54,7 +54,7 @@ export default function FormCrearUsuario() {
     }
 
     try {
-      const res = await fetch("http://localhost:8000/admin/crear-usuario", {
+      const res = await fetch("https://api.x-cargo.co/admin/crear-usuario", {
         method: "POST",
         body: formData,
       });

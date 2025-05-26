@@ -29,7 +29,7 @@ def obtener_guias_usuario(correo_usuario: str) -> List[GuiaInfo]:
     """
     # Simulación - en producción conectar con la BD real
     try:
-        # Aquí iría la llamada real a: fetch(f"http://localhost:8000/api/operador/guias-pendientes?conductor={correo_usuario}")
+        # Aquí iría la llamada real a: fetch(f"https://api.x-cargo.co/api/operador/guias-pendientes?conductor={correo_usuario}")
         guias_simuladas = [
             GuiaInfo(tracking="G123456", conductor="Juan Pérez", empresa="Empresa ABC", valor=150000, estado="pendiente"),
             GuiaInfo(tracking="G789012", conductor="Juan Pérez", empresa="Empresa XYZ", valor=85000, estado="rechazado", novedad="Valor incorrecto"),

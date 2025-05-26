@@ -28,7 +28,7 @@ export default function HistorialPagos() {
     if (referencia) params.append("referencia", referencia);
 
     try {
-      const res = await fetch(`http://localhost:8000/pagos/historial?${params.toString()}`);
+      const res = await fetch(`https://api.x-cargo.co/pagos/historial?${params.toString()}`);
       const data = await res.json();
       setPagos(data);
     } catch (error) {

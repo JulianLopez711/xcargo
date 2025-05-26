@@ -121,7 +121,7 @@ export default function CrucesInteligentes() {
       const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 minutos timeout
 
       const res = await fetch(
-        "http://localhost:8000/conciliacion/cargar-banco-excel",
+        "https://api.x-cargo.co/conciliacion/cargar-banco-excel",
         {
           method: "POST",
           body: formData,
@@ -201,7 +201,7 @@ export default function CrucesInteligentes() {
 
     try {
       const res = await fetch(
-        "http://localhost:8000/conciliacion/conciliacion-automatica"
+        "https://api.x-cargo.co/conciliacion/conciliacion-automatica"
       );
       if (!res.ok) throw new Error("Error al ejecutar conciliación");
 
@@ -222,7 +222,7 @@ export default function CrucesInteligentes() {
   const cargarEstadisticas = async () => {
     try {
       const res = await fetch(
-        "http://localhost:8000/conciliacion/resumen-conciliacion"
+        "https://api.x-cargo.co/conciliacion/resumen-conciliacion"
       );
       if (res.ok) {
         const data: EstadisticasGenerales = await res.json();
@@ -242,7 +242,7 @@ export default function CrucesInteligentes() {
         prompt("Observaciones (opcional):") || "Conciliado manualmente";
 
       const res = await fetch(
-        "http://localhost:8000/conciliacion/marcar-conciliado-manual",
+        "https://api.x-cargo.co/conciliacion/marcar-conciliado-manual",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

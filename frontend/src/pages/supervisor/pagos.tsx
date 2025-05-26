@@ -33,7 +33,7 @@ export default function PagosSupervisor() {
   const cargarPagos = async () => {
     try {
       // TODO: Reemplazar con endpoint real
-      const response = await fetch(`http://localhost:8000/supervisor/pagos/${user?.empresa_carrier}`);
+      const response = await fetch(`https://api.x-cargo.co/supervisor/pagos/${user?.empresa_carrier}`);
       if (response.ok) {
         const data = await response.json();
         setPagos(data);
@@ -110,7 +110,7 @@ export default function PagosSupervisor() {
   const cambiarEstadoPago = async (pagoId: string, nuevoEstado: string) => {
     try {
       // TODO: Implementar endpoint
-      const response = await fetch(`http://localhost:8000/supervisor/pago/${pagoId}/estado`, {
+      const response = await fetch(`https://api.x-cargo.co/supervisor/pago/${pagoId}/estado`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estado: nuevoEstado })
