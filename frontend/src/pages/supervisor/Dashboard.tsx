@@ -42,7 +42,7 @@ export default function DashboardSupervisor() {
       return;
     }
 
-    const response = await fetch(`https://api.x-cargo.co/supervisor/dashboard/${user.empresa_carrier}`);
+    const response = await fetch(`http://localhost:8000/supervisor/dashboard/${user.empresa_carrier}`);
     if (response.ok) {
       const data = await response.json();
       setStats(data.stats);

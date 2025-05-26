@@ -34,7 +34,7 @@ export default function ConductoresSupervisor() {
   const cargarConductores = async () => {
     try {
       // TODO: Reemplazar con endpoint real
-      const response = await fetch(`https://api.x-cargo.co/supervisor/conductores/${user?.empresa_carrier}`);
+      const response = await fetch(`http://localhost:8000/supervisor/conductores/${user?.empresa_carrier}`);
       if (response.ok) {
         const data = await response.json();
         setConductores(data);
@@ -108,7 +108,7 @@ export default function ConductoresSupervisor() {
   const cambiarEstadoConductor = async (conductorId: string, nuevoEstado: string) => {
     try {
       // TODO: Implementar endpoint
-      const response = await fetch(`https://api.x-cargo.co/supervisor/conductor/${conductorId}/estado`, {
+      const response = await fetch(`http://localhost:8000/supervisor/conductor/${conductorId}/estado`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estado: nuevoEstado })
