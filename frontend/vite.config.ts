@@ -2,39 +2,37 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: [
-        'favicon.svg',
-        'robots.txt',
-        'icons/icon-192x192.png',
-        'icons/icon-512x512.png'
-      ],
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+      },
       manifest: {
-        name: "Xcargo Gestión",
-        short_name: "Xcargo",
-        start_url: "/",
-        scope: "/",
-        display: "standalone",
-        orientation: "portrait",
-        background_color: "#ffffff",
-        theme_color: "#4CAF50",
+        name: 'XCargo - Sistema de Gestión',
+        short_name: 'XCargo',
+        description: 'Sistema de gestión de conductores, pagos y entregas',
+        theme_color: '#10b981',
+        background_color: '#ffffff',
+        display: 'standalone',
+        start_url: '/',
         icons: [
           {
-            src: "/icons/Logo192.png",
-            sizes: "192x192",
-            type: "image/png"
+            src: '/icons/LogoX192.png',
+            sizes: '192x192',
+            type: 'image/png'
           },
           {
-            src: "/icons/Logo512.png",
-            sizes: "512x512",
-            type: "image/png"
+            src: '/icons/LogoX512.png',
+            sizes: '512x512',
+            type: 'image/png'
           }
         ]
+      },
+      devOptions: {
+        enabled: true // Habilita PWA en desarrollo
       }
     })
   ]
