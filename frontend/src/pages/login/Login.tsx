@@ -10,7 +10,6 @@ const XCargoLogin: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState<boolean>(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>("");
   const navigate = useNavigate();
@@ -34,7 +33,9 @@ const XCargoLogin: React.FC = () => {
       });
 
       const data = await res.json();
-      console.log("🔍 Respuesta completa del backend:", data); // NUEVO
+      console.log("🔍 DEBUG - Respuesta del login:", data);
+      console.log("🔍 DEBUG - Ruta por defecto recibida:", data.ruta_defecto);
+      console.log("🔍 DEBUG - Rol del usuario:", data.rol);
 
       if (!res.ok) {
         throw new Error(data.detail || "Error al iniciar sesión");
@@ -52,24 +53,26 @@ const XCargoLogin: React.FC = () => {
       }
 
       // Guardar usuario en contexto
+      // Guardar usuario en contexto
       login({
         email: data.correo,
         role: data.rol,
-        permisos: data.permisos || [], // MODIFICADO
+        empresa_carrier: data.empresa_carrier,
+        permisos: data.permisos || [], // SOLO ESTA LLAMADA
       });
 
-      // Guardar usuario en contexto
-      login({ email: data.correo, role: data.rol });
       // Redirección directa usando la ruta del backend
       if (data.ruta_defecto) {
         navigate(data.ruta_defecto);
       } else {
+        // Fallback si no hay ruta definida
         // Fallback si no hay ruta definida
         const rutasPorRol: Record<string, string> = {
           admin: "/admin/dashboard",
           contabilidad: "/contabilidad/dashboard",
           conductor: "/conductor/pagos",
           operador: "/operador/dashboard",
+          supervisor: "/supervisor/dashboard", // AGREGAR ESTA LÍNEA
         };
         navigate(rutasPorRol[data.rol] || "/");
       }
@@ -81,13 +84,6 @@ const XCargoLogin: React.FC = () => {
       setIsLoading(false);
     }
   };
-
-  const roles = [
-    { key: "operador", label: "Operador", icon: "📦" },
-    { key: "conductor", label: "Conductor", icon: "🚛" },
-    { key: "contabilidad", label: "Contabilidad", icon: "📊" },
-    { key: "administrador", label: "Administrador", icon: "⚙️" },
-  ];
 
   return (
     <div className="login-container">

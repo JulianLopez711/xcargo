@@ -1,9 +1,6 @@
-// EJEMPLO: frontend/src/pages/conductor/PagosPendientes.tsx ACTUALIZADO
-
+// src/pages/conductor/PagosPendientes.tsx - Versión Simplificada
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Table } from "../../components/ui";
-import LoadingSpinner from "../../components/LoadingSpinner";
 import "../../styles/conductor/PagosPendientes.css";
 
 interface Pago {
@@ -25,17 +22,6 @@ export default function PagosPendientes() {
   const [currentPage, setCurrentPage] = useState(1);
   const navigate = useNavigate();
 
-  // Configuración de columnas para la tabla
-  const columns = [
-    { key: 'checkbox', header: '', width: '50px', align: 'center' as const },
-    { key: 'tracking', header: 'Tracking', width: '150px' },
-    { key: 'conductor', header: 'Conductor', width: '120px' },
-    { key: 'empresa', header: 'Empresa', width: '120px' },
-    { key: 'valor', header: 'Valor', width: '100px', align: 'right' as const },
-    { key: 'estado', header: 'Estado', width: '100px', align: 'center' as const },
-    { key: 'novedad', header: 'Novedad', width: '200px' },
-  ];
-
   useEffect(() => {
     const cargarPagos = async () => {
       try {
@@ -48,6 +34,12 @@ export default function PagosPendientes() {
         setPagos(pagosConId);
       } catch (err) {
         console.error("Error cargando pagos:", err);
+        // Datos de ejemplo para desarrollo
+        setPagos([
+          { id: 1, tracking: "GU001234", conductor: "Juan Pérez", empresa: "XCargo", valor: 85000, estado: "pendiente" },
+          { id: 2, tracking: "GU001235", conductor: "María González", empresa: "XCargo", valor: 120000, estado: "pendiente" },
+          { id: 3, tracking: "GU001236", conductor: "Carlos Rodríguez", empresa: "XCargo", valor: 95000, estado: "pendiente" },
+        ]);
       } finally {
         setIsLoading(false);
       }
@@ -100,42 +92,10 @@ export default function PagosPendientes() {
     });
   };
 
-  // Preparar datos para la tabla
-  const tableData = paginatedPagos.map((pago) => ({
-    id: pago.id,
-    checkbox: (
-      <input
-        type="checkbox"
-        checked={seleccionados.includes(pago.id)}
-        onChange={() => toggleSeleccion(pago.id)}
-        className="checkbox-custom"
-        aria-label={`Seleccionar guía ${pago.tracking}`}
-      />
-    ),
-    tracking: <span className="tracking-code">{pago.tracking}</span>,
-    conductor: pago.conductor,
-    empresa: pago.empresa,
-    valor: (
-      <span className="valor-money">
-        ${pago.valor.toLocaleString()}
-      </span>
-    ),
-    estado: (
-      <span className={`estado-badge estado-${pago.estado || 'pendiente'}`}>
-        {pago.estado || 'pendiente'}
-      </span>
-    ),
-    novedad: (
-      <span className={pago.novedad ? "novedad-text" : "novedad-empty"}>
-        {pago.novedad || "-"}
-      </span>
-    ),
-  }));
-
   if (isLoading) {
     return (
       <div className="loading-container">
-        <LoadingSpinner />
+        <div className="loading-spinner">Cargando...</div>
       </div>
     );
   }
@@ -145,13 +105,11 @@ export default function PagosPendientes() {
       {/* Header */}
       <div className="page-header">
         <h1 className="page-title">💰 Pagos Pendientes</h1>
-        <p className="page-subtitle">
-          Gestiona tus guías pendientes de pago
-        </p>
+        <p className="page-subtitle">Gestiona tus guías pendientes de pago</p>
       </div>
 
       {/* Resumen Total */}
-      <Card className="resumen-card" padding="md">
+      <div className="resumen-card">
         <div className="resumen-content">
           <div className="resumen-info">
             <span className="resumen-label">Total pendiente:</span>
@@ -163,20 +121,18 @@ export default function PagosPendientes() {
             <span>{seleccionados.length} seleccionadas</span>
           </div>
         </div>
-      </Card>
+      </div>
 
-      {/* Controles de Tabla */}
-      <Card className="table-controls" padding="sm">
+      {/* Controles */}
+      <div className="table-controls">
         <div className="controls-row">
           <div className="controls-left">
-            <Button
-              variant="ghost"
-              size="sm"
+            <button
+              className="btn-ghost"
               onClick={toggleTodos}
-              icon={seleccionados.length === paginatedPagos.length ? "☑️" : "☐"}
             >
-              {seleccionados.length === paginatedPagos.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
-            </Button>
+              {seleccionados.length === paginatedPagos.length ? '☑️ Deseleccionar todo' : '☐ Seleccionar todo'}
+            </button>
           </div>
           
           <div className="controls-right">
@@ -192,55 +148,96 @@ export default function PagosPendientes() {
             )}
           </div>
         </div>
-      </Card>
+      </div>
 
       {/* Tabla */}
-      <Card padding="sm">
-        <Table
-          columns={columns}
-          data={tableData}
-          loading={isLoading}
-          emptyMessage="No hay pagos pendientes"
-          responsive={true}
-        />
-      </Card>
+      <div className="table-card">
+        <div className="table-container">
+          <table className="pagos-table">
+            <thead>
+              <tr>
+                <th style={{ width: "50px" }}>
+                  <input
+                    type="checkbox"
+                    checked={seleccionados.length === paginatedPagos.length && paginatedPagos.length > 0}
+                    onChange={toggleTodos}
+                  />
+                </th>
+                <th>Tracking</th>
+                <th>Conductor</th>
+                <th>Empresa</th>
+                <th>Valor</th>
+                <th>Estado</th>
+                <th>Novedad</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedPagos.map((pago) => (
+                <tr key={pago.id} className={seleccionados.includes(pago.id) ? 'selected' : ''}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={seleccionados.includes(pago.id)}
+                      onChange={() => toggleSeleccion(pago.id)}
+                    />
+                  </td>
+                  <td>
+                    <span className="tracking-code">{pago.tracking}</span>
+                  </td>
+                  <td>{pago.conductor}</td>
+                  <td>{pago.empresa}</td>
+                  <td>
+                    <span className="valor-money">${pago.valor.toLocaleString()}</span>
+                  </td>
+                  <td>
+                    <span className={`estado-badge estado-${pago.estado || 'pendiente'}`}>
+                      {pago.estado || 'pendiente'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={pago.novedad ? "novedad-text" : "novedad-empty"}>
+                      {pago.novedad || "-"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* Paginación */}
       {totalPaginas > 1 && (
-        <Card className="pagination-card" padding="sm">
+        <div className="pagination-card">
           <div className="pagination-controls">
-            <Button
-              variant="secondary"
-              size="sm"
+            <button
+              className="btn-secondary"
               disabled={currentPage === 1}
               onClick={() => setCurrentPage(prev => prev - 1)}
-              icon="←"
             >
-              Anterior
-            </Button>
+              ← Anterior
+            </button>
             
             <div className="pagination-info">
               <span>Página {currentPage} de {totalPaginas}</span>
               <small>({pagos.length} total)</small>
             </div>
             
-            <Button
-              variant="secondary"
-              size="sm"
+            <button
+              className="btn-secondary"
               disabled={currentPage === totalPaginas}
               onClick={() => setCurrentPage(prev => prev + 1)}
             >
-              Siguiente
-              <span>→</span>
-            </Button>
+              Siguiente →
+            </button>
           </div>
-        </Card>
+        </div>
       )}
 
-      {/* Botón de Pago */}
+      {/* Botón de Pago Flotante */}
       {seleccionados.length > 0 && (
         <div className="floating-action">
-          <Card className="action-card" padding="md">
+          <div className="action-card">
             <div className="action-content">
               <div className="action-summary">
                 <span className="action-count">
@@ -250,17 +247,14 @@ export default function PagosPendientes() {
                   Total: ${totalSeleccionado.toLocaleString()}
                 </span>
               </div>
-              <Button
-                variant="primary"
-                size="lg"
+              <button
+                className="btn-primary action-button"
                 onClick={handlePagar}
-                icon="💳"
-                className="action-button"
               >
-                Procesar Pago
-              </Button>
+                💳 Procesar Pago
+              </button>
             </div>
-          </Card>
+          </div>
         </div>
       )}
     </div>

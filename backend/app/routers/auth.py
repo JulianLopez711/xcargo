@@ -98,6 +98,7 @@ def login(data: LoginRequest):
     return {
         "correo": cred["correo"],
         "rol": cred["rol"],
+        "empresa_carrier": cred.get("empresa_carrier", "XCARGO_PRINCIPAL"),
         "clave_defecto": cred["clave_defecto"],
         "permisos": permisos,
         "ruta_defecto": ruta_defecto

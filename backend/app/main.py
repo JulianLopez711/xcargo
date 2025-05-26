@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from app.routers import (
     guias, ocr, pagos, operador, asistente, 
     pagoCliente, contabilidad, auth, roles, 
-    conciliacion, cruces, entregas, admin
+    conciliacion, cruces, entregas, admin,supervisor
 )
 
 app = FastAPI()
@@ -41,3 +41,4 @@ app.include_router(conciliacion.router)   # /conciliacion
 app.include_router(cruces.router)         # /cruces
 app.include_router(entregas.router)       # /entregas
 app.include_router(asistente.router)      # /asistente
+app.include_router(supervisor.router)     # /supervisor

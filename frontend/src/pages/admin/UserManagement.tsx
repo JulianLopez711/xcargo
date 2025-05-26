@@ -1,7 +1,6 @@
 import { useState } from "react";
 import FormCrearUsuario from "../../components/Admin/FormCrearUsuario";
 import FormCambiarRol from "../../components/Admin/FormCambiarRol";
-import FormCrearRol from "../../components/Admin/FormCrearRol";
 import FormRestablecerClave from "../../components/Admin/FormRestablecerClave";
 import "../../styles/admin/UserManagement.css";
 
@@ -23,11 +22,6 @@ export default function UserManagement() {
           onClick={() => setActiveTab("cambiarRol")}
         >
           Cambiar Rol
-        </button>
-        <button
-          className={activeTab === "crearRol" ? "active" : ""}
-          onClick={() => setActiveTab("crearRol")}
-        >
           Crear Rol
         </button>
         <button
@@ -41,7 +35,6 @@ export default function UserManagement() {
       <div className="form-container">
         {activeTab === "crearUsuario" && <FormCrearUsuario />}
         {activeTab === "cambiarRol" && <FormCambiarRol />}
-        {activeTab === "crearRol" && <FormCrearRol />}
         {activeTab === "restablecerClave" && <FormRestablecerClave />}
       </div>
     </div>

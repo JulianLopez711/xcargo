@@ -9,6 +9,7 @@ import { adminRoutes } from "../routes/adminRoutes/adminRoutes";
 import { contabilidadRoutes } from "../routes/contabilidadRoutes/contabilidadRoutes";
 import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
 import { operadorRoutes } from "../routes/operadorRoutes/operadorRoutes";
+import { supervisorRoutes } from "../routes/supervisorRoutes/supervisorRoutes"; // AGREGADO
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -18,11 +19,13 @@ export default function Navbar() {
   const menuRef = useRef<HTMLDivElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 
+  // ACTUALIZADO: Agregado supervisor
   const rutasPorRol: Record<string, { name: string; path: string; icon?: string }[]> = {
     admin: adminRoutes,
     contabilidad: contabilidadRoutes,
     conductor: conductorRoutes,
     operador: operadorRoutes,
+    supervisor: supervisorRoutes, // AGREGADO
   };
 
   const handleClickOutside = (e: MouseEvent) => {
@@ -41,11 +44,38 @@ export default function Navbar() {
 
   if (!user) return null;
 
-  const rutas = rutasPorRol[user.role] || [];
+  // MEJORADO: Obtener rutas basadas en permisos si están disponibles
+  const getRutasDisponibles = () => {
+  // Filtra rutas según permisos específicos del usuario
+  if (user.permisos && user.permisos.length > 0) {
+    const rutasPorRolUsuario = rutasPorRol[user.role] || [];
+    return rutasPorRolUsuario.filter(ruta => {
+      if ('permission' in ruta) {
+        return user.permisos!.some(permiso => permiso.id === ruta.permission);
+      }
+      return true;
+    });
+  }
+  return rutasPorRol[user.role] || [];
+};
+
+  const rutas = getRutasDisponibles();
 
   const handleMobileNavigation = (path: string) => {
     navigate(path);
     setMobileMenuOpen(false);
+  };
+
+  // MEJORADO: Función para obtener el nombre del rol más amigable
+  const getNombreRol = (role: string) => {
+    const nombres: Record<string, string> = {
+      admin: "Administrador",
+      contabilidad: "Contabilidad", 
+      conductor: "Conductor",
+      operador: "Operador",
+      supervisor: "Supervisor" // AGREGADO
+    };
+    return nombres[role] || role;
   };
 
   return (
@@ -63,7 +93,12 @@ export default function Navbar() {
               key={ruta.path}
               className="navbar-link"
               onClick={() => navigate(ruta.path)}
+              title={`Ir a ${ruta.name}`}
             >
+              {/* Mostrar ícono si está disponible */}
+              {'icon' in ruta && ruta.icon && (
+                <span className="nav-icon">{ruta.icon}</span>
+              )}
               {ruta.name}
             </button>
           ))}
@@ -92,18 +127,33 @@ export default function Navbar() {
             <span className="user-avatar">
               {user.email.charAt(0).toUpperCase()}
             </span>
-            <span className="user-email">{user.email}</span>
+            <div className="user-info">
+              <span className="user-email">{user.email}</span>
+              <span className="user-role">{getNombreRol(user.role)}</span>
+              {/* Mostrar empresa si está disponible */}
+              {user.empresa_carrier && (
+                <span className="user-company">🏢 {user.empresa_carrier}</span>
+              )}
+            </div>
             <span className="dropdown-arrow">▼</span>
           </button>
 
           {menuAbierto && (
             <div className="user-dropdown">
+              <div className="dropdown-header">
+                <strong>{getNombreRol(user.role)}</strong>
+                {user.empresa_carrier && (
+                  <small>{user.empresa_carrier}</small>
+                )}
+              </div>
+              <div className="dropdown-divider"></div>
               <button onClick={() => alert("Ir a perfil")} className="dropdown-item">
                 <span>👤</span> Perfil
               </button>
               <button onClick={() => navigate("/cambiar-clave")} className="dropdown-item">
                 <span>🔑</span> Cambiar contraseña
               </button>
+              <div className="dropdown-divider"></div>
               <button onClick={logout} className="dropdown-item logout">
                 <span>🚪</span> Cerrar sesión
               </button>
@@ -124,7 +174,10 @@ export default function Navbar() {
             </div>
             <div className="mobile-user-details">
               <span className="mobile-user-email">{user.email}</span>
-              <span className="mobile-user-role">{user.role}</span>
+              <span className="mobile-user-role">{getNombreRol(user.role)}</span>
+              {user.empresa_carrier && (
+                <span className="mobile-user-company">🏢 {user.empresa_carrier}</span>
+              )}
             </div>
           </div>
         </div>
@@ -136,7 +189,12 @@ export default function Navbar() {
               className="mobile-menu-link"
               onClick={() => handleMobileNavigation(ruta.path)}
             >
-              <span>{ruta.name}</span>
+              <div className="mobile-link-content">
+                {'icon' in ruta && ruta.icon && (
+                  <span className="mobile-nav-icon">{ruta.icon}</span>
+                )}
+                <span>{ruta.name}</span>
+              </div>
               <span className="mobile-link-arrow">→</span>
             </button>
           ))}

@@ -30,6 +30,11 @@ import RegistrarPagoOperador from "../pages/operador/RegistrarPago";
 import PagosPendientes from "../pages/conductor/PagosPendientes";
 import FormularioPagoConductor from "../pages/conductor/RegistrarPago";
 
+// Supervisor - IMPORTS CORREGIDOS
+import DashboardSupervisor from "../pages/supervisor/Dashboard";
+import ConductoresSupervisor from "../pages/supervisor/conductores";
+import PagosSupervisor from "../pages/supervisor/pagos";
+
 // Recuperación de contraseña
 import RecuperarClave from "../pages/login/RecuperarClave";
 import VerificarCodigo from "../pages/login/VerificarCodigo";
@@ -52,47 +57,75 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route 
-          path="/admin/dashboard" 
+        <Route
+          path="/admin/dashboard"
           element={
             <ProtectedRoute requiredPermission="admin_dashboard">
               <DashboardAdmin />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/admin/usuarios" 
+        <Route
+          path="/admin/usuarios"
           element={
             <ProtectedRoute requiredPermission="admin_usuarios">
               <UserManagement />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/admin/entregas" 
+        <Route
+          path="/admin/entregas"
           element={
             <ProtectedRoute requiredPermission="admin_dashboard">
               <EntregasAdmin />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/admin/roles" 
+        <Route
+          path="/admin/roles"
           element={
             <ProtectedRoute requiredPermission="admin_roles">
               <RoleManagement />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/admin/configuracion" 
+        <Route
+          path="/admin/configuracion"
           element={
             <ProtectedRoute requiredPermission="admin_dashboard">
               <GeneralSettings />
             </ProtectedRoute>
-          } 
+          }
         />
       </Route>
+
+      {/* SUPERVISOR */}
+      {/* SUPERVISOR */}
+<Route
+  element={
+    <ProtectedRoute requiredPermission="supervisor_dashboard">
+      <Layout />
+    </ProtectedRoute>
+  }
+>
+  <Route path="/supervisor/dashboard" element={<DashboardSupervisor />} />
+  <Route
+    path="/supervisor/conductores"
+    element={
+      <ProtectedRoute requiredPermission="supervisor_conductores">
+        <ConductoresSupervisor />
+      </ProtectedRoute>
+    }
+  />
+  <Route 
+    path="/supervisor/pagos" 
+    element={
+      <ProtectedRoute requiredPermission="supervisor_pagos">
+        <PagosSupervisor />
+      </ProtectedRoute>
+    }
+  />
+</Route>
 
       {/* CONTABILIDAD - Usando permisos específicos */}
       <Route
@@ -110,29 +143,29 @@ export default function AppRoutes() {
             </ProtectedRoute>
           }
         />
-        <Route 
-          path="/contabilidad/calendario" 
+        <Route
+          path="/contabilidad/calendario"
           element={
             <ProtectedRoute requiredPermission="contabilidad_dashboard">
               <CalendarioConciliacion />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/contabilidad/historial" 
+        <Route
+          path="/contabilidad/historial"
           element={
             <ProtectedRoute requiredPermission="contabilidad_dashboard">
               <HistorialPagos />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/contabilidad/pagos" 
+        <Route
+          path="/contabilidad/pagos"
           element={
             <ProtectedRoute requiredPermission="contabilidad_pagos">
               <PagosContabilidad />
             </ProtectedRoute>
-          } 
+          }
         />
         <Route
           path="/contabilidad/entregas"
@@ -142,13 +175,13 @@ export default function AppRoutes() {
             </ProtectedRoute>
           }
         />
-        <Route 
-          path="/contabilidad/cruces" 
+        <Route
+          path="/contabilidad/cruces"
           element={
             <ProtectedRoute requiredPermission="contabilidad_dashboard">
               <CrucesContabilidad />
             </ProtectedRoute>
-          } 
+          }
         />
         <Route
           path="/contabilidad/pago-entregas"
@@ -168,37 +201,37 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route 
-          path="/operador/dashboard" 
+        <Route
+          path="/operador/dashboard"
           element={
             <ProtectedRoute requiredPermission="operador_dashboard">
               <DashboardOperador />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/operador/historial" 
+        <Route
+          path="/operador/historial"
           element={
             <ProtectedRoute requiredPermission="operador_dashboard">
               <HistorialOperador />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/operador/registrar" 
+        <Route
+          path="/operador/registrar"
           element={
             <ProtectedRoute requiredPermission="operador_dashboard">
               <RegistrarPagoOperador />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/operador/pago" 
+        <Route
+          path="/operador/pago"
           element={
             <ProtectedRoute requiredPermission="operador_dashboard">
               <PagoOperador />
             </ProtectedRoute>
-          } 
+          }
         />
       </Route>
 
@@ -210,21 +243,21 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route 
-          path="/conductor/pagos" 
+        <Route
+          path="/conductor/pagos"
           element={
             <ProtectedRoute requiredPermission="conductor_pagos">
               <PagosPendientes />
             </ProtectedRoute>
-          } 
+          }
         />
-        <Route 
-          path="/conductor/pago" 
+        <Route
+          path="/conductor/pago"
           element={
             <ProtectedRoute requiredPermission="conductor_pagos">
               <FormularioPagoConductor />
             </ProtectedRoute>
-          } 
+          }
         />
       </Route>
 
