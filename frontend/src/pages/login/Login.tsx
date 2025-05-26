@@ -91,7 +91,7 @@ const XCargoLogin: React.FC = () => {
         {/* Logo Section */}
         <div className="logo-section">
           <div className="logo-container">
-            <img alt="XCargo Logo" className="logo-image" />
+            <img src={LogoXcargo} alt="XCargo Logo" className="logo-image" />
           </div>
         </div>
         {error && (

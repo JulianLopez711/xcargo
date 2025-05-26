@@ -82,7 +82,7 @@ export default function Navbar() {
     <nav className="navbar">
       <div className="navbar-container">
         {/* Logo */}
-        <div className="navbar-logo" onClick={() => navigate('/')}>
+        <div className="navbar-logo" >
           <img src={logo} alt="Logo XCargo" />
         </div>
 
