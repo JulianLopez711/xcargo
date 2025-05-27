@@ -29,7 +29,21 @@ export default defineConfig({
             sizes: '512x512',
             type: 'image/png'
           }
-        ]
+        ],
+        "screenshots": [
+    {
+      "src": "/icons/LogoXBlancoo.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    },
+    {
+      "src": "/icons/LogoXBlancoM.png",
+      "sizes": "640x360",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ]
       },
       devOptions: {
         enabled: true // Habilita PWA en desarrollo
