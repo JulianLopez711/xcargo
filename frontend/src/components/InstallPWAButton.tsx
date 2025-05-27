@@ -10,6 +10,13 @@ export default function InstallPWAButton() {
       e.preventDefault();
       setDeferredPrompt(e);
       setVisible(true);
+
+      // Ocultar después de 8 segundos
+      const timeout = setTimeout(() => {
+        setVisible(false);
+      }, 8000);
+
+      return () => clearTimeout(timeout);
     };
 
     window.addEventListener("beforeinstallprompt", handler);
@@ -36,3 +43,4 @@ export default function InstallPWAButton() {
     </button>
   );
 }
+    
