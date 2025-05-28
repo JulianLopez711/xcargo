@@ -8,25 +8,27 @@
   <meta name="theme-color" content="#10b981" />
   <meta name="background-color" content="#ffffff" />
   <meta name="description" content="Sistema de gestión XCargo - Conductores, pagos y entregas" />
+  <meta name="mobile-web-app-capable" content="yes" />
   
-  <!-- Apple PWA -->
+  <!-- Apple PWA (corregido) -->
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="XCargo" />
-  <link rel="apple-touch-icon" href="/icons/LogoX192.png" />
+  <link rel="apple-touch-icon" href="/icons/Logo192.png" />
   
-  <!-- Icons -->
-  <link rel="icon" type="image/png" sizes="192x192" href="/icons/LogoX192.png" />
-  <link rel="icon" type="image/png" sizes="512x512" href="/icons/LogoX512.png" />
+  <!-- Icons (corregidos para coincidir con manifest) -->
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/Logo192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/Logo512.png" />
   
   <!-- Manifest -->
-  <link rel="manifest" href="/manifest.json" />
+ <link rel="manifest" href="/manifest.webmanifest" />
+
   
   <title>XCargo - Sistema de Gestión</title>
 </head>
 <body>
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
-
 </body>
 </html>

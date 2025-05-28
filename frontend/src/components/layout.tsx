@@ -4,6 +4,8 @@ import Navbar from "./Navbar";
 import { useLoading } from "../context/loadingContext";
 import LoadingSpinner from "./LoadingSpinner";
 import ChatBotBubble from "../components/ChatBotBubble";
+import InstallPWAButton from "../components/InstallPWAButton";
+
 import { useEffect, useState } from "react";
 
 export default function Layout() {
@@ -23,6 +25,8 @@ export default function Layout() {
 
   return (
     <div className="layout">
+      <InstallPWAButton />
+
       <Navbar />
       <main className="main-content" role="main">
         <div className="container-fluid">
