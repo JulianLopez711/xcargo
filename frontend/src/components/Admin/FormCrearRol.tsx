@@ -18,7 +18,7 @@ export default function FormCrearRol() {
     formData.append("descripcion", descripcion);
 
     try {
-      const res = await fetch("http://localhost:8000/admin/crear-rol", {
+      const res = await fetch("http://localhost:8000admin/crear-rol", {
         method: "POST",
         body: formData,
       });

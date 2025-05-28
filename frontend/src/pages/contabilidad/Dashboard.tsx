@@ -38,7 +38,7 @@ export default function DashboardContabilidad() {
     try {
       console.log("Cargando resumen de contabilidad...");
       
-      const response = await fetch("http://localhost:8000/contabilidad/resumen");
+      const response = await fetch("http://localhost:8000contabilidad/resumen");
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);

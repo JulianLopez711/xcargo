@@ -18,7 +18,7 @@ export default function CalendarioConciliacion() {
   const [mesActual] = useState("2025-05"); // luego se puede hacer dinámico
 
   useEffect(() => {
-  fetch(`http://localhost:8000/contabilidad/conciliacion-mensual?mes=${mesActual}`)
+  fetch(`http://localhost:8000contabilidad/conciliacion-mensual?mes=${mesActual}`)
     .then((res) => res.json())
     .then((data) => {
       if (Array.isArray(data)) {

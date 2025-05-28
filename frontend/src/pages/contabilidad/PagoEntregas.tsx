@@ -57,7 +57,7 @@ export default function PagoEntregas() {
 
     setEnviandoCorreo(true);
     try {
-      const res = await fetch("http://localhost:8000/enviar-confirmacion-email/", {
+      const res = await fetch("http://localhost:8000enviar-confirmacion-email/", {
         method: "POST",
         body: formData,
       });

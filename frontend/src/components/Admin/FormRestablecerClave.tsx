@@ -14,7 +14,7 @@ export default function FormRestablecerClave() {
     formData.append("correo", correo);
 
     try {
-      const res = await fetch("http://localhost:8000/admin/restablecer-clave", {
+      const res = await fetch("http://localhost:8000admin/restablecer-clave", {
         method: "POST",
         body: formData,
       });
