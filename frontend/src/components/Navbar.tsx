@@ -9,7 +9,8 @@ import { adminRoutes } from "../routes/adminRoutes/adminRoutes";
 import { contabilidadRoutes } from "../routes/contabilidadRoutes/contabilidadRoutes";
 import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
 import { operadorRoutes } from "../routes/operadorRoutes/operadorRoutes";
-import { supervisorRoutes } from "../routes/supervisorRoutes/supervisorRoutes"; // AGREGADO
+import { supervisorRoutes } from "../routes/supervisorRoutes/supervisorRoutes";
+import { masterRoutes } from "../routes/masterRoutes/masterRoutes";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -19,13 +20,14 @@ export default function Navbar() {
   const menuRef = useRef<HTMLDivElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 
-  // ACTUALIZADO: Agregado supervisor
-  const rutasPorRol: Record<string, { name: string; path: string; icon?: string }[]> = {
+  // Rutas por rol
+  const rutasPorRol: Record<string, { name: string; path: string; icon?: string; permission?: string }[]> = {
     admin: adminRoutes,
     contabilidad: contabilidadRoutes,
     conductor: conductorRoutes,
     operador: operadorRoutes,
-    supervisor: supervisorRoutes, // AGREGADO
+    supervisor: supervisorRoutes,
+    master: masterRoutes,
   };
 
   const handleClickOutside = (e: MouseEvent) => {
@@ -44,20 +46,35 @@ export default function Navbar() {
 
   if (!user) return null;
 
-  // MEJORADO: Obtener rutas basadas en permisos si están disponibles
+  // CORREGIDO: Función para obtener rutas disponibles
   const getRutasDisponibles = () => {
-  // Filtra rutas según permisos específicos del usuario
-  if (user.permisos && user.permisos.length > 0) {
-    const rutasPorRolUsuario = rutasPorRol[user.role] || [];
-    return rutasPorRolUsuario.filter(ruta => {
-      if ('permission' in ruta) {
-        return user.permisos!.some(permiso => permiso.id === ruta.permission);
+    const rutasDelRol = rutasPorRol[user.role] || [];
+
+    // Si no hay permisos definidos o están vacíos, mostrar todas las rutas del rol
+    if (!user.permisos || user.permisos.length === 0) {
+
+      return rutasDelRol;
+    }
+
+    // Si hay permisos, filtrar según los permisos del usuario
+    const rutasFiltradas = rutasDelRol.filter(ruta => {
+      // Si la ruta no tiene propiedad 'permission', mostrarla
+      if (!ruta.permission) {
+        return true;
       }
-      return true;
+      
+      // Si la ruta tiene 'permission', verificar si el usuario tiene ese permiso
+      const tienePermiso = user.permisos!.some(permiso => 
+        permiso.id === ruta.permission || permiso.nombre === ruta.permission
+      );
+      
+     
+      return tienePermiso;
     });
-  }
-  return rutasPorRol[user.role] || [];
-};
+
+
+    return rutasFiltradas;
+  };
 
   const rutas = getRutasDisponibles();
 
@@ -66,14 +83,15 @@ export default function Navbar() {
     setMobileMenuOpen(false);
   };
 
-  // MEJORADO: Función para obtener el nombre del rol más amigable
+  // Función para obtener el nombre del rol más amigable
   const getNombreRol = (role: string) => {
     const nombres: Record<string, string> = {
       admin: "Administrador",
       contabilidad: "Contabilidad", 
       conductor: "Conductor",
       operador: "Operador",
-      supervisor: "Supervisor" // AGREGADO
+      supervisor: "Supervisor",
+      master: "Master",
     };
     return nombres[role] || role;
   };
@@ -82,8 +100,22 @@ export default function Navbar() {
     <nav className="navbar">
       <div className="navbar-container">
         {/* Logo */}
-        <div className="navbar-logo" >
+        <div className="navbar-logo">
           <img src={logo} alt="Logo XCargo" />
+        </div>
+
+        {/* Desktop Navigation Links - AGREGADO */}
+        <div className="navbar-links">
+          {rutas.map((ruta) => (
+            <button
+              key={ruta.path}
+              className="navbar-link"
+              onClick={() => navigate(ruta.path)}
+            >
+              {ruta.icon && <span className="nav-icon">{ruta.icon}</span>}
+              <span>{ruta.name}</span>
+            </button>
+          ))}
         </div>
 
         {/* Mobile Menu Button */}
@@ -135,6 +167,17 @@ export default function Navbar() {
               <button onClick={() => navigate("/cambiar-clave")} className="dropdown-item">
                 <span>🔑</span> Cambiar contraseña
               </button>
+              
+              {/* DEBUG: Mostrar información de permisos */}
+              <div className="dropdown-divider"></div>
+              <div className="dropdown-item debug-info" style={{ fontSize: '12px', color: '#666' }}>
+                <div>Rol: {user.role}</div>
+                <div>Rutas disponibles: {rutas.length}</div>
+                {user.permisos && (
+                  <div>Permisos: {user.permisos.length}</div>
+                )}
+              </div>
+              
               <div className="dropdown-divider"></div>
               <button onClick={logout} className="dropdown-item logout">
                 <span>🚪</span> Cerrar sesión
@@ -165,21 +208,29 @@ export default function Navbar() {
         </div>
         
         <div className="mobile-menu-links">
-          {rutas.map((ruta) => (
-            <button
-              key={ruta.path}
-              className="mobile-menu-link"
-              onClick={() => handleMobileNavigation(ruta.path)}
-            >
-              <div className="mobile-link-content">
-                {'icon' in ruta && ruta.icon && (
-                  <span className="mobile-nav-icon">{ruta.icon}</span>
-                )}
-                <span>{ruta.name}</span>
-              </div>
-              <span className="mobile-link-arrow">→</span>
-            </button>
-          ))}
+          {rutas.length === 0 ? (
+            <div className="mobile-menu-empty">
+              <p>No hay rutas disponibles</p>
+              <small>Rol: {user.role}</small>
+              <small>Permisos: {user.permisos?.length || 0}</small>
+            </div>
+          ) : (
+            rutas.map((ruta) => (
+              <button
+                key={ruta.path}
+                className="mobile-menu-link"
+                onClick={() => handleMobileNavigation(ruta.path)}
+              >
+                <div className="mobile-link-content">
+                  {ruta.icon && (
+                    <span className="mobile-nav-icon">{ruta.icon}</span>
+                  )}
+                  <span>{ruta.name}</span>
+                </div>
+                <span className="mobile-link-arrow">→</span>
+              </button>
+            ))
+          )}
         </div>
 
         <div className="mobile-menu-footer">

@@ -13,12 +13,14 @@ def obtener_pagos_pendientes():
         SELECT 
             tracking_number as tracking,
             Empleado as conductor,
-            cliente as empresa,
+            Cliente as empresa,
             Valor as valor,
-            StatusP as estado,
+            Status_Big as estado,
             '' as novedad
-        FROM `datos-clientes-441216.Conciliaciones.COD_pendiente`
-        WHERE StatusP = 'pendiente' OR StatusP IS NULL
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1`
+        WHERE Status_Big NOT LIKE '%Entregado%' 
+AND Status_Big NOT LIKE '%360%' 
+AND (Status_Big IS NULL OR Status_Big NOT LIKE '%PAGADO%')
         ORDER BY Status_Date DESC
     """
     

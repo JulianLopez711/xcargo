@@ -16,7 +16,7 @@ export default function FormCambiarRol() {
     formData.append("nuevo_rol", nuevoRol);
 
     try {
-      const res = await fetch("http://localhost:8000admin/cambiar-rol", {
+      const res = await fetch("http://localhost:8000/admin/cambiar-rol", {
         method: "POST",
         body: formData,
       });

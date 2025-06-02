@@ -3,148 +3,129 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../context/authContext";
 import "../../styles/supervisor/Pagos.css";
 
-interface PagoPendiente {
-  id: string;
-  conductor_nombre: string;
-  conductor_id: string;
-  guia_numero: string;
+interface GuiaPendiente {
+  tracking_number: string;
   cliente: string;
-  destino: string;
-  monto: number;
-  fecha_entrega: string;
-  estado: "pendiente" | "en_revision" | "aprobado" | "pagado";
-  dias_pendiente: number;
-  tipo_pago: "efectivo" | "transferencia" | "consignacion";
-  observaciones?: string;
+  ciudad: string;
+  departamento: string;
+  valor: number;
+  fecha: string;
+  estado: string;
+  carrier: string;
+  conductor: {
+    nombre: string;
+    email: string;
+    telefono: string;
+  };
+}
+
+interface ResumenPagos {
+  guias: GuiaPendiente[];
+  total: number;
+  pagina_actual: number;
+  total_paginas: number;
+  carriers_supervisados: number[];
 }
 
 export default function PagosSupervisor() {
   const { user } = useAuth();
-  const [pagos, setPagos] = useState<PagoPendiente[]>([]);
+  const [guias, setGuias] = useState<GuiaPendiente[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>("");
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
   const [filtroConductor, setFiltroConductor] = useState("");
-  const [selectedPagos, setSelectedPagos] = useState<string[]>([]);
+  const [selectedGuias, setSelectedGuias] = useState<string[]>([]);
+  const [paginaActual, setPaginaActual] = useState(1);
+  const [totalPaginas, setTotalPaginas] = useState(1);
+  const [totalGuias, setTotalGuias] = useState(0);
+  const guiasPorPagina = 20;
 
   useEffect(() => {
-    cargarPagos();
-  }, []);
+    cargarGuiasPendientes();
+  }, [paginaActual, filtroConductor]);
 
-  const cargarPagos = async () => {
+  const cargarGuiasPendientes = async () => {
     try {
-      // TODO: Reemplazar con endpoint real
-      const response = await fetch(`http://localhost:8000/supervisor/pagos/${user?.empresa_carrier}`);
+      setLoading(true);
+      const offset = (paginaActual - 1) * guiasPorPagina;
+      
+      const params = new URLSearchParams({
+        limit: guiasPorPagina.toString(),
+        offset: offset.toString()
+      });
+      
+      if (filtroConductor.trim()) {
+        params.append('conductor', filtroConductor.trim());
+      }
+
+      const response = await fetch(`http://localhost:8000/supervisor/guias-pendientes?${params}`, {
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "supervisor"
+        }
+      });
+
       if (response.ok) {
-        const data = await response.json();
-        setPagos(data);
+        const data: ResumenPagos = await response.json();
+        
+        setGuias(data.guias || []);
+        setTotalGuias(data.total || 0);
+        setTotalPaginas(data.total_paginas || 1);
+        setError("");
       } else {
-        // Datos de ejemplo
-        setPagos([
-          {
-            id: "1",
-            conductor_nombre: "Juan Pérez",
-            conductor_id: "1",
-            guia_numero: "GU001234",
-            cliente: "Almacenes Éxito",
-            destino: "Bogotá - Suba",
-            monto: 85000,
-            fecha_entrega: "2025-05-20",
-            estado: "pendiente",
-            dias_pendiente: 5,
-            tipo_pago: "efectivo"
-          },
-          {
-            id: "2",
-            conductor_nombre: "María González",
-            conductor_id: "2",
-            guia_numero: "GU001235",
-            cliente: "Carrefour",
-            destino: "Medellín - Envigado",
-            monto: 120000,
-            fecha_entrega: "2025-05-22",
-            estado: "en_revision",
-            dias_pendiente: 3,
-            tipo_pago: "transferencia"
-          },
-          {
-            id: "3",
-            conductor_nombre: "Carlos Rodríguez",
-            conductor_id: "3",
-            guia_numero: "GU001236",
-            cliente: "Jumbo",
-            destino: "Cali - Norte",
-            monto: 95000,
-            fecha_entrega: "2025-05-18",
-            estado: "pendiente",
-            dias_pendiente: 7,
-            tipo_pago: "efectivo"
-          },
-          {
-            id: "4",
-            conductor_nombre: "Juan Pérez",
-            conductor_id: "1",
-            guia_numero: "GU001237",
-            cliente: "Falabella",
-            destino: "Barranquilla - Centro",
-            monto: 110000,
-            fecha_entrega: "2025-05-19",
-            estado: "aprobado",
-            dias_pendiente: 6,
-            tipo_pago: "consignacion"
-          }
-        ]);
+        throw new Error(`Error HTTP ${response.status}`);
       }
     } catch (error) {
-      console.error("Error cargando pagos:", error);
+      console.error("Error cargando guías pendientes:", error);
+      setError("Error al cargar las guías pendientes. Usando datos de ejemplo.");
+      
+      // Datos de ejemplo como fallback
+      setGuias([
+        {
+          tracking_number: "GU001234",
+          cliente: "DROPI - XCargo",
+          ciudad: "Bogotá",
+          departamento: "Cundinamarca",
+          valor: 85000,
+          fecha: "2025-05-20",
+          estado: "302 - En ruta de última milla",
+          carrier: "Operación Tyc",
+          conductor: {
+            nombre: "Juan Pérez",
+            email: "juan.perez@empresa.com",
+            telefono: "+57 300 123 4567"
+          }
+        }
+      ]);
+      setTotalGuias(1);
+      setTotalPaginas(1);
     } finally {
       setLoading(false);
     }
   };
 
-  const pagosFiltrados = pagos.filter(pago => {
-    const coincideEstado = filtroEstado === "todos" || pago.estado === filtroEstado;
-    const coincideConductor = pago.conductor_nombre.toLowerCase().includes(filtroConductor.toLowerCase());
-    return coincideEstado && coincideConductor;
+  // Filtrar guías por estado (frontend)
+  const guiasFiltradas = guias.filter(guia => {
+    if (filtroEstado === "todos") return true;
+    if (filtroEstado === "en_ruta") return guia.estado.includes("302") || guia.estado.includes("ruta");
+    if (filtroEstado === "asignado") return guia.estado.includes("301") || guia.estado.includes("asignado");
+    if (filtroEstado === "pendiente") return guia.estado.toLowerCase().includes("pendiente");
+    return true;
   });
 
-  const cambiarEstadoPago = async (pagoId: string, nuevoEstado: string) => {
-    try {
-      // TODO: Implementar endpoint
-      const response = await fetch(`http://localhost:8000/supervisor/pago/${pagoId}/estado`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estado: nuevoEstado })
-      });
-
-      if (response.ok) {
-        setPagos(pagos.map(p => 
-          p.id === pagoId ? { ...p, estado: nuevoEstado as any } : p
-        ));
-      }
-    } catch (error) {
-      console.error("Error cambiando estado:", error);
-      alert("Error al cambiar el estado del pago");
-    }
-  };
-
-  const aprobarPagosSeleccionados = async () => {
-    try {
-      for (const pagoId of selectedPagos) {
-        await cambiarEstadoPago(pagoId, "aprobado");
-      }
-      setSelectedPagos([]);
-      alert(`${selectedPagos.length} pagos aprobados exitosamente`);
-    } catch (error) {
-      console.error("Error aprobando pagos:", error);
-      alert("Error al aprobar los pagos seleccionados");
-    }
-  };
-
-  const toggleSeleccionPago = (pagoId: string) => {
-    if (selectedPagos.includes(pagoId)) {
-      setSelectedPagos(selectedPagos.filter(id => id !== pagoId));
+  const toggleSeleccionGuia = (trackingNumber: string) => {
+    if (selectedGuias.includes(trackingNumber)) {
+      setSelectedGuias(selectedGuias.filter(id => id !== trackingNumber));
     } else {
-      setSelectedPagos([...selectedPagos, pagoId]);
+      setSelectedGuias([...selectedGuias, trackingNumber]);
+    }
+  };
+
+  const seleccionarTodas = () => {
+    if (selectedGuias.length === guiasFiltradas.length) {
+      setSelectedGuias([]);
+    } else {
+      setSelectedGuias(guiasFiltradas.map(g => g.tracking_number));
     }
   };
 
@@ -157,13 +138,25 @@ export default function PagosSupervisor() {
   };
 
   const getEstadoColor = (estado: string) => {
-    switch (estado) {
-      case "pendiente": return "warning";
-      case "en_revision": return "info";
-      case "aprobado": return "success";
-      case "pagado": return "secondary";
-      default: return "secondary";
-    }
+    if (estado.includes("302") || estado.includes("ruta")) return "warning";
+    if (estado.includes("301") || estado.includes("asignado")) return "info";
+    if (estado.includes("360") || estado.includes("entregado")) return "success";
+    if (estado.toLowerCase().includes("pendiente")) return "danger";
+    return "secondary";
+  };
+
+  const getEstadoTexto = (estado: string) => {
+    if (estado.includes("302")) return "En ruta";
+    if (estado.includes("301")) return "Asignado";
+    if (estado.includes("360")) return "Entregado";
+    return estado;
+  };
+
+  const getPrioridadDias = (fecha: string) => {
+    const fechaGuia = new Date(fecha);
+    const hoy = new Date();
+    const diferencia = Math.floor((hoy.getTime() - fechaGuia.getTime()) / (1000 * 60 * 60 * 24));
+    return diferencia;
   };
 
   const getPrioridadColor = (dias: number) => {
@@ -172,18 +165,26 @@ export default function PagosSupervisor() {
     return "low";
   };
 
-  const totalMontoPendiente = pagosFiltrados
-    .filter(p => p.estado === "pendiente" || p.estado === "en_revision")
-    .reduce((sum, p) => sum + p.monto, 0);
+  const totalMontoFiltrado = guiasFiltradas.reduce((sum, g) => sum + g.valor, 0);
+  const totalMontoSeleccionado = guias
+    .filter(g => selectedGuias.includes(g.tracking_number))
+    .reduce((sum, g) => sum + g.valor, 0);
+
+  // Estadísticas por estado
+  const estadisticas = {
+    en_ruta: guias.filter(g => g.estado.includes("302")).length,
+    asignado: guias.filter(g => g.estado.includes("301")).length,
+    otros: guias.filter(g => !g.estado.includes("302") && !g.estado.includes("301")).length
+  };
 
   if (loading) {
-    return <div className="loading">Cargando pagos...</div>;
+    return <div className="loading">Cargando guías pendientes...</div>;
   }
 
   return (
     <div className="pagos-supervisor">
       <div className="page-header">
-        <h1>Gestión de Pagos</h1>
+        <h1>Guías Pendientes - Supervisor</h1>
         <div className="header-info">
           <div className="empresa-info">
             <span className="empresa-badge">
@@ -191,32 +192,39 @@ export default function PagosSupervisor() {
             </span>
           </div>
           <div className="total-pendiente">
-            <strong>Total Pendiente: {formatCurrency(totalMontoPendiente)}</strong>
+            <strong>Total: {formatCurrency(totalMontoFiltrado)}</strong>
+            <span className="guias-count">({guiasFiltradas.length} guías)</span>
           </div>
         </div>
       </div>
 
-      {/* Resumen */}
+      {error && (
+        <div className="error-banner">
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* Resumen de estadísticas */}
       <div className="pagos-summary">
         <div className="summary-card">
-          <span className="summary-number">{pagos.filter(p => p.estado === "pendiente").length}</span>
-          <span className="summary-label">Pendientes</span>
+          <span className="summary-number">{estadisticas.en_ruta}</span>
+          <span className="summary-label">En Ruta</span>
         </div>
         <div className="summary-card">
-          <span className="summary-number">{pagos.filter(p => p.estado === "en_revision").length}</span>
-          <span className="summary-label">En Revisión</span>
+          <span className="summary-number">{estadisticas.asignado}</span>
+          <span className="summary-label">Asignadas</span>
         </div>
         <div className="summary-card">
-          <span className="summary-number">{pagos.filter(p => p.estado === "aprobado").length}</span>
-          <span className="summary-label">Aprobados</span>
+          <span className="summary-number">{estadisticas.otros}</span>
+          <span className="summary-label">Otros Estados</span>
         </div>
         <div className="summary-card">
-          <span className="summary-number">{Math.round(pagos.reduce((sum, p) => sum + p.dias_pendiente, 0) / pagos.length)}</span>
-          <span className="summary-label">Días Promedio</span>
+          <span className="summary-number">{totalGuias}</span>
+          <span className="summary-label">Total General</span>
         </div>
       </div>
 
-      {/* Filtros y acciones */}
+      {/* Filtros y controles */}
       <div className="controls-section">
         <div className="filters">
           <input
@@ -233,136 +241,185 @@ export default function PagosSupervisor() {
             className="filter-select"
           >
             <option value="todos">Todos los estados</option>
+            <option value="en_ruta">En ruta (302)</option>
+            <option value="asignado">Asignadas (301)</option>
             <option value="pendiente">Pendientes</option>
-            <option value="en_revision">En Revisión</option>
-            <option value="aprobado">Aprobados</option>
-            <option value="pagado">Pagados</option>
           </select>
+
+          <button 
+            className="btn-secondary"
+            onClick={cargarGuiasPendientes}
+          >
+            🔄 Actualizar
+          </button>
         </div>
 
-        {selectedPagos.length > 0 && (
+        {selectedGuias.length > 0 && (
           <div className="batch-actions">
-            <span>{selectedPagos.length} pagos seleccionados</span>
+            <span>{selectedGuias.length} guías seleccionadas</span>
+            <span className="monto-seleccionado">
+              {formatCurrency(totalMontoSeleccionado)}
+            </span>
             <button 
               className="btn-primary"
-              onClick={aprobarPagosSeleccionados}
+              onClick={() => alert(`Funcionalidad pendiente: procesar ${selectedGuias.length} guías seleccionadas`)}
             >
-              Aprobar Seleccionados
+              Procesar Seleccionadas
+            </button>
+            <button 
+              className="btn-secondary"
+              onClick={() => setSelectedGuias([])}
+            >
+              Limpiar Selección
             </button>
           </div>
         )}
       </div>
 
-      {/* Lista de pagos */}
-      <div className="pagos-table">
+      {/* Tabla de guías */}
+      <div className="guias-table">
         <div className="table-header">
           <div className="header-cell checkbox-cell">
             <input
               type="checkbox"
-              onChange={(e) => {
-                if (e.target.checked) {
-                  setSelectedPagos(pagosFiltrados.map(p => p.id));
-                } else {
-                  setSelectedPagos([]);
-                }
-              }}
-              checked={selectedPagos.length === pagosFiltrados.length && pagosFiltrados.length > 0}
+              onChange={seleccionarTodas}
+              checked={selectedGuias.length === guiasFiltradas.length && guiasFiltradas.length > 0}
             />
           </div>
+          <div className="header-cell">Tracking</div>
           <div className="header-cell">Conductor</div>
-          <div className="header-cell">Guía</div>
           <div className="header-cell">Cliente</div>
           <div className="header-cell">Destino</div>
-          <div className="header-cell">Monto</div>
+          <div className="header-cell">Valor</div>
           <div className="header-cell">Estado</div>
           <div className="header-cell">Días</div>
-          <div className="header-cell">Acciones</div>
+          <div className="header-cell">Contacto</div>
         </div>
 
-        {pagosFiltrados.map((pago) => (
-          <div key={pago.id} className="table-row">
-            <div className="table-cell checkbox-cell">
-              <input
-                type="checkbox"
-                checked={selectedPagos.includes(pago.id)}
-                onChange={() => toggleSeleccionPago(pago.id)}
-              />
-            </div>
-            <div className="table-cell">
-              <div className="conductor-info">
-                <span className="conductor-name">{pago.conductor_nombre}</span>
+        {guiasFiltradas.map((guia) => {
+          const diasPendiente = getPrioridadDias(guia.fecha);
+          
+          return (
+            <div key={guia.tracking_number} className="table-row">
+              <div className="table-cell checkbox-cell">
+                <input
+                  type="checkbox"
+                  checked={selectedGuias.includes(guia.tracking_number)}
+                  onChange={() => toggleSeleccionGuia(guia.tracking_number)}
+                />
+              </div>
+              <div className="table-cell">
+                <span className="tracking-number">{guia.tracking_number}</span>
+              </div>
+              <div className="table-cell">
+                <div className="conductor-info">
+                  <span className="conductor-name">{guia.conductor.nombre}</span>
+                </div>
+              </div>
+              <div className="table-cell">
+                <span className="cliente-name">{guia.cliente}</span>
+              </div>
+              <div className="table-cell">
+                <div className="destino-info">
+                  <span className="ciudad">{guia.ciudad}</span>
+                  <span className="departamento">{guia.departamento}</span>
+                </div>
+              </div>
+              <div className="table-cell">
+                <span className="valor">{formatCurrency(guia.valor)}</span>
+              </div>
+              <div className="table-cell">
+                <span className={`status-badge ${getEstadoColor(guia.estado)}`}>
+                  {getEstadoTexto(guia.estado)}
+                </span>
+              </div>
+              <div className="table-cell">
+                <span className={`dias-badge ${getPrioridadColor(diasPendiente)}`}>
+                  {diasPendiente} días
+                </span>
+              </div>
+              <div className="table-cell">
+                <div className="contacto-actions">
+                  {guia.conductor.telefono && (
+                    <a 
+                      href={`tel:${guia.conductor.telefono}`}
+                      className="btn-small btn-phone"
+                      title="Llamar"
+                    >
+                      📞
+                    </a>
+                  )}
+                  {guia.conductor.email && (
+                    <a 
+                      href={`mailto:${guia.conductor.email}`}
+                      className="btn-small btn-email"
+                      title="Enviar email"
+                    >
+                      ✉️
+                    </a>
+                  )}
+                </div>
               </div>
             </div>
-            <div className="table-cell">
-              <span className="guia-number">{pago.guia_numero}</span>
-            </div>
-            <div className="table-cell">
-              <span className="cliente-name">{pago.cliente}</span>
-            </div>
-            <div className="table-cell">
-              <span className="destino">{pago.destino}</span>
-            </div>
-            <div className="table-cell">
-              <span className="monto">{formatCurrency(pago.monto)}</span>
-            </div>
-            <div className="table-cell">
-              <span className={`status-badge ${getEstadoColor(pago.estado)}`}>
-                {pago.estado.replace('_', ' ')}
-              </span>
-            </div>
-            <div className="table-cell">
-              <span className={`dias-badge ${getPrioridadColor(pago.dias_pendiente)}`}>
-                {pago.dias_pendiente} días
-              </span>
-            </div>
-            <div className="table-cell">
-              <div className="action-buttons">
-                {pago.estado === "pendiente" && (
-                  <button
-                    className="btn-small btn-info"
-                    onClick={() => cambiarEstadoPago(pago.id, "en_revision")}
-                  >
-                    Revisar
-                  </button>
-                )}
-                {pago.estado === "en_revision" && (
-                  <button
-                    className="btn-small btn-success"
-                    onClick={() => cambiarEstadoPago(pago.id, "aprobado")}
-                  >
-                    Aprobar
-                  </button>
-                )}
-                {pago.estado === "aprobado" && (
-                  <button
-                    className="btn-small btn-secondary"
-                    onClick={() => cambiarEstadoPago(pago.id, "pagado")}
-                  >
-                    Marcar Pagado
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {pagosFiltrados.length === 0 && (
+      {guiasFiltradas.length === 0 && !loading && (
         <div className="empty-state">
-          <p>No se encontraron pagos con los filtros aplicados</p>
+          <p>No se encontraron guías pendientes con los filtros aplicados</p>
+          <button 
+            className="btn-primary"
+            onClick={cargarGuiasPendientes}
+          >
+            🔄 Recargar
+          </button>
         </div>
       )}
 
-      {/* Estadísticas adicionales */}
+      {/* Paginación */}
+      {totalPaginas > 1 && (
+        <div className="pagination">
+          <button 
+            className="btn-secondary"
+            disabled={paginaActual === 1}
+            onClick={() => setPaginaActual(paginaActual - 1)}
+          >
+            ← Anterior
+          </button>
+          
+          <span className="pagination-info">
+            Página {paginaActual} de {totalPaginas}
+          </span>
+          
+          <button 
+            className="btn-secondary"
+            disabled={paginaActual === totalPaginas}
+            onClick={() => setPaginaActual(paginaActual + 1)}
+          >
+            Siguiente →
+          </button>
+        </div>
+      )}
+
+      {/* Estadísticas del pie */}
       <div className="stats-footer">
         <div className="stat-item">
-          <span className="stat-label">Total mostrado:</span>
-          <span className="stat-value">{pagosFiltrados.length} pagos</span>
+          <span className="stat-label">Mostrando:</span>
+          <span className="stat-value">{guiasFiltradas.length} de {totalGuias} guías</span>
         </div>
         <div className="stat-item">
-          <span className="stat-label">Monto total:</span>
-          <span className="stat-value">{formatCurrency(pagosFiltrados.reduce((sum, p) => sum + p.monto, 0))}</span>
+          <span className="stat-label">Valor total visible:</span>
+          <span className="stat-value">{formatCurrency(totalMontoFiltrado)}</span>
         </div>
+        {selectedGuias.length > 0 && (
+          <div className="stat-item highlight">
+            <span className="stat-label">Seleccionadas:</span>
+            <span className="stat-value">
+              {selectedGuias.length} guías • {formatCurrency(totalMontoSeleccionado)}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

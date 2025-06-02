@@ -29,7 +29,7 @@ export default function InstallPWAButton() {
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
     if (outcome === "accepted") {
-      console.log("✅ App instalada");
+
     }
     setDeferredPrompt(null);
     setVisible(false);
@@ -43,4 +43,3 @@ export default function InstallPWAButton() {
     </button>
   );
 }
-    

@@ -328,3 +328,214 @@ def marcar_entregas_como_liquidadas(data: dict):
             status_code=500,
             detail=f"Error al marcar entregas como liquidadas: {str(e)}"
         )
+
+# 🔥 AGREGAR AL FINAL DE entregas.py (antes del último })
+
+@router.get("/entregas-listas-liquidar")
+def obtener_entregas_listas_liquidar(
+    cliente: Optional[str] = Query(None),
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None)
+):
+    """
+    🎯 NUEVA FUNCIÓN: Obtiene entregas automáticamente listas para liquidar
+    ✅ BENEFICIO: No más búsqueda manual - el sistema sabe qué liquidar
+    """
+    
+    client = bigquery.Client()
+    
+    # Construir filtros dinámicamente
+    condiciones = ["pc.conciliado = TRUE"]  # 🔥 FILTRO CLAVE
+    parametros = []
+    
+    if cliente:
+        condiciones.append("pc.cliente = @cliente")
+        parametros.append(bigquery.ScalarQueryParameter("cliente", "STRING", cliente))
+    
+    if desde:
+        condiciones.append("pc.fecha_pago >= @fecha_desde")
+        parametros.append(bigquery.ScalarQueryParameter("fecha_desde", "DATE", desde))
+    
+    if hasta:
+        condiciones.append("pc.fecha_pago <= @fecha_hasta")
+        parametros.append(bigquery.ScalarQueryParameter("fecha_hasta", "DATE", hasta))
+    
+    where_clause = "WHERE " + " AND ".join(condiciones)
+    
+    # 🔥 CONSULTA INTELIGENTE: Solo entregas verdaderamente listas
+    query = f"""
+    SELECT 
+        pc.tracking,
+        pc.referencia_pago,
+        COALESCE(pc.cliente, 'Sin Cliente') as cliente,
+        pc.valor,
+        pc.fecha_pago,
+        pc.correo as conductor,
+        pc.entidad,
+        pc.tipo,
+        pc.fecha_conciliacion,
+        pc.estado_conciliacion
+        
+    FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+    {where_clause}
+    AND pc.estado = 'aprobado'  -- Solo pagos aprobados
+    AND pc.referencia_pago IS NOT NULL
+    ORDER BY pc.cliente, pc.fecha_conciliacion DESC
+    """
+    
+    try:
+        job_config = bigquery.QueryJobConfig(query_parameters=parametros)
+        resultados = client.query(query, job_config=job_config).result()
+        
+        entregas = []
+        total_valor = 0
+        clientes_agrupados = {}
+        
+        for row in resultados:
+            entrega = {
+                "tracking": row["tracking"],
+                "referencia_pago": row["referencia_pago"],
+                "cliente": row["cliente"],
+                "valor": float(row["valor"]),
+                "fecha_pago": row["fecha_pago"].isoformat(),
+                "conductor": row["conductor"],
+                "entidad": row["entidad"],
+                "tipo": row["tipo"],
+                "fecha_conciliacion": row["fecha_conciliacion"].isoformat() if row["fecha_conciliacion"] else None,
+                "estado_conciliacion": row["estado_conciliacion"]
+            }
+            entregas.append(entrega)
+            total_valor += entrega["valor"]
+            
+            # Agrupar por cliente
+            cliente = entrega["cliente"]
+            if cliente not in clientes_agrupados:
+                clientes_agrupados[cliente] = {
+                    "cantidad_entregas": 0,
+                    "valor_total": 0,
+                    "entregas": []
+                }
+            clientes_agrupados[cliente]["cantidad_entregas"] += 1
+            clientes_agrupados[cliente]["valor_total"] += entrega["valor"]
+            clientes_agrupados[cliente]["entregas"].append(entrega)
+        
+        return {
+            "mensaje": f"✅ {len(entregas)} entregas automáticamente listas para liquidar",
+            "total_entregas": len(entregas),
+            "valor_total": total_valor,
+            "entregas": entregas,
+            "clientes_agrupados": clientes_agrupados,
+            "filtros_aplicados": {
+                "cliente": cliente,
+                "desde": desde,
+                "hasta": hasta
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo entregas listas: {str(e)}"
+        )
+
+@router.get("/estado-flujo-resumen")
+def obtener_estado_flujo_resumen():
+    """
+    🎯 RESUMEN EJECUTIVO: Estado rápido del flujo en tiempo real
+    ✅ BENEFICIO: Visibilidad total sin búsquedas manuales
+    """
+    
+    client = bigquery.Client()
+    
+    query = """
+    WITH estado_clasificado AS (
+        SELECT 
+            CASE 
+                WHEN estado = 'rechazado' THEN 'RECHAZADO'
+                WHEN estado = 'pagado' THEN 'PENDIENTE_APROBACION'
+                WHEN estado = 'aprobado' AND (conciliado IS NULL OR conciliado = FALSE) THEN 'PENDIENTE_CONCILIACION'
+                WHEN estado = 'aprobado' AND conciliado = TRUE THEN 'LISTO_LIQUIDAR'
+                WHEN estado = 'liquidado' THEN 'LIQUIDADO'
+                ELSE 'OTRO'
+            END as estado_flujo,
+            
+            COUNT(*) as cantidad,
+            SUM(valor) as valor_total,
+            COUNT(DISTINCT correo) as conductores_involucrados,
+            
+            -- Alertas automáticas
+            COUNT(CASE 
+                WHEN estado = 'pagado' AND DATE_DIFF(CURRENT_DATE(), fecha_pago, DAY) > 2 
+                THEN 1 
+            END) as alertas_aprobacion_lenta,
+            
+            COUNT(CASE 
+                WHEN estado = 'aprobado' AND (conciliado IS NULL OR conciliado = FALSE) 
+                     AND DATE_DIFF(CURRENT_DATE(), fecha_pago, DAY) > 7 
+                THEN 1 
+            END) as alertas_conciliacion_lenta
+            
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+        AND referencia_pago IS NOT NULL
+        GROUP BY estado_flujo
+    )
+    
+    SELECT 
+        estado_flujo,
+        cantidad,
+        valor_total,
+        conductores_involucrados,
+        alertas_aprobacion_lenta,
+        alertas_conciliacion_lenta
+    FROM estado_clasificado
+    ORDER BY cantidad DESC
+    """
+    
+    try:
+        resultados = client.query(query).result()
+        
+        estados = []
+        total_general = 0
+        valor_total_sistema = 0
+        total_alertas = 0
+        
+        for row in resultados:
+            estado = {
+                "estado_flujo": row["estado_flujo"],
+                "cantidad": int(row["cantidad"]),
+                "valor_total": float(row["valor_total"]),
+                "conductores_involucrados": int(row["conductores_involucrados"]),
+                "alertas_aprobacion_lenta": int(row["alertas_aprobacion_lenta"]),
+                "alertas_conciliacion_lenta": int(row["alertas_conciliacion_lenta"])
+            }
+            estados.append(estado)
+            total_general += estado["cantidad"]
+            valor_total_sistema += estado["valor_total"]
+            total_alertas += estado["alertas_aprobacion_lenta"] + estado["alertas_conciliacion_lenta"]
+        
+        # Calcular métricas de eficiencia
+        listo_liquidar = next((e for e in estados if e["estado_flujo"] == "LISTO_LIQUIDAR"), {"cantidad": 0, "valor_total": 0})
+        pendiente_aprobacion = next((e for e in estados if e["estado_flujo"] == "PENDIENTE_APROBACION"), {"cantidad": 0})
+        
+        return {
+            "estados_flujo": estados,
+            "resumen": {
+                "total_pagos": total_general,
+                "valor_total_sistema": valor_total_sistema,
+                "total_alertas": total_alertas
+            },
+            "eficiencia": {
+                "porcentaje_listo_liquidar": (listo_liquidar["cantidad"] / max(total_general, 1)) * 100,
+                "valor_listo_liquidar": listo_liquidar["valor_total"],
+                "cuellos_botella": pendiente_aprobacion["cantidad"]
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo estado del flujo: {str(e)}"
+        )

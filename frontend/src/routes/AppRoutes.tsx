@@ -4,13 +4,19 @@ import Layout from "../components/layout";
 import ProtectedRoute from "../components/ProtectedRoute";
 import Login from "../pages/login/Login";
 
-
 // Admin
 import DashboardAdmin from "../pages/admin/Dashboard";
 import UserManagement from "../pages/admin/UserManagement";
 import EntregasAdmin from "../pages/admin/Entregas";
 import RoleManagement from "../pages/admin/RoleManagement";
 import GeneralSettings from "../pages/admin/GeneralSettings";
+//master
+import DashboardMaster from "../pages/master/DashboardMaster";
+//import Carriers from "../pages/master/Carriers";
+//import Supervisores from "../pages/master/Supervisores";
+//import Reportes from "../pages/master/Reportes";
+//import Analisis from "../pages/master/Analisis";
+//import Configuracion from "../pages/master/Configuracion";
 
 // Contabilidad
 import DashboardContabilidad from "../pages/contabilidad/Dashboard";
@@ -40,6 +46,10 @@ import PagosSupervisor from "../pages/supervisor/pagos";
 import RecuperarClave from "../pages/login/RecuperarClave";
 import VerificarCodigo from "../pages/login/VerificarCodigo";
 import NuevaClave from "../pages/login/NuevaClave";
+import DashboardFlujo from '../components/DashboardFlujo';
+import EntregasListas from '../components/EntregasListas';
+
+// Agregar nuevas rutas:
 
 export default function AppRoutes() {
   const { isLoading } = useAuth();
@@ -50,6 +60,8 @@ export default function AppRoutes() {
     <Routes>
       <Route path="/" element={<Login />} />
 
+<Route path="/contabilidad/dashboard-flujo" element={<DashboardFlujo />} />
+<Route path="/contabilidad/entregas-listas" element={<EntregasListas />} />
       {/* ADMIN - Usando permisos específicos */}
       <Route
         element={
@@ -99,34 +111,91 @@ export default function AppRoutes() {
           }
         />
       </Route>
+      {/* MASTER - Usando permisos específicos */}
+      <Route
+        element={
+          <ProtectedRoute requiredPermission="master_dashboard">
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
+        <Route
+          path="/master/dashboard"
+          element={
+            <ProtectedRoute requiredPermission="master_dashboard">
+              <DashboardMaster />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/master/carriers"
+          element={
+            <ProtectedRoute requiredPermission="master_carriers">
+              <div>Gestión de Carriers</div>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/master/supervisores"
+          element={
+            <ProtectedRoute requiredPermission="master_supervisores">
+              <div>Supervisores</div>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/master/reportes"
+          element={
+            <ProtectedRoute requiredPermission="master_reportes">
+              <div>Reportes Avanzados</div>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/master/analisis"
+          element={
+            <ProtectedRoute requiredPermission="master_analisis">
+              <div>Análisis Global</div>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/master/configuracion"
+          element={
+            <ProtectedRoute requiredPermission="master_config">
+              <div>Configuración Sistema</div>
+            </ProtectedRoute>
+          }
+        />
+      </Route>
 
       {/* SUPERVISOR */}
       {/* SUPERVISOR */}
-<Route
-  element={
-    <ProtectedRoute requiredPermission="supervisor_dashboard">
-      <Layout />
-    </ProtectedRoute>
-  }
->
-  <Route path="/supervisor/dashboard" element={<DashboardSupervisor />} />
-  <Route
-    path="/supervisor/conductores"
-    element={
-      <ProtectedRoute requiredPermission="supervisor_conductores">
-        <ConductoresSupervisor />
-      </ProtectedRoute>
-    }
-  />
-  <Route 
-    path="/supervisor/pagos" 
-    element={
-      <ProtectedRoute requiredPermission="supervisor_pagos">
-        <PagosSupervisor />
-      </ProtectedRoute>
-    }
-  />
-</Route>
+      <Route
+        element={
+          <ProtectedRoute requiredPermission="supervisor_dashboard">
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/supervisor/dashboard" element={<DashboardSupervisor />} />
+        <Route
+          path="/supervisor/conductores"
+          element={
+            <ProtectedRoute requiredPermission="supervisor_conductores">
+              <ConductoresSupervisor />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/supervisor/pagos"
+          element={
+            <ProtectedRoute requiredPermission="supervisor_pagos">
+              <PagosSupervisor />
+            </ProtectedRoute>
+          }
+        />
+      </Route>
 
       {/* CONTABILIDAD - Usando permisos específicos */}
       <Route

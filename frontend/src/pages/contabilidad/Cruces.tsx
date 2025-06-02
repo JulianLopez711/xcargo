@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from 'react';
 import "../../styles/contabilidad/Cruces.css";
 
 interface ResultadoConciliacion {
@@ -62,42 +62,37 @@ interface EstadisticasGenerales {
   };
 }
 
-export default function CrucesInteligentes() {
+const Cruces: React.FC = () => {
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
   const [mensaje, setMensaje] = useState("");
   const [procesandoConciliacion, setProcesandoConciliacion] = useState(false);
-  const [resultadoConciliacion, setResultadoConciliacion] =
-    useState<ResumenConciliacion | null>(null);
-  const [estadisticasGenerales, setEstadisticasGenerales] =
-    useState<EstadisticasGenerales | null>(null);
+  const [resultadoConciliacion, setResultadoConciliacion] = useState<ResumenConciliacion | null>(null);
+  const [estadisticasGenerales, setEstadisticasGenerales] = useState<EstadisticasGenerales | null>(null);
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
-  const [modalDetalle, setModalDetalle] =
-    useState<ResultadoConciliacion | null>(null);
+  const [busqueda, setBusqueda] = useState("");
+  const [modalDetalle, setModalDetalle] = useState<ResultadoConciliacion | null>(null);
 
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
+  useEffect(() => {
+    cargarEstadisticas();
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
 
     if (file) {
-      // Validar tipo de archivo
       if (!file.name.toLowerCase().endsWith(".csv")) {
         setMensaje("❌ Solo se permiten archivos CSV");
         return;
       }
 
-      // Validar tamaño
       if (file.size > MAX_FILE_SIZE) {
-        setMensaje(
-          `❌ El archivo es demasiado grande. Máximo permitido: ${
-            MAX_FILE_SIZE / (1024 * 1024)
-          }MB`
-        );
+        setMensaje(`❌ El archivo es demasiado grande. Máximo permitido: ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
         return;
       }
 
-      // Mostrar información del archivo
       const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
       setMensaje(`📄 Archivo seleccionado: ${file.name} (${sizeMB}MB)`);
     }
@@ -118,71 +113,48 @@ export default function CrucesInteligentes() {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 minutos timeout
+      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
-      const res = await fetch(
-        "http://localhost:8000/conciliacion/cargar-banco-excel",
-        {
-          method: "POST",
-          body: formData,
-          signal: controller.signal,
-        }
-      );
+      const res = await fetch("http://localhost:8000/conciliacion/cargar-banco-excel", {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      });
 
       clearTimeout(timeoutId);
 
-      // Manejar diferentes tipos de errores HTTP
       if (!res.ok) {
         let errorMsg = "Error desconocido";
-
         try {
           const errorData = await res.json();
-          errorMsg =
-            errorData.detail || errorData.message || `Error ${res.status}`;
+          errorMsg = errorData.detail || errorData.message || `Error ${res.status}`;
         } catch {
-          // Si no puede parsear JSON, usar mensaje por código de estado
           switch (res.status) {
-            case 413:
-              errorMsg = "El archivo es demasiado grande para el servidor";
-              break;
-            case 400:
-              errorMsg = "Formato de archivo inválido";
-              break;
-            case 500:
-              errorMsg = "Error interno del servidor";
-              break;
-            default:
-              errorMsg = `Error HTTP ${res.status}`;
+            case 413: errorMsg = "El archivo es demasiado grande para el servidor"; break;
+            case 400: errorMsg = "Formato de archivo inválido"; break;
+            case 500: errorMsg = "Error interno del servidor"; break;
+            default: errorMsg = `Error HTTP ${res.status}`;
           }
         }
-
         throw new Error(errorMsg);
       }
 
       const result = await res.json();
-      setMensaje(
-        `✅ ${result.mensaje}. Procesadas: ${result.consignaciones_procesadas} consignaciones.`
-      );
+      setMensaje(`✅ ${result.mensaje}. Procesadas: ${result.consignaciones_procesadas} consignaciones.`);
       setArchivo(null);
 
-      // Limpiar el input
-      const fileInput = document.querySelector(
-        'input[type="file"]'
-      ) as HTMLInputElement;
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
       if (fileInput) fileInput.value = "";
 
       cargarEstadisticas();
     } catch (err: any) {
       console.error("Error en upload:", err);
-
-      // Manejar diferentes tipos de errores
       let errorMessage = "Error desconocido";
 
       if (err.name === "AbortError") {
         errorMessage = "La subida fue cancelada por timeout (5 minutos)";
       } else if (err.message.includes("CORS")) {
-        errorMessage =
-          "Error de configuración del servidor (CORS). Contacta al administrador.";
+        errorMessage = "Error de configuración del servidor (CORS). Contacta al administrador.";
       } else if (err.message.includes("Failed to fetch")) {
         errorMessage = "No se pudo conectar al servidor. Verifica tu conexión.";
       } else {
@@ -200,16 +172,12 @@ export default function CrucesInteligentes() {
     setMensaje("");
 
     try {
-      const res = await fetch(
-        "http://localhost:8000/conciliacion/conciliacion-automatica"
-      );
+      const res = await fetch("http://localhost:8000/conciliacion/conciliacion-automatica");
       if (!res.ok) throw new Error("Error al ejecutar conciliación");
 
       const data: ResumenConciliacion = await res.json();
       setResultadoConciliacion(data);
-      setMensaje(
-        `✅ Conciliación completada. Procesados: ${data.resumen.total_movimientos_banco} movimientos.`
-      );
+      setMensaje(`✅ Conciliación completada. Procesados: ${data.resumen.total_movimientos_banco} movimientos.`);
       cargarEstadisticas();
     } catch (err: any) {
       console.error("Error en conciliación:", err);
@@ -221,9 +189,7 @@ export default function CrucesInteligentes() {
 
   const cargarEstadisticas = async () => {
     try {
-      const res = await fetch(
-        "http://localhost:8000/conciliacion/resumen-conciliacion"
-      );
+      const res = await fetch("http://localhost:8000/conciliacion/resumen-conciliacion");
       if (res.ok) {
         const data: EstadisticasGenerales = await res.json();
         setEstadisticasGenerales(data);
@@ -233,44 +199,37 @@ export default function CrucesInteligentes() {
     }
   };
 
-  const marcarConciliadoManual = async (
-    idBanco: string,
-    referenciaPago?: string
-  ) => {
+  const marcarConciliadoManual = async (idBanco: string, referenciaPago?: string) => {
     try {
-      const observaciones =
-        prompt("Observaciones (opcional):") || "Conciliado manualmente";
+      const observaciones = prompt("Observaciones (opcional):") || "Conciliado manualmente";
 
-      const res = await fetch(
-        "http://localhost:8000/conciliacion/marcar-conciliado-manual",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id_banco: idBanco,
-            referencia_pago: referenciaPago || "",
-            observaciones,
-          }),
-        }
-      );
+      const res = await fetch("http://localhost:8000/conciliacion/marcar-conciliado-manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id_banco: idBanco,
+          referencia_pago: referenciaPago || "",
+          observaciones,
+        }),
+      });
 
       if (!res.ok) throw new Error("Error al marcar como conciliado");
 
-      alert("✅ Marcado como conciliado manual.");
-      ejecutarConciliacion(); // Refrescar datos
+      setMensaje("✅ Marcado como conciliado manual.");
+      ejecutarConciliacion();
     } catch (err: any) {
-      alert("❌ " + err.message);
+      setMensaje("❌ " + err.message);
     }
   };
 
   const getEstadoColor = (estado: string) => {
     const colores = {
-      conciliado_exacto: "#22c55e", // Verde
-      conciliado_aproximado: "#3b82f6", // Azul
-      multiple_match: "#f59e0b", // Amarillo
-      diferencia_valor: "#ef4444", // Rojo
-      diferencia_fecha: "#f97316", // Naranja
-      sin_match: "#6b7280", // Gris
+      conciliado_exacto: "#22c55e",
+      conciliado_aproximado: "#3b82f6",
+      multiple_match: "#f59e0b",
+      diferencia_valor: "#ef4444",
+      diferencia_fecha: "#f97316",
+      sin_match: "#6b7280",
     };
     return colores[estado as keyof typeof colores] || "#6b7280";
   };
@@ -287,14 +246,13 @@ export default function CrucesInteligentes() {
     return textos[estado as keyof typeof textos] || estado;
   };
 
-  const resultadosFiltrados =
-    resultadoConciliacion?.resultados.filter(
-      (r) => filtroEstado === "todos" || r.estado_match === filtroEstado
-    ) || [];
-
-  useEffect(() => {
-    cargarEstadisticas();
-  }, []);
+  const resultadosFiltrados = resultadoConciliacion?.resultados.filter((r) => {
+    const pasaFiltroEstado = filtroEstado === "todos" || r.estado_match === filtroEstado;
+    const pasaBusqueda = busqueda === "" || 
+      r.descripcion_banco.toLowerCase().includes(busqueda.toLowerCase()) ||
+      (r.referencia_pago && r.referencia_pago.toLowerCase().includes(busqueda.toLowerCase()));
+    return pasaFiltroEstado && pasaBusqueda;
+  }) || [];
 
   return (
     <div className="cruces-container">
@@ -307,9 +265,7 @@ export default function CrucesInteligentes() {
           <div className="estadisticas-grid">
             <div className="stat-card">
               <h4>Total Movimientos</h4>
-              <p>
-                {estadisticasGenerales.totales.movimientos.toLocaleString()}
-              </p>
+              <p>{estadisticasGenerales.totales.movimientos.toLocaleString()}</p>
             </div>
             <div className="stat-card">
               <h4>Valor Total</h4>
@@ -317,9 +273,7 @@ export default function CrucesInteligentes() {
             </div>
             {estadisticasGenerales.resumen_por_estado.map((estado) => (
               <div key={estado.estado_conciliacion} className="stat-card">
-                <h4>
-                  {estado.estado_conciliacion.replace("_", " ").toUpperCase()}
-                </h4>
+                <h4>{estado.estado_conciliacion.replace("_", " ").toUpperCase()}</h4>
                 <p>{estado.cantidad} mov.</p>
                 <small>${estado.valor_total.toLocaleString()}</small>
               </div>
@@ -328,7 +282,7 @@ export default function CrucesInteligentes() {
         </div>
       )}
 
-      {/* Carga de archivo mejorada */}
+      {/* Carga de archivo */}
       <div className="carga-csv">
         <h3>📁 Cargar Archivo del Banco</h3>
         <div className="upload-section">
@@ -345,9 +299,7 @@ export default function CrucesInteligentes() {
             {archivo && (
               <div className="file-info">
                 <span className="file-name">📄 {archivo.name}</span>
-                <span className="file-size">
-                  ({(archivo.size / (1024 * 1024)).toFixed(2)}MB)
-                </span>
+                <span className="file-size">({(archivo.size / (1024 * 1024)).toFixed(2)}MB)</span>
               </div>
             )}
           </div>
@@ -401,66 +353,68 @@ export default function CrucesInteligentes() {
           <div className="resumen-resultados">
             <div className="resumen-grid">
               <div className="resumen-item success">
-                <span className="numero">
-                  {resultadoConciliacion.resumen.conciliado_exacto}
-                </span>
+                <span className="numero">{resultadoConciliacion.resumen.conciliado_exacto}</span>
                 <span className="etiqueta">Exactos</span>
               </div>
               <div className="resumen-item info">
-                <span className="numero">
-                  {resultadoConciliacion.resumen.conciliado_aproximado}
-                </span>
+                <span className="numero">{resultadoConciliacion.resumen.conciliado_aproximado}</span>
                 <span className="etiqueta">Aproximados</span>
               </div>
               <div className="resumen-item warning">
-                <span className="numero">
-                  {resultadoConciliacion.resumen.multiple_match}
-                </span>
+                <span className="numero">{resultadoConciliacion.resumen.multiple_match}</span>
                 <span className="etiqueta">Múltiples</span>
               </div>
               <div className="resumen-item error">
-                <span className="numero">
-                  {resultadoConciliacion.resumen.diferencia_valor}
-                </span>
+                <span className="numero">{resultadoConciliacion.resumen.diferencia_valor}</span>
                 <span className="etiqueta">Dif. Valor</span>
               </div>
               <div className="resumen-item error">
-                <span className="numero">
-                  {resultadoConciliacion.resumen.diferencia_fecha}
-                </span>
+                <span className="numero">{resultadoConciliacion.resumen.diferencia_fecha}</span>
                 <span className="etiqueta">Dif. Fecha</span>
               </div>
               <div className="resumen-item neutral">
-                <span className="numero">
-                  {resultadoConciliacion.resumen.sin_match}
-                </span>
+                <span className="numero">{resultadoConciliacion.resumen.sin_match}</span>
                 <span className="etiqueta">Sin Match</span>
               </div>
             </div>
           </div>
 
-          {/* Filtros */}
+          {/* Filtros y búsqueda */}
           <div className="filtros-conciliacion">
-            <label>
-              Filtrar por estado:
-              <select
-                value={filtroEstado}
-                onChange={(e) => setFiltroEstado(e.target.value)}
-              >
-                <option value="todos">Todos</option>
-                <option value="conciliado_exacto">Conciliado Exacto</option>
-                <option value="conciliado_aproximado">
-                  Conciliado Aproximado
-                </option>
-                <option value="multiple_match">Múltiples Matches</option>
-                <option value="diferencia_valor">Diferencia Valor</option>
-                <option value="diferencia_fecha">Diferencia Fecha</option>
-                <option value="sin_match">Sin Match</option>
-              </select>
-            </label>
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ minWidth: '300px' }}>
+                <input
+                  type="text"
+                  placeholder="Buscar por descripción o referencia..."
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+              <label>
+                Filtrar por estado:
+                <select
+                  value={filtroEstado}
+                  onChange={(e) => setFiltroEstado(e.target.value)}
+                >
+                  <option value="todos">Todos</option>
+                  <option value="conciliado_exacto">Conciliado Exacto</option>
+                  <option value="conciliado_aproximado">Conciliado Aproximado</option>
+                  <option value="multiple_match">Múltiples Matches</option>
+                  <option value="diferencia_valor">Diferencia Valor</option>
+                  <option value="diferencia_fecha">Diferencia Fecha</option>
+                  <option value="sin_match">Sin Match</option>
+                </select>
+              </label>
+            </div>
             <span className="contador-filtro">
-              Mostrando {resultadosFiltrados.length} de{" "}
-              {resultadoConciliacion.resultados.length}
+              Mostrando {resultadosFiltrados.length} de {resultadoConciliacion.resultados.length}
             </span>
           </div>
 
@@ -484,22 +438,16 @@ export default function CrucesInteligentes() {
                   <tr
                     key={idx}
                     style={{
-                      borderLeft: `4px solid ${getEstadoColor(
-                        resultado.estado_match
-                      )}`,
+                      borderLeft: `4px solid ${getEstadoColor(resultado.estado_match)}`,
                     }}
                   >
-                    <td>
-                      {new Date(resultado.fecha_banco).toLocaleDateString()}
-                    </td>
-                    <td>${resultado.valor_banco.toLocaleString()}</td>
+                    <td>{new Date(resultado.fecha_banco).toLocaleDateString('es-CO')}</td>
+                    <td>${resultado.valor_banco.toLocaleString('es-CO')}</td>
                     <td>
                       <span
                         className="estado-badge"
                         style={{
-                          backgroundColor: getEstadoColor(
-                            resultado.estado_match
-                          ),
+                          backgroundColor: getEstadoColor(resultado.estado_match),
                         }}
                       >
                         {getEstadoTexto(resultado.estado_match)}
@@ -526,18 +474,16 @@ export default function CrucesInteligentes() {
                     </td>
                     <td>{resultado.referencia_pago || "-"}</td>
                     <td>
-                      {resultado.diferencia_valor &&
-                        resultado.diferencia_valor > 0 && (
-                          <div className="diferencia">
-                            💰 ${resultado.diferencia_valor.toLocaleString()}
-                          </div>
-                        )}
-                      {resultado.diferencia_dias &&
-                        resultado.diferencia_dias > 0 && (
-                          <div className="diferencia">
-                            📅 {resultado.diferencia_dias} día(s)
-                          </div>
-                        )}
+                      {resultado.diferencia_valor && resultado.diferencia_valor > 0 && (
+                        <div className="diferencia">
+                          💰 ${resultado.diferencia_valor.toLocaleString('es-CO')}
+                        </div>
+                      )}
+                      {resultado.diferencia_dias && resultado.diferencia_dias > 0 && (
+                        <div className="diferencia">
+                          📅 {resultado.diferencia_dias} día(s)
+                        </div>
+                      )}
                     </td>
                     <td>
                       <div className="observaciones">
@@ -598,11 +544,11 @@ export default function CrucesInteligentes() {
                 <h4>📊 Datos del Banco</h4>
                 <div className="detalle-item">
                   <strong>Fecha:</strong>{" "}
-                  {new Date(modalDetalle.fecha_banco).toLocaleDateString()}
+                  {new Date(modalDetalle.fecha_banco).toLocaleDateString('es-CO')}
                 </div>
                 <div className="detalle-item">
                   <strong>Valor:</strong> $
-                  {modalDetalle.valor_banco.toLocaleString()}
+                  {modalDetalle.valor_banco.toLocaleString('es-CO')}
                 </div>
                 <div className="detalle-item">
                   <strong>Descripción:</strong> {modalDetalle.descripcion_banco}
@@ -621,11 +567,11 @@ export default function CrucesInteligentes() {
                   <div className="detalle-item">
                     <strong>Fecha:</strong>{" "}
                     {modalDetalle.fecha_pago &&
-                      new Date(modalDetalle.fecha_pago).toLocaleDateString()}
+                      new Date(modalDetalle.fecha_pago).toLocaleDateString('es-CO')}
                   </div>
                   <div className="detalle-item">
                     <strong>Valor:</strong> $
-                    {modalDetalle.valor_pago?.toLocaleString()}
+                    {modalDetalle.valor_pago?.toLocaleString('es-CO')}
                   </div>
                   <div className="detalle-item">
                     <strong>Entidad:</strong> {modalDetalle.entidad_pago}
@@ -663,11 +609,11 @@ export default function CrucesInteligentes() {
                           </div>
                           <div>
                             <strong>Fecha:</strong>{" "}
-                            {new Date(match.fecha_pago).toLocaleDateString()}
+                            {new Date(match.fecha_pago).toLocaleDateString('es-CO')}
                           </div>
                           <div>
                             <strong>Valor:</strong> $
-                            {match.valor_pago.toLocaleString()}
+                            {match.valor_pago.toLocaleString('es-CO')}
                           </div>
                           <div>
                             <strong>Score:</strong> {match.score.toFixed(1)}
@@ -691,6 +637,17 @@ export default function CrucesInteligentes() {
                 <div className="detalle-item">
                   <strong>Confianza:</strong> {modalDetalle.confianza}%
                 </div>
+                {modalDetalle.diferencia_valor && modalDetalle.diferencia_valor > 0 && (
+                  <div className="detalle-item">
+                    <strong>Diferencia en Valor:</strong> $
+                    {modalDetalle.diferencia_valor.toLocaleString('es-CO')}
+                  </div>
+                )}
+                {modalDetalle.diferencia_dias && modalDetalle.diferencia_dias > 0 && (
+                  <div className="detalle-item">
+                    <strong>Diferencia en Días:</strong> {modalDetalle.diferencia_dias} día(s)
+                  </div>
+                )}
                 <div className="detalle-item">
                   <strong>Observaciones:</strong> {modalDetalle.observaciones}
                 </div>
@@ -727,4 +684,6 @@ export default function CrucesInteligentes() {
       )}
     </div>
   );
-}
+};
+
+export default Cruces;

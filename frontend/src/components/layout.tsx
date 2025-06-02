@@ -5,6 +5,7 @@ import { useLoading } from "../context/loadingContext";
 import LoadingSpinner from "./LoadingSpinner";
 import ChatBotBubble from "../components/ChatBotBubble";
 import InstallPWAButton from "../components/InstallPWAButton";
+import NotificacionesFlujo from '../components/NotificacionesFlujo';
 
 import { useEffect, useState } from "react";
 
@@ -26,8 +27,8 @@ export default function Layout() {
   return (
     <div className="layout">
       <InstallPWAButton />
-
       <Navbar />
+      <NotificacionesFlujo />
       <main className="main-content" role="main">
         <div className="container-fluid">
           {isLoading ? (

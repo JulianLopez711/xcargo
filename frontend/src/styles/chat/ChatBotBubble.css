@@ -491,3 +491,89 @@
   align-items: center;
   justify-content: center;
 }
+/* Estado del usuario en el header */
+.estado-usuario {
+  font-size: 11px;
+  color: #666;
+  line-height: 1.2;
+}
+
+.estado-linea {
+  margin-bottom: 2px;
+}
+
+.estado-linea:last-child {
+  margin-bottom: 0;
+}
+
+.pendiente {
+  color: #f39c12;
+  font-weight: 500;
+}
+
+.entregado {
+  color: #27ae60;
+  font-weight: 500;
+}
+
+.rechazadas {
+  color: #e74c3c;
+  font-weight: 500;
+}
+
+/* Error de conexión */
+.error-conexion {
+  font-size: 10px;
+  color: #e74c3c;
+  background-color: #fdf2f2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 2px;
+}
+
+/* Indicador offline en la burbuja */
+.offline-indicator {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: #f39c12;
+  color: white;
+  font-size: 10px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid white;
+}
+
+/* Mejorar el badge de notificación */
+.notification-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  background-color: #e74c3c;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid white;
+}
+
+/* Responsive para el estado del usuario */
+@media (max-width: 768px) {
+  .estado-usuario {
+    font-size: 10px;
+  }
+  
+  .error-conexion {
+    font-size: 9px;
+  }
+}

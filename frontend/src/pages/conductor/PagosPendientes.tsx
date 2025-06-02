@@ -1,4 +1,4 @@
-// src/pages/conductor/PagosPendientes.tsx - Versión Simplificada
+// src/pages/conductor/PagosPendientes.tsx - Actualizado para COD_pendientes_v1
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "../../styles/conductor/PagosPendientes.css";
@@ -8,7 +8,7 @@ interface Pago {
   tracking: string;
   conductor: string;
   empresa: string;
-  valor: number;
+  valor: number; // Ahora es INTEGER en lugar de FLOAT
   estado?: string;
   novedad?: string;
 }
@@ -27,14 +27,24 @@ export default function PagosPendientes() {
       try {
         const res = await fetch("http://localhost:8000/api/guias/pendientes");
         const data = await res.json();
+        
+
+        
         const pagosConId = data.map((p: Omit<Pago, "id">, i: number) => ({
           id: i + 1,
-          ...p,
+          tracking: p.tracking,
+          conductor: p.conductor,
+          empresa: p.empresa,
+          valor: Number(p.valor), // Asegurar que sea número
+          estado: p.estado || 'pendiente',
+          novedad: p.novedad || ""
         }));
+        
         setPagos(pagosConId);
+
       } catch (err) {
         console.error("Error cargando pagos:", err);
-        // Datos de ejemplo para desarrollo
+        // Datos de ejemplo para desarrollo (actualizados con valores enteros)
         setPagos([
           { id: 1, tracking: "GU001234", conductor: "Juan Pérez", empresa: "XCargo", valor: 85000, estado: "pendiente" },
           { id: 2, tracking: "GU001235", conductor: "María González", empresa: "XCargo", valor: 120000, estado: "pendiente" },
@@ -82,7 +92,14 @@ export default function PagosPendientes() {
 
     const guiasSeleccionadas = pagos
       .filter((p) => seleccionados.includes(p.id))
-      .map((p) => ({ referencia: p.tracking, valor: p.valor }));
+      .map((p) => ({ 
+        referencia: p.tracking, 
+        valor: p.valor,
+        tracking: p.tracking, // Añadir tracking explícitamente
+        empresa: p.empresa     // Añadir empresa para mejor identificación
+      }));
+
+
 
     navigate("/conductor/pago", {
       state: {
@@ -90,6 +107,12 @@ export default function PagosPendientes() {
         total: totalSeleccionado,
       },
     });
+  };
+
+  // Función para manejar errores de carga de datos
+  const handleRefresh = () => {
+    setIsLoading(true);
+    window.location.reload();
   };
 
   if (isLoading) {
@@ -100,12 +123,36 @@ export default function PagosPendientes() {
     );
   }
 
+  // Si no hay pagos, mostrar mensaje informativo
+  if (pagos.length === 0) {
+    return (
+      <div className="pagos-pendientes">
+        <div className="page-header">
+          <h1 className="page-title">💰 Pagos Pendientes</h1>
+          <p className="page-subtitle">Gestiona tus guías pendientes de pago</p>
+        </div>
+        
+        <div className="empty-state">
+          <div className="empty-icon">📭</div>
+          <h3>No hay guías pendientes</h3>
+          <p>Actualmente no tienes guías pendientes de pago.</p>
+          <button className="btn-primary" onClick={handleRefresh}>
+            🔄 Actualizar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="pagos-pendientes">
       {/* Header */}
       <div className="page-header">
         <h1 className="page-title">💰 Pagos Pendientes</h1>
         <p className="page-subtitle">Gestiona tus guías pendientes de pago</p>
+        <button className="btn-ghost refresh-btn" onClick={handleRefresh} style={{ marginLeft: 'auto' }}>
+          🔄 Actualizar
+        </button>
       </div>
 
       {/* Resumen Total */}
@@ -187,7 +234,9 @@ export default function PagosPendientes() {
                   <td>{pago.conductor}</td>
                   <td>{pago.empresa}</td>
                   <td>
-                    <span className="valor-money">${pago.valor.toLocaleString()}</span>
+                    <span className="valor-money">
+                      ${typeof pago.valor === 'number' ? pago.valor.toLocaleString() : '0'}
+                    </span>
                   </td>
                   <td>
                     <span className={`estado-badge estado-${pago.estado || 'pendiente'}`}>

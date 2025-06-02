@@ -13,6 +13,7 @@ interface EstadoUsuario {
   total_guias: number;
   total_pendiente: number;
   guias_rechazadas: number;
+  total_entregado: number;
 }
 
 export default function ChatBotBubble() {
@@ -21,9 +22,10 @@ export default function ChatBotBubble() {
   const [entrada, setEntrada] = useState("");
   const [cargando, setCargando] = useState(false);
   const [estadoUsuario, setEstadoUsuario] = useState<EstadoUsuario | null>(null);
+  const [errorConexion, setErrorConexion] = useState(false);
   const location = useLocation();
 
-  // Obtener usuario actual (simulado - en producción desde contexto/localStorage)
+  // Obtener usuario actual del localStorage o contexto
   const usuarioActual = JSON.parse(localStorage.getItem("user") || "{}");
   const correoUsuario = usuarioActual.email || "conductor@xcargo.co";
 
@@ -33,17 +35,25 @@ export default function ChatBotBubble() {
     if (path.includes("/pagos")) return "Pagos Pendientes";
     if (path.includes("/pago")) return "Registro de Pago";
     if (path.includes("/dashboard")) return "Dashboard";
+    if (path.includes("/contabilidad")) return "Dashboard Contabilidad";
     return "Página Principal";
   };
 
-  // Generar mensaje de bienvenida contextual
+  // Generar mensaje de bienvenida contextual con datos reales
   const generarMensajeBienvenida = (estado: EstadoUsuario) => {
     let mensaje = `¡Hola! Soy XBot, tu asistente virtual en XCargo. 👋\n\n`;
     
     if (estado.total_guias > 0) {
       mensaje += `📊 **Tu resumen actual:**\n`;
       mensaje += `• ${estado.total_guias} guías asignadas\n`;
-      mensaje += `• $${estado.total_pendiente.toLocaleString()} pendientes de pago\n`;
+      
+      if (estado.total_pendiente > 0) {
+        mensaje += `• $${estado.total_pendiente.toLocaleString()} pendientes de pago\n`;
+      }
+      
+      if (estado.total_entregado > 0) {
+        mensaje += `• $${estado.total_entregado.toLocaleString()} en entregas completadas\n`;
+      }
       
       if (estado.guias_rechazadas > 0) {
         mensaje += `• ⚠️ ${estado.guias_rechazadas} guías rechazadas que requieren atención\n`;
@@ -51,7 +61,7 @@ export default function ChatBotBubble() {
       
       mensaje += `\n¿En qué puedo ayudarte hoy?`;
     } else {
-      mensaje += `Actualmente no tienes guías asignadas. ¿Necesitas ayuda con algo del sistema?`;
+      mensaje += `Actualmente no tienes guías asignadas en el sistema. ¿Hay algo más en lo que pueda ayudarte?`;
     }
     
     return mensaje;
@@ -59,20 +69,29 @@ export default function ChatBotBubble() {
 
   // Cargar estado del usuario al abrir el chat
   useEffect(() => {
-    if (abierto && !estadoUsuario) {
+    if (abierto && !estadoUsuario && !errorConexion) {
       cargarEstadoUsuario();
     }
   }, [abierto]);
 
   const cargarEstadoUsuario = async () => {
     try {
-      const res = await fetch(
-        `http://localhost:8000asistente/estado-usuario/${correoUsuario}`
-      );
-      const data = await res.json();
-      setEstadoUsuario(data.resumen);
       
-      // Establecer mensaje de bienvenida personalizado
+      // CORREGIDO: URL con barra faltante
+      const res = await fetch(
+        `http://localhost:8000/asistente/estado-usuario/${encodeURIComponent(correoUsuario)}`
+      );
+      
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+      
+      const data = await res.json();
+      
+      setEstadoUsuario(data.resumen);
+      setErrorConexion(false);
+      
+      // Establecer mensaje de bienvenida personalizado con datos reales
       setMensajes([
         {
           tipo: "bot",
@@ -80,12 +99,16 @@ export default function ChatBotBubble() {
           timestamp: new Date(),
         },
       ]);
+      
     } catch (error) {
-      console.error("Error cargando estado:", error);
+      console.error("❌ Error cargando estado:", error);
+      setErrorConexion(true);
+      
+      // Mensaje de bienvenida genérico cuando hay error
       setMensajes([
         {
           tipo: "bot",
-          texto: "¡Hola! Soy XBot, tu asistente virtual en XCargo. ¿En qué puedo ayudarte?",
+          texto: "¡Hola! Soy XBot, tu asistente virtual en XCargo. 👋\n\nActualmente no puedo acceder a tus datos en tiempo real, pero aún puedo ayudarte con preguntas generales sobre el sistema.\n\n¿En qué puedo ayudarte?",
           timestamp: new Date(),
         },
       ]);
@@ -102,15 +125,19 @@ export default function ChatBotBubble() {
     };
     
     setMensajes((prev) => [...prev, nuevoMensaje]);
+    const preguntaOriginal = entrada;
     setEntrada("");
     setCargando(true);
 
     try {
-      const res = await fetch("http://localhost:8000asistente/chat", {
+     
+      
+      // CORREGIDO: URL con barra faltante
+      const res = await fetch("http://localhost:8000/asistente/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          pregunta: entrada,
+          pregunta: preguntaOriginal,
           correo_usuario: correoUsuario,
           contexto_adicional: {
             pagina_actual: obtenerContextoPagina(),
@@ -119,10 +146,21 @@ export default function ChatBotBubble() {
         }),
       });
 
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
       const data = await res.json();
+
       
-      if (data.error) {
-        throw new Error(data.respuesta);
+      // CORREGIDO: Mejor manejo de errores
+      if (data.error === true) {
+        throw new Error(data.respuesta || "Error desconocido del servidor");
+      }
+      
+      // Validar que la respuesta tenga el formato esperado
+      if (!data.respuesta) {
+        throw new Error("Respuesta vacía del servidor");
       }
 
       const respuestaBot: Mensaje = {
@@ -136,15 +174,31 @@ export default function ChatBotBubble() {
       // Actualizar estado si viene en la respuesta
       if (data.contexto) {
         setEstadoUsuario(data.contexto);
+        setErrorConexion(false);
       }
       
     } catch (error) {
-      console.error("Error enviando mensaje:", error);
+      console.error("❌ Error enviando mensaje:", error);
+      
+      let mensajeError = "Lo siento, hubo un error al procesar tu solicitud. ";
+      
+      if (error instanceof Error) {
+        if (error.message.includes("500")) {
+          mensajeError += "El servidor está experimentando problemas técnicos. ";
+        } else if (error.message.includes("404")) {
+          mensajeError += "El servicio no está disponible en este momento. ";
+        } else {
+          mensajeError += `Error: ${error.message}. `;
+        }
+      }
+      
+      mensajeError += "Por favor, intenta nuevamente o contacta a soporte técnico (soporte@xcargo.co).";
+      
       setMensajes((prev) => [
         ...prev,
         {
           tipo: "bot",
-          texto: "Lo siento, hubo un error al procesar tu solicitud. Intenta nuevamente o contacta a soporte técnico.",
+          texto: mensajeError,
           timestamp: new Date(),
         },
       ]);
@@ -157,13 +211,43 @@ export default function ChatBotBubble() {
     setEntrada(pregunta);
   };
 
-  const preguntasSugeridas = [
-    "¿Cuánto debo en total?",
-    "¿Cómo subo un comprobante?",
-    "¿Por qué fue rechazada mi guía?",
-    "¿Cómo selecciono varias guías?",
-    "Contacto de soporte",
-  ];
+  // Preguntas sugeridas contextuales basadas en el estado del usuario
+  const getPreguntasSugeridas = () => {
+    const basicas = [
+      "¿Cómo subo un comprobante?",
+      "¿Cómo selecciono varias guías?",
+      "Contacto de soporte"
+    ];
+    
+    if (estadoUsuario) {
+      const especificas = [];
+      
+      if (estadoUsuario.total_pendiente > 0) {
+        especificas.push("¿Cuánto debo en total?");
+      }
+      
+      if (estadoUsuario.guias_rechazadas > 0) {
+        especificas.push("¿Por qué fueron rechazadas mis guías?");
+      }
+      
+      if (estadoUsuario.total_guias > 5) {
+        especificas.push("¿Cómo agrupo mis pagos?");
+      }
+      
+      return [...especificas, ...basicas];
+    }
+    
+    return basicas;
+  };
+
+  const formatearValor = (valor: number) => {
+    return valor.toLocaleString('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    });
+  };
 
   return (
     <div className="chat-burbuja-container">
@@ -176,12 +260,33 @@ export default function ChatBotBubble() {
                 <strong>XBot - Asistente Virtual</strong>
                 {estadoUsuario && (
                   <div className="estado-usuario">
-                    {estadoUsuario.total_guias} guías • ${estadoUsuario.total_pendiente.toLocaleString()} pendientes
-                    {estadoUsuario.guias_rechazadas > 0 && (
-                      <span className="guias-rechazadas">
-                        • {estadoUsuario.guias_rechazadas} rechazadas
-                      </span>
+                    <div className="estado-linea">
+                      📋 {estadoUsuario.total_guias} guías
+                      {estadoUsuario.total_pendiente > 0 && (
+                        <span className="pendiente">
+                          • {formatearValor(estadoUsuario.total_pendiente)} pendientes
+                        </span>
+                      )}
+                    </div>
+                    {(estadoUsuario.guias_rechazadas > 0 || estadoUsuario.total_entregado > 0) && (
+                      <div className="estado-linea">
+                        {estadoUsuario.total_entregado > 0 && (
+                          <span className="entregado">
+                            ✅ {formatearValor(estadoUsuario.total_entregado)} entregadas
+                          </span>
+                        )}
+                        {estadoUsuario.guias_rechazadas > 0 && (
+                          <span className="rechazadas">
+                            ❌ {estadoUsuario.guias_rechazadas} rechazadas
+                          </span>
+                        )}
+                      </div>
                     )}
+                  </div>
+                )}
+                {errorConexion && (
+                  <div className="error-conexion">
+                    ⚠️ Modo offline - Datos limitados
                   </div>
                 )}
               </div>
@@ -240,7 +345,7 @@ export default function ChatBotBubble() {
           {mensajes.length === 1 && (
             <div className="sugerencias">
               <div className="sugerencias-titulo">Preguntas frecuentes:</div>
-              {preguntasSugeridas.map((pregunta, idx) => (
+              {getPreguntasSugeridas().map((pregunta, idx) => (
                 <button
                   key={idx}
                   className="sugerencia-btn"
@@ -255,7 +360,7 @@ export default function ChatBotBubble() {
           <div className="chat-input">
             <input
               type="text"
-              placeholder="Escribe tu mensaje..."
+              placeholder={errorConexion ? "Preguntas generales..." : "Escribe tu mensaje..."}
               value={entrada}
               onChange={(e) => setEntrada(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && enviarMensaje()}
@@ -278,6 +383,9 @@ export default function ChatBotBubble() {
           💬
           {estadoUsuario && estadoUsuario.guias_rechazadas > 0 && (
             <div className="notification-badge">{estadoUsuario.guias_rechazadas}</div>
+          )}
+          {errorConexion && (
+            <div className="offline-indicator">⚠️</div>
           )}
         </div>
       </div>

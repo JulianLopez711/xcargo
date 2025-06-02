@@ -396,30 +396,165 @@ def generar_observaciones(match_info: Dict, estado: str) -> str:
     return "; ".join(obs) if obs else "Match encontrado"
 
 def actualizar_estados_conciliacion(client, resultados: List[Dict]):
-    """Actualiza los estados de conciliación en BigQuery"""
+    """
+    VERSIÓN MEJORADA: Actualiza TANTO banco_movimientos COMO pagosconductor
+    🎯 BENEFICIO: Pagos automáticamente listos para liquidar
+    """
     
     ids_conciliados = []
+    referencias_conciliadas = []
+    
+    # Recopilar IDs y referencias exitosas
     for resultado in resultados:
         if resultado["estado_match"] in ["conciliado_exacto", "conciliado_aproximado"]:
             ids_conciliados.append(resultado["id_banco"])
+            if resultado.get("referencia_pago"):
+                referencias_conciliadas.append(resultado["referencia_pago"])
     
-    if ids_conciliados:
-        # Actualizar en lotes
+    if not ids_conciliados:
+        print("ℹ️  No hay movimientos para conciliar")
+        return {"banco_actualizados": 0, "pagos_actualizados": 0}
+    
+    print(f"🔄 Conciliando {len(ids_conciliados)} movimientos bancarios y {len(referencias_conciliadas)} pagos...")
+    
+    # 1. Actualizar banco_movimientos (CÓDIGO EXISTENTE MEJORADO)
+    banco_actualizados = 0
+    try:
         for i in range(0, len(ids_conciliados), 100):
             lote = ids_conciliados[i:i+100]
             ids_str = "', '".join(lote)
             
-            query = f"""
+            query_banco = f"""
             UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
             SET estado_conciliacion = 'conciliado_automatico',
                 confianza_match = 90
             WHERE id IN ('{ids_str}')
             """
             
-            try:
-                client.query(query).result()
-            except Exception as e:
-                print(f"Error actualizando lote: {e}")
+            client.query(query_banco).result()
+            banco_actualizados += len(lote)
+            print(f"✅ Banco: Actualizados {len(lote)} movimientos (total: {banco_actualizados})")
+            
+    except Exception as e:
+        print(f"❌ Error actualizando banco_movimientos: {e}")
+    
+    # 2. 🔥 NUEVO: Actualizar pagosconductor (CONECTAR EL FLUJO)
+    pagos_actualizados = 0
+    try:
+        if referencias_conciliadas:
+            for i in range(0, len(referencias_conciliadas), 100):
+                lote_refs = referencias_conciliadas[i:i+100]
+                refs_str = "', '".join(lote_refs)
+                
+                # ✅ ESTA ES LA CONEXIÓN CLAVE DEL FLUJO
+                query_pagos = f"""
+                UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+                SET 
+                    conciliado = TRUE,
+                    fecha_conciliacion = CURRENT_DATE(),
+                    estado_conciliacion = 'conciliado_automatico'
+                WHERE referencia_pago IN ('{refs_str}')
+                AND estado = 'aprobado'  -- Solo pagos ya aprobados
+                AND (conciliado IS NULL OR conciliado = FALSE)  -- Evitar duplicados
+                """
+                
+                result = client.query(query_pagos).result()
+                pagos_actualizados += len(lote_refs)
+                print(f"✅ Pagos: Marcados {len(lote_refs)} como conciliados (total: {pagos_actualizados})")
+                
+    except Exception as e:
+        print(f"❌ Error actualizando pagosconductor: {e}")
+    
+    # 3. 🔥 NUEVO: Log de auditoría automática
+    try:
+        audit_id = f"CONCILIACION_AUTO_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        audit_query = """
+        INSERT INTO `datos-clientes-441216.Conciliaciones.auditoria_conciliacion` (
+            id, fecha_accion, tipo_accion, usuario, observaciones
+        ) VALUES (
+            @audit_id,
+            CURRENT_TIMESTAMP(),
+            'conciliacion_automatica_completa',
+            'sistema_automatico',
+            @observaciones
+        )
+        """
+        
+        observaciones = f"Conciliación automática: {banco_actualizados} mov. banco, {pagos_actualizados} pagos conductor"
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("audit_id", "STRING", audit_id),
+                bigquery.ScalarQueryParameter("observaciones", "STRING", observaciones)
+            ]
+        )
+        
+        client.query(audit_query, job_config=job_config).result()
+        print(f"📝 Auditoría registrada: {audit_id}")
+        
+    except Exception as e:
+        print(f"⚠️  Error en auditoría: {e}")
+    
+    # Resultado final
+    resultado_final = {
+        "banco_actualizados": banco_actualizados,
+        "pagos_actualizados": pagos_actualizados,
+        "mensaje": f"🎉 FLUJO CONECTADO: {banco_actualizados} banco + {pagos_actualizados} pagos listos"
+    }
+    
+    print(f"\n🎯 RESULTADO: {resultado_final['mensaje']}")
+    return resultado_final
+
+# 4. 🔥 NUEVO: Función para validar integridad del flujo
+def validar_integridad_flujo(client):
+    """Valida que el flujo de estados sea consistente"""
+    
+    query_validacion = """
+    WITH inconsistencias AS (
+        -- Pagos aprobados pero no conciliados después de 7 días
+        SELECT 
+            'pagos_aprobados_sin_conciliar' as tipo_inconsistencia,
+            COUNT(*) as cantidad,
+            STRING_AGG(referencia_pago, ', ' LIMIT 10) as ejemplos
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE estado = 'aprobado' 
+        AND (conciliado IS NULL OR conciliado = FALSE)
+        AND fecha_pago <= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+        
+        UNION ALL
+        
+        -- Guías en estado inconsistente
+        SELECT 
+            'guias_estado_inconsistente' as tipo_inconsistencia,
+            COUNT(*) as cantidad,
+            STRING_AGG(tracking_number, ', ' LIMIT 10) as ejemplos
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
+        LEFT JOIN `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+        ON cod.tracking_number = pc.tracking
+        WHERE cod.Status_Big = 'liberado' 
+        AND (pc.conciliado IS NULL OR pc.conciliado = FALSE)
+    )
+    SELECT * FROM inconsistencias WHERE cantidad > 0
+    """
+    
+    try:
+        resultados = client.query(query_validacion).result()
+        inconsistencias = [dict(row) for row in resultados]
+        
+        if inconsistencias:
+            print("⚠️ INCONSISTENCIAS DETECTADAS:")
+            for inc in inconsistencias:
+                print(f"  - {inc['tipo_inconsistencia']}: {inc['cantidad']} casos")
+                print(f"    Ejemplos: {inc['ejemplos']}")
+        else:
+            print("✅ No se detectaron inconsistencias en el flujo")
+            
+        return inconsistencias
+        
+    except Exception as e:
+        print(f"❌ Error validando integridad: {e}")
+        return []
 
 @router.post("/marcar-conciliado-manual")
 def marcar_conciliado_manual(data: dict):

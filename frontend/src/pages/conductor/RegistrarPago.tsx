@@ -67,7 +67,7 @@ export default function RegistrarPago() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("http://localhost:8000ocr/extraer", {
+      const response = await fetch("http://localhost:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -183,8 +183,7 @@ export default function RegistrarPago() {
           return guiaObj;
         });
 
-        console.log("📦 Guías a enviar:", guiasConCliente);
-        console.log("📦 Guías JSON:", JSON.stringify(guiasConCliente, null, 2));
+
 
         // Expandir los logs para ver cada guía individualmente
         guiasConCliente.forEach((guia, index) => {
@@ -226,7 +225,7 @@ export default function RegistrarPago() {
         });
 
         const response = await fetch(
-          "http://localhost:8000pagos/registrar-conductor",
+          "http://localhost:8000/pagos/registrar-conductor",
           {
             method: "POST",
             body: formData,
@@ -238,7 +237,7 @@ export default function RegistrarPago() {
           throw new Error(result.detail || "Error al registrar pago");
         }
 
-        console.log("✅ Pago registrado:", result);
+
       }
 
       alert("✅ Pagos registrados correctamente.");

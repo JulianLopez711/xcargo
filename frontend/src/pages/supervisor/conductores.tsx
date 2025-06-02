@@ -33,63 +33,58 @@ export default function ConductoresSupervisor() {
 
   const cargarConductores = async () => {
     try {
-      // TODO: Reemplazar con endpoint real
-      const response = await fetch(`http://localhost:8000/supervisor/conductores/${user?.empresa_carrier}`);
+      const response = await fetch(`http://localhost:8000/supervisor/conductores`, {
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "supervisor"
+        }
+      });
+      
       if (response.ok) {
         const data = await response.json();
-        setConductores(data);
+
+        
+        // Mapear datos reales al formato esperado por el frontend
+        const conductoresMapeados = data.map((conductor: any) => ({
+          id: conductor.id,
+          nombre: conductor.nombre,
+          correo: conductor.correo,
+          telefono: conductor.telefono || "Sin teléfono",
+          cedula: conductor.id, // Usando ID como cédula temporalmente
+          vehiculo: "Vehículo asignado", // Campo no disponible en datos reales
+          placa: "ABC-123", // Campo no disponible en datos reales
+          estado: conductor.estado === "activo" ? "activo" : "inactivo",
+          fecha_registro: conductor.fecha_registro || "2024-01-01",
+          ultimo_pago: conductor.ultima_actividad || "Sin actividad",
+          pagos_pendientes: conductor.entregas_pendientes || 0,
+          total_entregas: conductor.total_entregas || 0,
+          calificacion: 4.5 // Campo no disponible, valor por defecto
+        }));
+        
+        setConductores(conductoresMapeados);
       } else {
-        // Datos de ejemplo
-        setConductores([
-          {
-            id: "1",
-            nombre: "Juan Pérez González",
-            correo: "juan.perez@empresa.com",
-            telefono: "+57 300 123 4567",
-            cedula: "12345678",
-            vehiculo: "Chevrolet NPR",
-            placa: "ABC-123",
-            estado: "activo",
-            fecha_registro: "2024-03-15",
-            ultimo_pago: "2025-05-20",
-            pagos_pendientes: 2,
-            total_entregas: 45,
-            calificacion: 4.8
-          },
-          {
-            id: "2",
-            nombre: "María González López",
-            correo: "maria.gonzalez@empresa.com",
-            telefono: "+57 301 234 5678",
-            cedula: "23456789",
-            vehiculo: "Isuzu NKR",
-            placa: "DEF-456",
-            estado: "activo",
-            fecha_registro: "2024-02-10",
-            ultimo_pago: "2025-05-22",
-            pagos_pendientes: 1,
-            total_entregas: 62,
-            calificacion: 4.9
-          },
-          {
-            id: "3",
-            nombre: "Carlos Rodríguez Silva",
-            correo: "carlos.rodriguez@empresa.com",
-            telefono: "+57 302 345 6789",
-            cedula: "34567890",
-            vehiculo: "Hino 300",
-            placa: "GHI-789",
-            estado: "inactivo",
-            fecha_registro: "2024-01-20",
-            ultimo_pago: "2025-05-18",
-            pagos_pendientes: 3,
-            total_entregas: 28,
-            calificacion: 4.2
-          }
-        ]);
+        throw new Error("Error al cargar conductores");
       }
     } catch (error) {
       console.error("Error cargando conductores:", error);
+      // Mantener datos de ejemplo en caso de error
+      setConductores([
+        {
+          id: "1",
+          nombre: "Juan Pérez González",
+          correo: "juan.perez@empresa.com",
+          telefono: "+57 300 123 4567",
+          cedula: "12345678",
+          vehiculo: "Chevrolet NPR",
+          placa: "ABC-123",
+          estado: "activo",
+          fecha_registro: "2024-03-15",
+          ultimo_pago: "2025-05-20",
+          pagos_pendientes: 2,
+          total_entregas: 45,
+          calificacion: 4.8
+        }
+      ]);
     } finally {
       setLoading(false);
     }

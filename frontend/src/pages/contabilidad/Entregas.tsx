@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import "../../styles/contabilidad/Entregas.css";
 
+
 interface Liquidacion {
   tracking: string;
   fecha: string;
@@ -57,7 +58,7 @@ export default function LiquidacionesClientes() {
       if (fechaHasta) params.append("hasta", fechaHasta);
       params.append("solo_conciliadas", soloConciliadas.toString());
 
-      const res = await fetch(`http://localhost:8000entregas/entregas-consolidadas?${params.toString()}`);
+      const res = await fetch(`http://localhost:8000/entregas/entregas-consolidadas?${params.toString()}`);
       
       if (!res.ok) {
         throw new Error(`Error ${res.status}: ${res.statusText}`);
@@ -84,7 +85,7 @@ export default function LiquidacionesClientes() {
 
   const cargarResumenClientes = async () => {
     try {
-      const res = await fetch("http://localhost:8000entregas/resumen-liquidaciones");
+      const res = await fetch("http://localhost:8000/entregas/resumen-liquidaciones");
       if (res.ok) {
         const data = await res.json();
         setResumenClientes(data);

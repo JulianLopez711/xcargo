@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
+import { useAuth } from "../../context/authContext"; // ← AGREGAR
 
 interface Rol {
   id_rol: string;
@@ -7,6 +8,7 @@ interface Rol {
 }
 
 export default function FormCrearUsuario() {
+  const { user } = useAuth(); // ← AGREGAR
   const [nombre, setNombre] = useState("");
   const [correo, setCorreo] = useState("");
   const [telefono, setTelefono] = useState("");
@@ -21,20 +23,30 @@ export default function FormCrearUsuario() {
   useEffect(() => {
     const cargarRoles = async () => {
       try {
-        const response = await fetch("http://localhost:8000/admin/roles-con-permisos");
+        // ✅ CORRECCIÓN: Usar headers correctos
+        const response = await fetch("http://localhost:8000/admin/roles-con-permisos", {
+          headers: {
+            "X-User-Email": user?.email || "",
+            "X-User-Role": user?.role || "admin"
+          },
+        });
+
         if (response.ok) {
           const data = await response.json();
-          setRoles(data);
+
+          setRoles(Array.isArray(data) ? data : []); // ← VALIDAR ARRAY
         } else {
-          console.error("Error cargando roles");
+          console.error("❌ Error cargando roles:", response.status);
+          setRoles([]); // ← FALLBACK
         }
       } catch (error) {
-        console.error("Error:", error);
+        console.error("❌ Error en fetch de roles:", error);
+        setRoles([]); // ← FALLBACK
       }
     };
 
     cargarRoles();
-  }, []);
+  }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,8 +66,13 @@ export default function FormCrearUsuario() {
     }
 
     try {
+      // ✅ CORRECCIÓN: Agregar headers de autenticación
       const res = await fetch("http://localhost:8000/admin/crear-usuario", {
         method: "POST",
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "admin"
+        },
         body: formData,
       });
 
@@ -159,6 +176,9 @@ export default function FormCrearUsuario() {
                   {r.descripcion && ` - ${r.descripcion}`}
                 </option>
               ))}
+              {roles.length === 0 && (
+                <option value="" disabled>Cargando roles...</option>
+              )}
             </select>
             <small className="form-help">
               Los roles y permisos se pueden configurar en la sección "Roles y Permisos"

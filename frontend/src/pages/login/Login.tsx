@@ -33,50 +33,55 @@ const XCargoLogin: React.FC = () => {
       });
 
       const data = await res.json();
-      console.log("🔍 DEBUG - Respuesta del login:", data);
-      console.log("🔍 DEBUG - Ruta por defecto recibida:", data.ruta_defecto);
-      console.log("🔍 DEBUG - Rol del usuario:", data.rol);
+
 
       if (!res.ok) {
         throw new Error(data.detail || "Error al iniciar sesión");
       }
 
+      // ✅ SOLUCIÓN: Crear un token temporal o usar algún identificador único
+      const userToken = data.token || data.access_token || `${data.correo}-${Date.now()}-${Math.random()}`;
+
+
+      // ✅ SOLUCIÓN: Llamar login con todos los datos necesarios
+      login({
+        email: data.correo,
+        role: data.rol,
+        token: userToken, // ✅ AHORA SÍ TIENE TOKEN
+        empresa_carrier: data.empresa_carrier,
+        permisos: data.permisos || [],
+        // Agregar datos adicionales que pueden ser útiles
+        nombre: data.nombre,
+        telefono: data.telefono,
+        id_usuario: data.id_usuario
+      });
+
       if (data.clave_defecto) {
         localStorage.setItem("correo_recuperacion", data.correo);
-        login({
-          email: data.correo,
-          role: data.rol,
-          permisos: data.permisos || [],
-        }); // MODIFICADO
         navigate("/cambiar-clave");
         return;
       }
 
-      // Guardar usuario en contexto
-      // Guardar usuario en contexto
-      login({
-        email: data.correo,
-        role: data.rol,
-        empresa_carrier: data.empresa_carrier,
-        permisos: data.permisos || [], // SOLO ESTA LLAMADA
-      });
-
       // Redirección directa usando la ruta del backend
       if (data.ruta_defecto) {
+
         navigate(data.ruta_defecto);
       } else {
         // Fallback si no hay ruta definida
-        // Fallback si no hay ruta definida
         const rutasPorRol: Record<string, string> = {
           admin: "/admin/dashboard",
+          master: "/master/dashboard", // ✅ AGREGAR RUTA MASTER
           contabilidad: "/contabilidad/dashboard",
           conductor: "/conductor/pagos",
           operador: "/operador/dashboard",
-          supervisor: "/supervisor/dashboard", // AGREGAR ESTA LÍNEA
+          supervisor: "/supervisor/dashboard",
         };
-        navigate(rutasPorRol[data.rol] || "/");
+        
+        const rutaDestino = rutasPorRol[data.rol] || "/";
+        navigate(rutaDestino);
       }
     } catch (error: any) {
+      console.error("❌ Error en login:", error);
       setError(
         error.message || "Error de conexión. Contacta al administrador."
       );

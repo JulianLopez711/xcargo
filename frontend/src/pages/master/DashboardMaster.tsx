@@ -1,7 +1,7 @@
-// src/pages/admin/Dashboard.tsx
+// src/pages/master/Dashboard.tsx
 import { useEffect, useState } from "react";
 import { useAuth } from "../../context/authContext";
-import "../../styles/admin/Dashboard.css";
+import "../../styles/master/Dashboard.css";
 
 interface StatsGlobales {
   total_guias: number;
@@ -74,7 +74,7 @@ interface UsuarioMaster {
   acceso_completo: boolean;
 }
 
-export default function DashboardAdmin() {
+export default function DashboardMaster() {
   const { user } = useAuth();
   const [statsGlobales, setStatsGlobales] = useState<StatsGlobales>({
     total_guias: 0,
@@ -112,7 +112,7 @@ export default function DashboardAdmin() {
       const response = await fetch(`http://localhost:8000/master/dashboard`, {
         headers: {
           "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"
+          "X-User-Role": user?.role || "master"
         }
       });
 
@@ -139,61 +139,7 @@ export default function DashboardAdmin() {
       console.error("Error cargando dashboard master:", error);
       setError(error instanceof Error ? error.message : "Error al cargar el dashboard master");
       
-      // Fallback básico para mostrar algo mientras se implementa el backend
-      setStatsGlobales({
-        total_guias: 15847,
-        total_conductores_registrados: 247,
-        total_conductores_activos: 198,
-        total_carriers_registrados: 15,
-        total_carriers_activos: 12,
-        guias_pendientes: 3234,
-        guias_entregadas: 11892,
-        guias_pagadas: 721,
-        valor_pendiente: 42580000,
-        valor_entregado: 156780000,
-        valor_pagado: 8950000,
-        promedio_valor_guia: 95000,
-        eficiencia_global: 87.3
-      });
-      
-      setRankingCarriers([
-        {
-          carrier_id: 101,
-          carrier_nombre: "LogiTech Corp",
-          total_conductores: 35,
-          total_guias: 2847,
-          guias_pendientes: 423,
-          guias_entregadas: 2234,
-          valor_pendiente: 5680000,
-          valor_entregado: 18340000,
-          promedio_valor_guia: 95000,
-          ciudades_principales: "Bogotá, Medellín, Cali",
-          ultima_actividad: "2025-05-29",
-          eficiencia: 92.1
-        },
-        {
-          carrier_id: 102,
-          carrier_nombre: "FastTrack Inc",
-          total_conductores: 28,
-          total_guias: 2156,
-          guias_pendientes: 312,
-          guias_entregadas: 1687,
-          valor_pendiente: 4320000,
-          valor_entregado: 14560000,
-          promedio_valor_guia: 87000,
-          ciudades_principales: "Barranquilla, Cartagena",
-          ultima_actividad: "2025-05-29",
-          eficiencia: 88.7
-        }
-      ]);
-      
-      setAnalisisCiudades([
-        { ciudad: "Bogotá", total_guias: 4567, conductores_activos: 67, carriers_activos: 8, valor_pendiente: 15900000, guias_pendientes: 567, eficiencia: 91.2 },
-        { ciudad: "Medellín", total_guias: 3234, conductores_activos: 45, carriers_activos: 6, valor_pendiente: 8900000, guias_pendientes: 423, eficiencia: 89.8 }
-      ]);
-      
-      setPeriodoAnalisis("Demo - Datos de ejemplo");
-      setFechaActualizacion(new Date().toISOString());
+      // Sin fallback - el master debe tener datos reales
     } finally {
       setLoading(false);
     }
@@ -204,29 +150,13 @@ export default function DashboardAdmin() {
       const response = await fetch(`http://localhost:8000/master/export/data?formato=${formato}`, {
         headers: {
           "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"
+          "X-User-Role": user?.role || "master"
         }
       });
 
       if (response.ok) {
         const data = await response.json();
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `dashboard_master_${new Date().toISOString().split('T')[0]}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        // Fallback: exportar datos actuales
-        const exportData = {
-          stats_globales: statsGlobales,
-          ranking_carriers: rankingCarriers,
-          analisis_ciudades: analisisCiudades,
-          fecha_exportacion: new Date().toISOString(),
-          usuario: user?.email
-        };
-        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -275,7 +205,7 @@ export default function DashboardAdmin() {
 
   if (loading) {
     return (
-      <div className="dashboard-admin">
+      <div className="master-dashboard">
         <div className="loading-container">
           <div className="loading-spinner"></div>
           <p>Consultando datos globales de BigQuery...</p>
@@ -285,13 +215,13 @@ export default function DashboardAdmin() {
   }
 
   return (
-    <div className="dashboard-admin">
+    <div className="master-dashboard">
       <div className="dashboard-header">
         <div className="header-info">
           <h1>🎯 Dashboard Master - Vista Global</h1>
           <div className="user-info">
             <span className="user-badge master">
-              👑 {usuarioMaster?.nombre || user?.email || "Master"} • {usuarioMaster?.rol || user?.role || "admin"}
+              👑 {usuarioMaster?.nombre || "Master"} • {usuarioMaster?.rol || "master"}
             </span>
           </div>
         </div>
@@ -313,7 +243,7 @@ export default function DashboardAdmin() {
 
       {error && (
         <div className="error-banner">
-          ⚠️ {error}
+          ❌ {error}
         </div>
       )}
 
@@ -341,68 +271,68 @@ export default function DashboardAdmin() {
       {/* KPIs Globales */}
       <div className="stats-section">
         <h2>📊 Métricas Globales del Sistema</h2>
-        <div className="dashboard-cards">
-          <div className="dashboard-card primary">
-            <div className="card-icon">📦</div>
-            <div className="card-content">
+        <div className="stats-grid">
+          <div className="stat-card primary">
+            <div className="stat-icon">📦</div>
+            <div className="stat-content">
               <h3>Guías Totales</h3>
-              <div className="card-number">{statsGlobales.total_guias.toLocaleString()}</div>
-              <div className="card-detail">
+              <div className="stat-number">{statsGlobales.total_guias.toLocaleString()}</div>
+              <div className="stat-detail">
                 {statsGlobales.guias_pendientes.toLocaleString()} pendientes • {statsGlobales.guias_entregadas.toLocaleString()} entregadas
               </div>
             </div>
           </div>
 
-          <div className="dashboard-card success">
-            <div className="card-icon">👥</div>
-            <div className="card-content">
+          <div className="stat-card success">
+            <div className="stat-icon">👥</div>
+            <div className="stat-content">
               <h3>Conductores</h3>
-              <div className="card-number">{statsGlobales.total_conductores_registrados}</div>
-              <div className="card-detail">
+              <div className="stat-number">{statsGlobales.total_conductores_registrados}</div>
+              <div className="stat-detail">
                 {statsGlobales.total_conductores_activos} activos ({((statsGlobales.total_conductores_activos / Math.max(statsGlobales.total_conductores_registrados, 1)) * 100).toFixed(1)}%)
               </div>
             </div>
           </div>
 
-          <div className="dashboard-card warning">
-            <div className="card-icon">💰</div>
-            <div className="card-content">
+          <div className="stat-card warning">
+            <div className="stat-icon">💰</div>
+            <div className="stat-content">
               <h3>Valor Pendiente</h3>
-              <div className="card-number">{formatCurrency(statsGlobales.valor_pendiente)}</div>
-              <div className="card-detail">
+              <div className="stat-number">{formatCurrency(statsGlobales.valor_pendiente)}</div>
+              <div className="stat-detail">
                 Promedio: {formatCurrency(statsGlobales.promedio_valor_guia)}
               </div>
             </div>
           </div>
 
-          <div className="dashboard-card info">
-            <div className="card-icon">🏢</div>
-            <div className="card-content">
+          <div className="stat-card info">
+            <div className="stat-icon">🏢</div>
+            <div className="stat-content">
               <h3>Carriers</h3>
-              <div className="card-number">{statsGlobales.total_carriers_registrados}</div>
-              <div className="card-detail">
+              <div className="stat-number">{statsGlobales.total_carriers_registrados}</div>
+              <div className="stat-detail">
                 {statsGlobales.total_carriers_activos} activos • {statsGlobales.eficiencia_global}% eficiencia
               </div>
             </div>
           </div>
 
-          <div className="dashboard-card secondary">
-            <div className="card-icon">✅</div>
-            <div className="card-content">
+          <div className="stat-card secondary">
+            <div className="stat-icon">✅</div>
+            <div className="stat-content">
               <h3>Valor Entregado</h3>
-              <div className="card-number">{formatCurrency(statsGlobales.valor_entregado)}</div>
-              <div className="card-detail">
+              <div className="stat-number">{formatCurrency(statsGlobales.valor_entregado)}</div>
+              <div className="stat-detail">
                 {statsGlobales.guias_entregadas.toLocaleString()} entregas exitosas
               </div>
             </div>
           </div>
 
-          <div className="dashboard-card purple">
-            <div className="card-icon">💳</div>
-            <div className="card-content">
+          <div className="stat-card purple">
+            <div className="stat-icon">💳</div>
+            <div className="stat-content">
               <h3>Valor Pagado</h3>
-              <div className="card-number">{formatCurrency(statsGlobales.valor_pagado)}</div>
-              <div className="card-detail">
+              <div className="stat-number">{formatCurrency(statsGlobales.valor_pagado)}</div>
+              <div className="stat-detail">
                 {statsGlobales.guias_pagadas.toLocaleString()} guías pagadas
               </div>
             </div>
@@ -474,7 +404,36 @@ export default function DashboardAdmin() {
 
       {/* Dashboard contenido en grid */}
       <div className="dashboard-content">
-        {/* Top Ciudades */}
+        {/* Supervisores */}
+        <div className="content-section">
+          <h3>👨‍💼 Supervisores del Sistema</h3>
+          <div className="supervisores-list">
+            {topSupervisores.length > 0 ? (
+              topSupervisores.map((supervisor, index) => (
+                <div key={index} className="supervisor-item">
+                  <div className="supervisor-info">
+                    <div className="supervisor-name">{supervisor.nombre}</div>
+                    <div className="supervisor-email">{supervisor.email}</div>
+                    <div className="supervisor-carriers">
+                      🏢 {supervisor.carriers_asignados} carriers asignados
+                    </div>
+                  </div>
+                  <div className="supervisor-role">
+                    <span className={`role-badge ${supervisor.rol}`}>
+                      {supervisor.rol.toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="empty-state">
+                <p>No hay supervisores registrados</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Análisis por Ciudades */}
         <div className="content-section">
           <h3>🏙️ Top Ciudades</h3>
           <div className="ciudades-list">
@@ -499,40 +458,71 @@ export default function DashboardAdmin() {
             ))}
           </div>
         </div>
+      </div>
 
-        {/* Acciones rápidas */}
-        <div className="content-section">
-          <h3>⚡ Acciones Rápidas Master</h3>
-          <div className="actions-grid">
-            <button 
-              className="action-btn primary"
-              onClick={() => window.location.href = '/admin/usuarios'}
-            >
-              <span className="action-icon">👥</span>
-              <span>Gestionar Usuarios</span>
-            </button>
-            <button 
-              className="action-btn secondary"
-              onClick={() => window.location.href = '/admin/roles-permisos'}
-            >
-              <span className="action-icon">🔐</span>
-              <span>Roles y Permisos</span>
-            </button>
-            <button 
-              className="action-btn tertiary"
-              onClick={() => window.location.href = '/admin/entregas'}
-            >
-              <span className="action-icon">📦</span>
-              <span>Ver Entregas</span>
-            </button>
-            <button 
-              className="action-btn info"
-              onClick={() => exportarDatos("json")}
-            >
-              <span className="action-icon">📥</span>
-              <span>Exportar Todo</span>
-            </button>
-          </div>
+      {/* Tendencias Mensuales */}
+      <div className="trends-section">
+        <h2>📈 Tendencias Mensuales</h2>
+        <div className="trends-grid">
+          {tendenciasMensuales.map((tendencia, index) => (
+            <div key={index} className="trend-card">
+              <div className="trend-header">
+                <h4>{tendencia.mes}</h4>
+                <span className={`trend-efficiency ${getEficienciaColor(tendencia.eficiencia_mensual)}`}>
+                  {tendencia.eficiencia_mensual}%
+                </span>
+              </div>
+              <div className="trend-stats">
+                <div className="trend-stat">
+                  <span className="trend-label">Guías:</span>
+                  <span className="trend-value">{tendencia.total_guias.toLocaleString()}</span>
+                </div>
+                <div className="trend-stat">
+                  <span className="trend-label">Conductores:</span>
+                  <span className="trend-value">{tendencia.conductores_activos}</span>
+                </div>
+                <div className="trend-stat">
+                  <span className="trend-label">Valor:</span>
+                  <span className="trend-value">{formatCurrency(tendencia.valor_total)}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Acciones rápidas */}
+      <div className="quick-actions-section">
+        <h2>⚡ Acciones Rápidas Master</h2>
+        <div className="actions-grid">
+          <button 
+            className="action-btn primary"
+            onClick={() => window.location.href = '/master/carriers'}
+          >
+            <span className="action-icon">🏢</span>
+            <span>Gestionar Carriers</span>
+          </button>
+          <button 
+            className="action-btn secondary"
+            onClick={() => window.location.href = '/master/supervisores'}
+          >
+            <span className="action-icon">👨‍💼</span>
+            <span>Gestionar Supervisores</span>
+          </button>
+          <button 
+            className="action-btn tertiary"
+            onClick={() => window.location.href = '/master/reportes'}
+          >
+            <span className="action-icon">📊</span>
+            <span>Reportes Avanzados</span>
+          </button>
+          <button 
+            className="action-btn info"
+            onClick={() => exportarDatos("json")}
+          >
+            <span className="action-icon">📥</span>
+            <span>Exportar Todo</span>
+          </button>
         </div>
       </div>
 

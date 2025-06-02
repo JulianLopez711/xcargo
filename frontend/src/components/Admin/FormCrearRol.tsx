@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { useAuth } from "../../context/authContext"; // ← AGREGAR
 
-export default function FormCrearRol() {
-  const [idRol, setIdRol] = useState("");
-  const [nombreRol, setNombreRol] = useState("");
-  const [descripcion, setDescripcion] = useState("");
+export default function FormCambiarRol() {
+  const { user } = useAuth(); // ← AGREGAR
+  const [correo, setCorreo] = useState("");
+  const [nuevoRol, setNuevoRol] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [error, setError] = useState("");
 
@@ -13,21 +14,24 @@ export default function FormCrearRol() {
     setError("");
 
     const formData = new FormData();
-    formData.append("id_rol", idRol);
-    formData.append("nombre_rol", nombreRol);
-    formData.append("descripcion", descripcion);
+    formData.append("correo", correo);
+    formData.append("nuevo_rol", nuevoRol);
 
     try {
-      const res = await fetch("http://localhost:8000admin/crear-rol", {
+      // ✅ CORRECCIÓN: Agregar headers
+      const res = await fetch("http://localhost:8000/admin/cambiar-rol", {
         method: "POST",
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "admin"
+        },
         body: formData,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Error al crear rol");
+      if (!res.ok) throw new Error(data.detail || "Error al cambiar rol");
       setMensaje(data.mensaje);
-      setIdRol("");
-      setNombreRol("");
-      setDescripcion("");
+      setCorreo("");
+      setNuevoRol("");
     } catch (err: any) {
       setError(err.message);
     }
@@ -35,20 +39,25 @@ export default function FormCrearRol() {
 
   return (
     <form className="form-admin" onSubmit={handleSubmit}>
-      <h2>Crear Nuevo Rol</h2>
+      <h2>Cambiar Rol de Usuario</h2>
       {mensaje && <p className="success-msg">{mensaje}</p>}
       {error && <p className="error-msg">{error}</p>}
 
-      <label>ID del Rol (único):</label>
-      <input type="text" value={idRol} onChange={(e) => setIdRol(e.target.value)} required />
+      <label>Correo del usuario:</label>
+      <input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} required />
 
-      <label>Nombre del Rol:</label>
-      <input type="text" value={nombreRol} onChange={(e) => setNombreRol(e.target.value)} required />
+      <label>Nuevo rol:</label>
+      <select value={nuevoRol} onChange={(e) => setNuevoRol(e.target.value)} required>
+        <option value="">-- Selecciona un nuevo rol --</option>
+        <option value="admin">Administrador</option>
+        <option value="master">Master</option> {/* ← AGREGAR MASTER */}
+        <option value="supervisor">Supervisor</option>
+        <option value="conductor">Conductor</option>
+        <option value="contabilidad">Contabilidad</option>
+        <option value="operador">Operador</option>
+      </select>
 
-      <label>Descripción:</label>
-      <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={3} />
-
-      <button type="submit">Crear Rol</button>
+      <button type="submit">Actualizar Rol</button>
     </form>
   );
 }

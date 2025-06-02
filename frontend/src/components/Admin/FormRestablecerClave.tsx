@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useAuth } from "../../context/authContext"; // ← AGREGAR
 
 export default function FormRestablecerClave() {
+  const { user } = useAuth(); // ← AGREGAR
   const [correo, setCorreo] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [error, setError] = useState("");
@@ -14,8 +16,13 @@ export default function FormRestablecerClave() {
     formData.append("correo", correo);
 
     try {
-      const res = await fetch("http://localhost:8000admin/restablecer-clave", {
+      // ✅ CORRECCIÓN: Agregar headers
+      const res = await fetch("http://localhost:8000/admin/restablecer-clave", {
         method: "POST",
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "admin"
+        },
         body: formData,
       });
       const data = await res.json();

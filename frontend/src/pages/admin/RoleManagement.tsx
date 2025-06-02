@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../../context/authContext"; // ← AGREGAR ESTA LÍNEA
 import "../../styles/admin/RoleManagement.css";
 
 interface Permiso {
@@ -38,6 +39,7 @@ interface NuevoPermiso {
 }
 
 export default function RoleManagement() {
+  const { user } = useAuth(); // ← AGREGAR ESTA LÍNEA
   const [activeTab, setActiveTab] = useState("gestionar");
   const [roles, setRoles] = useState<Rol[]>([]);
   const [permisos, setPermisos] = useState<Permiso[]>([]);
@@ -70,22 +72,45 @@ export default function RoleManagement() {
 
   const cargarRoles = async () => {
     try {
-      const response = await fetch("http://localhost:8000/admin/roles-con-permisos");
+      const response = await fetch("http://localhost:8000/admin/roles-con-permisos", {
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
-      setRoles(data);
+      setRoles(Array.isArray(data) ? data : []); // ← VALIDAR QUE SEA ARRAY
     } catch (error) {
       console.error("Error cargando roles:", error);
       mostrarMensaje("Error al cargar roles", "error");
+      setRoles([]); // ← FALLBACK A ARRAY VACÍO
     }
   };
 
   const cargarPermisos = async () => {
     try {
-      const response = await fetch("http://localhost:8000/admin/permisos");
+      const response = await fetch("http://localhost:8000/admin/permisos", {
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const data = await response.json();
-      setPermisos(data);
+      setPermisos(Array.isArray(data) ? data : []); // ← VALIDAR QUE SEA ARRAY
     } catch (error) {
       console.error("Error cargando permisos:", error);
+      mostrarMensaje("Error al cargar permisos", "error");
+      setPermisos([]); // ← FALLBACK A ARRAY VACÍO
     }
   };
 
@@ -94,14 +119,14 @@ export default function RoleManagement() {
     setTimeout(() => setMessage(""), 3000);
   };
 
-  // Agrupar permisos por módulo
-  const permisosPorModulo = permisos.reduce((acc, permiso) => {
+  // Agrupar permisos por módulo - CON VALIDACIÓN
+  const permisosPorModulo = Array.isArray(permisos) ? permisos.reduce((acc, permiso) => {
     if (!acc[permiso.modulo]) {
       acc[permiso.modulo] = [];
     }
     acc[permiso.modulo].push(permiso);
     return acc;
-  }, {} as Record<string, Permiso[]>);
+  }, {} as Record<string, Permiso[]>) : {};
 
   // Verificar si un rol tiene un permiso específico
   const rolTienePermiso = (rol: Rol, permisoId: string): boolean => {
@@ -117,6 +142,10 @@ export default function RoleManagement() {
 
       const response = await fetch(`http://localhost:8000/admin/rol/${idRol}/permisos`, {
         method: "POST",
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
+        },
         body: formData
       });
 
@@ -167,6 +196,10 @@ export default function RoleManagement() {
 
       const responseRol = await fetch("http://localhost:8000/admin/crear-rol", {
         method: "POST",
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
+        },
         body: formDataRol
       });
 
@@ -179,6 +212,10 @@ export default function RoleManagement() {
 
         await fetch(`http://localhost:8000/admin/rol/${nuevoRol.id_rol}/ruta-defecto`, {
           method: "POST",
+          headers: {
+            "X-User-Email": user?.email || "",
+            "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
+          },
           body: formDataRuta
         });
       }
@@ -227,6 +264,10 @@ export default function RoleManagement() {
 
       const response = await fetch("http://localhost:8000/admin/crear-permiso", {
         method: "POST",
+        headers: {
+          "X-User-Email": user?.email || "",
+          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
+        },
         body: formData
       });
 
@@ -305,53 +346,59 @@ export default function RoleManagement() {
         {/* GESTIONAR ROLES */}
         {activeTab === "gestionar" && (
           <div className="section">
-            {roles.map((rol) => (
-              <div key={rol.id_rol} className="role-card">
-                <div className="role-header">
-                  <div className="role-info">
-                    <h3>{rol.nombre_rol}</h3>
-                    <p>{rol.descripcion}</p>
-                    {rol.ruta_defecto && (
-                      <small>Ruta por defecto: {rol.ruta_defecto}</small>
-                    )}
-                  </div>
-                  <div className="role-stats">
-                    <span className="stat">
-                      {rol.permisos?.length || 0} permisos
-                    </span>
-                  </div>
-                </div>
-
-                <div className="permissions-grid">
-                  {Object.entries(permisosPorModulo).map(([modulo, permisosModulo]) => (
-                    <div key={modulo} className="module-section">
-                      <div className="module-header">
-                        <h4>{modulo}</h4>
-                      </div>
-                      <div className="permissions-list">
-                        {permisosModulo.map((permiso) => (
-                          <div key={permiso.id_permiso} className="permission-item">
-                            <div className="permission-info">
-                              <div className="permission-name">{permiso.nombre}</div>
-                              <div className="permission-desc">{permiso.descripcion}</div>
-                            </div>
-                            <label className="toggle-switch">
-                              <input
-                                type="checkbox"
-                                checked={rolTienePermiso(rol, permiso.id_permiso)}
-                                onChange={() => togglePermisoRol(rol, permiso.id_permiso)}
-                                disabled={loading}
-                              />
-                              <span className="slider"></span>
-                            </label>
-                          </div>
-                        ))}
-                      </div>
+            {roles.length > 0 ? (
+              roles.map((rol) => (
+                <div key={rol.id_rol} className="role-card">
+                  <div className="role-header">
+                    <div className="role-info">
+                      <h3>{rol.nombre_rol}</h3>
+                      <p>{rol.descripcion}</p>
+                      {rol.ruta_defecto && (
+                        <small>Ruta por defecto: {rol.ruta_defecto}</small>
+                      )}
                     </div>
-                  ))}
+                    <div className="role-stats">
+                      <span className="stat">
+                        {rol.permisos?.length || 0} permisos
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="permissions-grid">
+                    {Object.entries(permisosPorModulo).map(([modulo, permisosModulo]) => (
+                      <div key={modulo} className="module-section">
+                        <div className="module-header">
+                          <h4>{modulo}</h4>
+                        </div>
+                        <div className="permissions-list">
+                          {permisosModulo.map((permiso) => (
+                            <div key={permiso.id_permiso} className="permission-item">
+                              <div className="permission-info">
+                                <div className="permission-name">{permiso.nombre}</div>
+                                <div className="permission-desc">{permiso.descripcion}</div>
+                              </div>
+                              <label className="toggle-switch">
+                                <input
+                                  type="checkbox"
+                                  checked={rolTienePermiso(rol, permiso.id_permiso)}
+                                  onChange={() => togglePermisoRol(rol, permiso.id_permiso)}
+                                  disabled={loading}
+                                />
+                                <span className="slider"></span>
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              ))
+            ) : (
+              <div className="empty-state">
+                <p>No hay roles configurados. Crea uno nuevo para empezar.</p>
               </div>
-            ))}
+            )}
           </div>
         )}
 
@@ -414,31 +461,35 @@ export default function RoleManagement() {
                 <div className="form-section">
                   <h3>Seleccionar Permisos</h3>
                   
-                  {Object.entries(permisosPorModulo).map(([modulo, permisosModulo]) => (
-                    <div key={modulo} className="module-section">
-                      <div className="module-header">
-                        <h4>{modulo}</h4>
-                      </div>
-                      <div className="permissions-list">
-                        {permisosModulo.map((permiso) => (
-                          <div key={permiso.id_permiso} className="permission-item">
-                            <div className="permission-info">
-                              <div className="permission-name">{permiso.nombre}</div>
-                              <div className="permission-desc">{permiso.descripcion}</div>
+                  {Object.keys(permisosPorModulo).length > 0 ? (
+                    Object.entries(permisosPorModulo).map(([modulo, permisosModulo]) => (
+                      <div key={modulo} className="module-section">
+                        <div className="module-header">
+                          <h4>{modulo}</h4>
+                        </div>
+                        <div className="permissions-list">
+                          {permisosModulo.map((permiso) => (
+                            <div key={permiso.id_permiso} className="permission-item">
+                              <div className="permission-info">
+                                <div className="permission-name">{permiso.nombre}</div>
+                                <div className="permission-desc">{permiso.descripcion}</div>
+                              </div>
+                              <label className="toggle-switch">
+                                <input
+                                  type="checkbox"
+                                  checked={nuevoRol.permisos_seleccionados.includes(permiso.id_permiso)}
+                                  onChange={() => togglePermisoNuevoRol(permiso.id_permiso)}
+                                />
+                                <span className="slider"></span>
+                              </label>
                             </div>
-                            <label className="toggle-switch">
-                              <input
-                                type="checkbox"
-                                checked={nuevoRol.permisos_seleccionados.includes(permiso.id_permiso)}
-                                onChange={() => togglePermisoNuevoRol(permiso.id_permiso)}
-                              />
-                              <span className="slider"></span>
-                            </label>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  ) : (
+                    <p>Cargando permisos...</p>
+                  )}
 
                   {/* Vista previa */}
                   <div className="preview">
@@ -513,6 +564,7 @@ export default function RoleManagement() {
                   <option value="conductor">Conductores</option>
                   <option value="ventas">Ventas</option>
                   <option value="reportes">Reportes</option>
+                  <option value="master">Master</option>
                 </select>
               </div>
 

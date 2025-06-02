@@ -28,7 +28,7 @@ export default function ConfigForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // Aquí iría la lógica para enviar al backend
-    console.log("Configuración guardada:", form);
+
   };
 
   return (
