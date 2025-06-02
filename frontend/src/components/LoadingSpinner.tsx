@@ -10,7 +10,7 @@ interface LoadingSpinnerProps {
 export default function LoadingSpinner({ 
   message = "Cargando...", 
   showLogo = true,
-  logoSrc = "../assets/LogoX.png" // Cambia por la ruta de tu logo
+  logoSrc = ".frontend/src/assets/LogoX.png" // Cambia por la ruta de tu logo
 }: LoadingSpinnerProps) {
   return (
     <div className="spinner-container">

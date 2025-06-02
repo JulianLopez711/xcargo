@@ -16,6 +16,58 @@ def verificar_supervisor(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="No autorizado")
     return current_user
 
+def obtener_carrier_id_supervisor(correo: str, client: bigquery.Client) -> List[int]:
+    """
+    Obtiene los IDs de carriers que puede supervisar un usuario
+    FUNCIÓN FALTANTE - FIX CRÍTICO
+    """
+    try:
+        # Primero buscar en usuarios administrativos
+        query_admin = """
+        SELECT DISTINCT
+            CAST(SPLIT(empresa_carrier, ',')[OFFSET(0)] AS INT64) as carrier_id
+        FROM `datos-clientes-441216.Conciliaciones.usuarios`
+        WHERE correo = @correo
+        AND empresa_carrier IS NOT NULL
+        AND empresa_carrier != ''
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("correo", "STRING", correo)
+            ]
+        )
+        
+        result = client.query(query_admin, job_config=job_config).result()
+        rows = list(result)
+        
+        carrier_ids = []
+        if rows:
+            carrier_ids = [row.carrier_id for row in rows if row.carrier_id]
+        
+        # Si no está en usuarios, buscar en usuarios_BIG (conductores que pueden ser supervisores)
+        if not carrier_ids:
+            query_big = """
+            SELECT DISTINCT Carrier_id
+            FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG`
+            WHERE LOWER(Employee_Mail) = LOWER(@correo)
+            AND Carrier_id IS NOT NULL
+            """
+            
+            result_big = client.query(query_big, job_config=job_config).result()
+            rows_big = list(result_big)
+            
+            if rows_big:
+                carrier_ids = [row.Carrier_id for row in rows_big if row.Carrier_id]
+        
+        print(f"✅ Supervisor {correo} tiene acceso a carriers: {carrier_ids}")
+        return carrier_ids
+        
+    except Exception as e:
+        print(f"❌ Error obteniendo carrier_ids para supervisor {correo}: {e}")
+        return []
+
+
 def obtener_carrier_info_supervisor(correo: str, client: bigquery.Client) -> List[Dict[str, Any]]:
     """
     Obtiene información completa de los carriers que puede supervisar un usuario

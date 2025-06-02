@@ -26,8 +26,21 @@ import logging
 from datetime import datetime
 
 # Importar el validador IA
-from app.services.ai.ai_ocr_validator import validar_comprobante_ia
-
+try:
+    from app.services.ai.ai_ocr_validator import validar_comprobante_ia
+except ImportError:
+    def validar_comprobante_ia(datos, metadata=None):
+        """Fallback cuando AI validator no está disponible"""
+        return type('MockResult', (), {
+            'score_confianza': 75,
+            'estado': type('MockStatus', (), {'value': 'REQUIERE_REVISION'})(),
+            'accion_recomendada': type('MockAction', (), {'value': 'REVISION_MANUAL'})(),
+            'errores_detectados': [],
+            'alertas': [],
+            'sugerencias_correccion': [],
+            'datos_corregidos': None,
+            'validaciones': {}
+        })()
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

@@ -19,6 +19,32 @@ type PagoCompleto = {
   archivo: File;
 };
 
+// 🔥 NUEVO: Tipo para respuesta del OCR mejorado
+type OCRResponse = {
+  datos_extraidos?: {
+    valor?: string;
+    fecha?: string;
+    hora?: string;
+    entidad?: string;
+    referencia?: string;
+    tipo?: string;
+  };
+  validacion_ia?: {
+    score_confianza: number;
+    estado: string;
+    accion_recomendada: string;
+    errores_detectados?: string[];
+    sugerencias?: string[];
+  };
+  estadisticas?: {
+    tiempo_total: number;
+    engine_ganador: string;
+    calidad_imagen: number;
+  };
+  error?: boolean;
+  mensaje?: string;
+};
+
 export default function RegistrarPago() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -34,6 +60,11 @@ export default function RegistrarPago() {
   const [cargando, setCargando] = useState(false);
   const [analizando, setAnalizando] = useState(false);
   const [pagosCargados, setPagosCargados] = useState<PagoCompleto[]>([]);
+  
+  // 🔥 NUEVO: Estado para mostrar información de validación IA
+  const [validacionIA, setValidacionIA] = useState<any>(null);
+  const [calidadOCR, setCalidadOCR] = useState<number>(0);
+  
   const [datosManuales, setDatosManuales] = useState<DatosPago>({
     valor: "",
     fecha: "",
@@ -42,6 +73,79 @@ export default function RegistrarPago() {
     entidad: "",
     referencia: "",
   });
+
+  // 🔥 NUEVA: Función para convertir fechas
+  const convertirFechaAISO = (fechaTexto: string): string => {
+    if (!fechaTexto) return "";
+    
+    try {
+      // Si ya está en formato ISO (YYYY-MM-DD), devolverla tal como está
+      if (/^\d{4}-\d{2}-\d{2}$/.test(fechaTexto)) {
+        return fechaTexto;
+      }
+      
+      // Formato DD/MM/YYYY
+      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(fechaTexto)) {
+        const [dia, mes, año] = fechaTexto.split('/');
+        return `${año}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
+      }
+      
+      // Formato DD-MM-YYYY
+      if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(fechaTexto)) {
+        const [dia, mes, año] = fechaTexto.split('-');
+        return `${año}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
+      }
+      
+      // Intentar parsear otras variantes
+      const fecha = new Date(fechaTexto);
+      if (!isNaN(fecha.getTime())) {
+        return fecha.toISOString().split('T')[0];
+      }
+      
+      console.warn(`⚠️ No se pudo convertir la fecha: ${fechaTexto}`);
+      return "";
+    } catch (error) {
+      console.error(`❌ Error convirtiendo fecha ${fechaTexto}:`, error);
+      return "";
+    }
+  };
+
+  // 🔥 NUEVA: Función para normalizar hora
+  const normalizarHora = (horaTexto: string): string => {
+    if (!horaTexto) return "";
+    
+    try {
+      // Si ya está en formato HH:MM, agregamos segundos si falta
+      if (/^\d{1,2}:\d{2}$/.test(horaTexto)) {
+        return horaTexto; // El input type="time" espera HH:MM
+      }
+      
+      // Si tiene segundos, removerlos para el input
+      if (/^\d{1,2}:\d{2}:\d{2}$/.test(horaTexto)) {
+        return horaTexto.slice(0, 5);
+      }
+      
+      // Si tiene formato AM/PM, convertir a 24h
+      const ampmMatch = horaTexto.match(/(\d{1,2}):(\d{2})\s*(AM|PM|A\.M\.|P\.M\.)/i);
+      if (ampmMatch) {
+        let [, horas, minutos, periodo] = ampmMatch;
+        let horasNum = parseInt(horas);
+        
+        if (periodo.toUpperCase().includes('P') && horasNum !== 12) {
+          horasNum += 12;
+        } else if (periodo.toUpperCase().includes('A') && horasNum === 12) {
+          horasNum = 0;
+        }
+        
+        return `${horasNum.toString().padStart(2, '0')}:${minutos}`;
+      }
+      
+      return horaTexto;
+    } catch (error) {
+      console.error(`❌ Error normalizando hora ${horaTexto}:`, error);
+      return horaTexto;
+    }
+  };
 
   function parseValorMonetario(valor: string): number {
     const limpio = valor
@@ -57,39 +161,104 @@ export default function RegistrarPago() {
     return sum + (isNaN(val) ? 0 : val);
   }, 0);
 
+  // 🔥 CORREGIDO: Handle file change con manejo seguro de errores
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     setArchivo(file);
+    setValidacionIA(null);
+    setCalidadOCR(0);
+    
     if (!file) return;
+
+    console.log("📁 Archivo seleccionado:", {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: new Date(file.lastModified)
+    });
 
     setAnalizando(true);
     const formData = new FormData();
     formData.append("file", file);
 
     try {
+      
       const response = await fetch("http://localhost:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
 
-      const result = await response.json();
-      const data = result?.datos_extraidos;
-
-      if (data) {
-        setDatosManuales({
-          valor: data.valor || "",
-          fecha: data.fecha_transaccion || "",
-          hora: data.hora_transaccion || "",
-          tipo: data.entidad_financiera || "",
-          entidad: data.entidad_financiera || "",
-          referencia: data.referencia_pago || data.numero_confirmacion || "",
-        });
-      } else {
-        alert("No se pudieron extraer los datos del comprobante.");
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
-    } catch (err) {
-      console.error("Error al extraer datos:", err);
-      alert("No se pudo leer el comprobante. Intenta nuevamente.");
+
+      const result: OCRResponse = await response.json();
+
+
+      // 🔥 NUEVO: Manejar la nueva estructura de respuesta
+      if (result.error) {
+        alert(`❌ Error en OCR: ${result.mensaje || 'Error desconocido'}`);
+        return;
+      }
+
+      const data = result.datos_extraidos;
+      
+      if (data && Object.keys(data).length > 0) {
+
+        
+        // 🔥 CORREGIDO: Mapear campos con conversión segura
+        const datosLimpios = {
+          valor: data.valor || "",
+          fecha: convertirFechaAISO(data.fecha || ""),
+          hora: normalizarHora(data.hora || ""),
+          tipo: data.tipo || data.entidad || "",
+          entidad: data.entidad || "",
+          referencia: data.referencia || "",
+        };
+
+
+        setDatosManuales(datosLimpios);
+
+        // 🔥 CORREGIDO: Validación IA con verificación segura
+        if (result.validacion_ia) {
+
+          setValidacionIA(result.validacion_ia);
+          
+          const { score_confianza, errores_detectados } = result.validacion_ia;
+          
+          // 🔥 FIX: Verificación segura del array
+          if (errores_detectados && Array.isArray(errores_detectados) && errores_detectados.length > 0) {
+            console.warn("⚠️ Errores detectados:", errores_detectados);
+            alert(`⚠️ OCR completado con advertencias:\n${errores_detectados.join('\n')}\n\nPor favor verifica los datos extraídos.`);
+          } else if (score_confianza < 70) {
+            console.warn(`⚠️ Confianza baja: ${score_confianza}%`);
+            alert(`⚠️ Confianza baja (${score_confianza}%). Por favor verifica los datos.`);
+          } else {
+
+            
+            // Mostrar éxito solo si se extrajeron datos útiles
+            const camposExtraidos = Object.values(datosLimpios).filter(v => v && v.trim()).length;
+            if (camposExtraidos >= 3) {
+              alert(`✅ OCR exitoso!\n\nCampos extraídos: ${camposExtraidos}/6\nConfianza: ${score_confianza}%\n\nRevisa los datos antes de continuar.`);
+            }
+          }
+        }
+
+        // Calidad de imagen
+        if (result.estadisticas?.calidad_imagen) {
+          setCalidadOCR(result.estadisticas.calidad_imagen);
+
+        }
+
+      } else {
+        console.warn("⚠️ No se extrajeron datos válidos del comprobante");
+        alert("⚠️ No se pudieron extraer datos del comprobante.\n\nPosibles causas:\n- Imagen poco clara\n- Formato no reconocido\n- Texto no legible\n\nPuedes ingresar los datos manualmente.");
+      }
+
+    } catch (err: any) {
+      console.error("❌ Error al extraer datos:", err);
+      alert(`❌ Error al procesar el comprobante: ${err.message}\n\nPuedes ingresar los datos manualmente.`);
     } finally {
       setAnalizando(false);
     }
@@ -135,6 +304,8 @@ export default function RegistrarPago() {
       referencia: "",
     });
     setArchivo(null);
+    setValidacionIA(null);
+    setCalidadOCR(0);
   };
 
   const eliminarPago = (referencia: string) => {
@@ -182,8 +353,6 @@ export default function RegistrarPago() {
           
           return guiaObj;
         });
-
-
 
         // Expandir los logs para ver cada guía individualmente
         guiasConCliente.forEach((guia, index) => {
@@ -236,8 +405,6 @@ export default function RegistrarPago() {
         if (!response.ok) {
           throw new Error(result.detail || "Error al registrar pago");
         }
-
-
       }
 
       alert("✅ Pagos registrados correctamente.");
@@ -248,6 +415,14 @@ export default function RegistrarPago() {
     } finally {
       setCargando(false);
     }
+  };
+
+  // 🔥 NUEVO: Función para obtener el color del indicador de confianza
+  const getConfianzaColor = (score: number) => {
+    if (score >= 85) return "#22c55e"; // Verde
+    if (score >= 70) return "#3b82f6"; // Azul
+    if (score >= 50) return "#f59e0b"; // Amarillo
+    return "#ef4444"; // Rojo
   };
 
   return (
@@ -373,8 +548,61 @@ export default function RegistrarPago() {
           >
             <LoadingSpinner />
             <span style={{ marginLeft: "0.5rem" }}>
-              Comprobando referencia...
+              🤖 Analizando comprobante con IA...
             </span>
+          </div>
+        )}
+
+        {/* 🔥 NUEVO: Mostrar información de validación IA */}
+        {validacionIA && (
+          <div className="validacion-ia" style={{
+            margin: "1rem 0",
+            padding: "1rem",
+            border: `2px solid ${getConfianzaColor(validacionIA.score_confianza)}`,
+            borderRadius: "8px",
+            backgroundColor: "#f8fafc"
+          }}>
+            <h4 style={{ margin: "0 0 0.5rem 0", color: getConfianzaColor(validacionIA.score_confianza) }}>
+              🤖 Validación IA: {validacionIA.score_confianza}% de confianza
+            </h4>
+            <p style={{ margin: "0.25rem 0", fontSize: "0.9rem" }}>
+              <strong>Estado:</strong> {validacionIA.estado}
+            </p>
+            <p style={{ margin: "0.25rem 0", fontSize: "0.9rem" }}>
+              <strong>Recomendación:</strong> {validacionIA.accion_recomendada}
+            </p>
+            {validacionIA.errores_detectados && Array.isArray(validacionIA.errores_detectados) && validacionIA.errores_detectados.length > 0 && (
+              <div style={{ marginTop: "0.5rem" }}>
+                <strong style={{ color: "#dc2626" }}>⚠️ Errores detectados:</strong>
+                <ul style={{ margin: "0.25rem 0", paddingLeft: "1.5rem", fontSize: "0.85rem" }}>
+                  {validacionIA.errores_detectados.map((error: string, idx: number) => (
+                    <li key={idx} style={{ color: "#dc2626" }}>{error}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {validacionIA.sugerencias && Array.isArray(validacionIA.sugerencias) && validacionIA.sugerencias.length > 0 && (
+              <div style={{ marginTop: "0.5rem" }}>
+                <strong style={{ color: "#059669" }}>💡 Sugerencias:</strong>
+                <ul style={{ margin: "0.25rem 0", paddingLeft: "1.5rem", fontSize: "0.85rem" }}>
+                  {validacionIA.sugerencias.map((sugerencia: string, idx: number) => (
+                    <li key={idx} style={{ color: "#059669" }}>{sugerencia}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 🔥 NUEVO: Mostrar calidad de imagen */}
+        {calidadOCR > 0 && (
+          <div style={{ 
+            margin: "0.5rem 0", 
+            fontSize: "0.9rem",
+            color: calidadOCR > 70 ? "#059669" : "#dc2626"
+          }}>
+            📊 Calidad de imagen: {calidadOCR}%
+            {calidadOCR < 70 && " - Considera tomar una foto más clara"}
           </div>
         )}
 
@@ -401,10 +629,10 @@ export default function RegistrarPago() {
                   required
                 >
                   <option value="">Seleccione...</option>
-                  <option value="consignacion">consignacion</option>
+                  <option value="consignacion">Consignación</option>
                   <option value="Nequi">Nequi</option>
                   <option value="Transferencia">Transferencia</option>
-                </select>
+              </select>
               ) : (
                 <input
                   type={
