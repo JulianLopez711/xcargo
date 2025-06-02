@@ -240,7 +240,7 @@ export default function RegistrarPago() {
             // Mostrar éxito solo si se extrajeron datos útiles
             const camposExtraidos = Object.values(datosLimpios).filter(v => v && v.trim()).length;
             if (camposExtraidos >= 3) {
-              alert(`✅ OCR exitoso!\n\nCampos extraídos: ${camposExtraidos}/6\nConfianza: ${score_confianza}%\n\nRevisa los datos antes de continuar.`);
+              
             }
           }
         }
