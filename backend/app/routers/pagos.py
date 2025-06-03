@@ -135,10 +135,18 @@ async def registrar_pago_conductor(
 
         # Validar hora
         try:
-            datetime.strptime(hora_pago, "%H:%M")
+            # Intentar parsear como HH:MM
+            hora_obj = datetime.strptime(hora_pago, "%H:%M")
+            # Convertir a formato HH:MM:SS para BigQuery
+            hora_pago = hora_obj.strftime("%H:%M:%S")
+            
         except ValueError:
-            raise HTTPException(status_code=400, detail="Formato de hora inválido (HH:MM)")
-
+            try:
+                # Si falla, intentar como HH:MM:SS
+                datetime.strptime(hora_pago, "%H:%M:%S")
+                # Ya está en formato correcto
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de hora inválido (HH:MM o HH:MM:SS)")
         # PASO 2: Validar referencia única
         logger.info(f"Validando referencia única: {referencia}")
         verificacion_ref = client.query("""

@@ -22,7 +22,7 @@ interface FormularioPago {
 }
 
 interface EstadoProceso {
-  paso: 'formulario' | 'procesando' | 'completado' | 'error';
+  paso: 'formulario' | 'procesando' | 'completado' | 'error'| 'confirmacion';
   mensaje: string;
   progreso: number;
 }

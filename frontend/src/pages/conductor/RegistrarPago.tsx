@@ -147,6 +147,28 @@ export default function RegistrarPago() {
     }
   };
 
+  const normalizarHoraParaEnvio = (hora: string): string => {
+  if (!hora) return "00:00:00";  // ✅ Agregar segundos
+  
+  // Si ya tiene formato HH:MM:SS, devolverla tal como está
+  if (/^\d{2}:\d{2}:\d{2}$/.test(hora)) {
+    return hora;
+  }
+  
+  // Si tiene formato HH:MM, agregar segundos
+  if (/^\d{2}:\d{2}$/.test(hora)) {
+    return `${hora}:00`;  // ✅ Agregar :00
+  }
+  
+  // Si tiene un solo dígito en horas, agregar cero y segundos
+  if (/^\d{1}:\d{2}$/.test(hora)) {
+    return `0${hora}:00`;  // ✅ Agregar 0 al inicio y :00 al final
+  }
+  
+  // Fallback
+  return `${hora.slice(0, 5)}:00`;  // ✅ Asegurar formato HH:MM:SS
+};
+
   function parseValorMonetario(valor: string): number {
     const limpio = valor
       .replace(/[^0-9.,]/g, "")
@@ -182,7 +204,6 @@ export default function RegistrarPago() {
     formData.append("file", file);
 
     try {
-      
       const response = await fetch("http://localhost:8000/ocr/extraer", {
         method: "POST",
         body: formData,
@@ -195,7 +216,6 @@ export default function RegistrarPago() {
 
       const result: OCRResponse = await response.json();
 
-
       // 🔥 NUEVO: Manejar la nueva estructura de respuesta
       if (result.error) {
         alert(`❌ Error en OCR: ${result.mensaje || 'Error desconocido'}`);
@@ -205,8 +225,6 @@ export default function RegistrarPago() {
       const data = result.datos_extraidos;
       
       if (data && Object.keys(data).length > 0) {
-
-        
         // 🔥 CORREGIDO: Mapear campos con conversión segura
         const datosLimpios = {
           valor: data.valor || "",
@@ -217,12 +235,10 @@ export default function RegistrarPago() {
           referencia: data.referencia || "",
         };
 
-
         setDatosManuales(datosLimpios);
 
         // 🔥 CORREGIDO: Validación IA con verificación segura
         if (result.validacion_ia) {
-
           setValidacionIA(result.validacion_ia);
           
           const { score_confianza, errores_detectados } = result.validacion_ia;
@@ -235,12 +251,10 @@ export default function RegistrarPago() {
             console.warn(`⚠️ Confianza baja: ${score_confianza}%`);
             alert(`⚠️ Confianza baja (${score_confianza}%). Por favor verifica los datos.`);
           } else {
-
-            
             // Mostrar éxito solo si se extrajeron datos útiles
             const camposExtraidos = Object.values(datosLimpios).filter(v => v && v.trim()).length;
             if (camposExtraidos >= 3) {
-              
+              console.log("✅ Datos extraídos exitosamente");
             }
           }
         }
@@ -248,7 +262,6 @@ export default function RegistrarPago() {
         // Calidad de imagen
         if (result.estadisticas?.calidad_imagen) {
           setCalidadOCR(result.estadisticas.calidad_imagen);
-
         }
 
       } else {
@@ -314,6 +327,7 @@ export default function RegistrarPago() {
     );
   };
 
+  // 🔧 FUNCIÓN CORREGIDA: registrarTodosLosPagos
   const registrarTodosLosPagos = async () => {
     if (totalAcumulado < total) {
       alert("El total acumulado no cubre el valor requerido para las guías.");
@@ -372,10 +386,10 @@ export default function RegistrarPago() {
           parseValorMonetario(p.datos.valor).toString()
         );
         formData.append("fecha_pago", p.datos.fecha);
-        formData.append(
-          "hora_pago",
-          p.datos.hora.length === 5 ? `${p.datos.hora}:00` : p.datos.hora
-        );
+        
+        // 🔧 CORREGIR: Solo una hora, no duplicada
+        formData.append("hora_pago", normalizarHoraParaEnvio(p.datos.hora));
+        
         formData.append("tipo", p.datos.tipo);
         formData.append("entidad", p.datos.entidad);
         formData.append("referencia", p.datos.referencia);
@@ -386,7 +400,7 @@ export default function RegistrarPago() {
           correo,
           valor: parseValorMonetario(p.datos.valor),
           fecha: p.datos.fecha,
-          hora: p.datos.hora,
+          hora: normalizarHoraParaEnvio(p.datos.hora), // 🔧 Usar función normalizada
           tipo: p.datos.tipo,
           entidad: p.datos.entidad,
           referencia: p.datos.referencia,
@@ -546,7 +560,7 @@ export default function RegistrarPago() {
           <div
             style={{ margin: "1rem 0", color: "#2e7d32", fontWeight: "bold" }}
           >
-            <LoadingSpinner />
+            <LoadingSpinner logoSize="small" />
             <span style={{ marginLeft: "0.5rem" }}>
               🤖 Analizando comprobante con IA...
             </span>
@@ -632,7 +646,7 @@ export default function RegistrarPago() {
                   <option value="consignacion">Consignación</option>
                   <option value="Nequi">Nequi</option>
                   <option value="Transferencia">Transferencia</option>
-              </select>
+                </select>
               ) : (
                 <input
                   type={
@@ -663,7 +677,7 @@ export default function RegistrarPago() {
         </button>
       </form>
 
-      {cargando && <LoadingSpinner />}
+      {cargando && <LoadingSpinner logoSize="medium" />}
     </div>
   );
 }
