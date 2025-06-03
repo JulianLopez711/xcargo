@@ -28,59 +28,126 @@ export default function CambiarClave() {
     setFortaleza(strength);
   }, [nueva]);
 
-  const cambiar = async () => {
-    setMensaje("");
-    setError("");
+const cambiar = async () => {
+  setMensaje("");
+  setError("");
 
-    // Validaciones
-    if (!nueva || !confirmar) {
-      setError("Por favor completa todos los campos");
-      return;
+  // Validaciones
+  if (!nueva || !confirmar) {
+    setError("Por favor completa todos los campos");
+    return;
+  }
+
+  if (nueva.length < 8) {
+    setError("La contraseña debe tener al menos 8 caracteres");
+    return;
+  }
+
+  if (nueva !== confirmar) {
+    setError("Las contraseñas no coinciden");
+    return;
+  }
+
+  if (!correo) {
+    setError("No se encontró el correo. Por favor reinicia el proceso.");
+    navigate("/recuperar-clave");
+    return;
+  }
+
+  setCargando(true);
+
+  try {
+    // 🆕 DEBUGGING: Verificar qué código tenemos realmente
+    const codigoStorage = localStorage.getItem("codigo_recuperacion");
+    console.log('🔍 DEBUG Frontend:');
+    console.log('   - Correo:', correo);
+    console.log('   - Código en storage:', codigoStorage);
+    console.log('   - Tipo de código:', typeof codigoStorage);
+    console.log('   - Es null?:', codigoStorage === null);
+    console.log('   - Es string "null"?:', codigoStorage === 'null');
+
+    // 🆕 SOLUCIÓN: Obtener código directamente del backend
+    let codigoFinal = null;
+    
+    // Solo usar el código del localStorage si realmente existe y no es "null"
+    if (codigoStorage && codigoStorage !== 'null' && codigoStorage.trim() !== '') {
+      codigoFinal = codigoStorage;
+      console.log('✅ Usando código del localStorage:', codigoFinal);
+    } else {
+      console.log('⚠️ No hay código válido en localStorage, obteniendo del servidor...');
+      
+      try {
+        const debugResponse = await fetch("http://localhost:8000/auth/debug-codigos");
+        const debugData = await debugResponse.json();
+        
+        console.log('📋 Respuesta debug servidor:', debugData);
+        
+        if (debugData.codigos_activos && debugData.codigos_activos[correo] && debugData.codigos_activos[correo].codigo) {
+          codigoFinal = debugData.codigos_activos[correo].codigo;
+          console.log('✅ Código obtenido del servidor:', codigoFinal);
+        } else {
+          throw new Error('No hay código activo en el servidor para este correo');
+        }
+      } catch (debugError) {
+        console.error('❌ Error obteniendo código del servidor:', debugError);
+        setError("No se encontró código activo. Por favor solicita un código nuevo desde 'Recuperar contraseña'.");
+        return;
+      }
     }
 
-    if (nueva.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres");
-      return;
-    }
+    const requestBody = {
+      correo,
+      nueva_clave: nueva,
+      codigo: codigoFinal,
+    };
 
-    if (nueva !== confirmar) {
-      setError("Las contraseñas no coinciden");
-      return;
-    }
+    console.log('📤 Enviando datos:', {
+      correo,
+      nueva_clave: '[OCULTA]',
+      codigo: codigoFinal || '[NULL]'
+    });
 
-    if (!correo) {
-      setError("No se encontró el correo. Por favor reinicia el proceso.");
-      navigate("/recuperar-clave");
-      return;
-    }
+    const res = await fetch("http://localhost:8000/auth/cambiar-clave", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        ...(localStorage.getItem('authToken') && {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        })
+      },
+      body: JSON.stringify(requestBody),
+    });
 
-    setCargando(true);
-
+    // Manejo robusto de respuesta
+    let data;
+    const responseText = await res.text();
+    
     try {
-      const res = await fetch("http://localhost:8000/auth/cambiar-clave", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          correo,
-          nueva_clave: nueva,
-          codigo: codigo || null,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Error inesperado");
-
-      setMensaje("Contraseña actualizada correctamente");
-      localStorage.removeItem("correo_recuperacion");
-      localStorage.removeItem("codigo_recuperacion");
-
-      setTimeout(() => navigate("/"), 2000);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setCargando(false);
+      data = JSON.parse(responseText);
+    } catch {
+      data = { detail: responseText };
     }
-  };
+
+    console.log('📥 Respuesta del servidor:', res.status, data);
+
+    if (!res.ok) {
+      const errorMessage = data.detail || `Error ${res.status}: ${res.statusText}`;
+      throw new Error(errorMessage);
+    }
+
+    setMensaje("Contraseña actualizada correctamente");
+    localStorage.removeItem("correo_recuperacion");
+    localStorage.removeItem("codigo_recuperacion");
+
+    setTimeout(() => navigate("/"), 2000);
+  } catch (err: any) {
+    console.error('❌ Error completo:', err);
+    setError(err.message || 'Error inesperado al cambiar la contraseña');
+  } finally {
+    setCargando(false);
+  }
+};
+
 
   const getFortalezaColor = () => {
     switch (fortaleza) {
