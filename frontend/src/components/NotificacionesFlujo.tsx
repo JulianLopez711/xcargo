@@ -18,6 +18,14 @@ export default function NotificacionesFlujo() {
   const verificarCambiosEstado = async () => {
     try {
       const response = await fetch('/api/entregas/estado-flujo-resumen');
+      const contentType = response.headers.get("content-type");
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        throw new Error(`Respuesta no es JSON: ${text.slice(0, 100)}`);
+      }
       const data = await response.json();
       
       // Lógica para detectar cambios importantes
@@ -50,7 +58,6 @@ export default function NotificacionesFlujo() {
       
       setNotificaciones(prev => [...nuevasNotificaciones, ...prev].slice(0, 10));
       setUltimaVerificacion(new Date());
-      
     } catch (error) {
       console.error('Error verificando cambios de estado:', error);
     }
@@ -74,7 +81,7 @@ export default function NotificacionesFlujo() {
 
   const notificacionesNoLeidas = notificaciones.filter(n => !n.leida);
 
-  const getIconoTipo = (tipo: string) => {
+  const getIconoTipo = (tipo: Notificacion["tipo"]) => {
     switch (tipo) {
       case 'success': return <CheckCircle className="h-5 w-5 text-green-500" />;
       case 'warning': return <AlertTriangle className="h-5 w-5 text-yellow-500" />;

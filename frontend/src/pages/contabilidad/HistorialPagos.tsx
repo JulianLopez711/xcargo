@@ -367,15 +367,6 @@ export default function HistorialPagos() {
             />
           </div>
           
-          <div className="filtro-grupo">
-            <label>Conductor:</label>
-            <input
-              type="text"
-              placeholder="correo@conductor.com"
-              value={filtros.conductor}
-              onChange={(e) => setFiltros({...filtros, conductor: e.target.value})}
-            />
-          </div>
         </div>
         
         <div className="filtros-acciones">
@@ -431,7 +422,6 @@ export default function HistorialPagos() {
                   <th>Entidad</th>
                   <th>Tipo</th>
                   <th>Guías</th>
-                  <th>Conductor</th>
                   <th>Comprobante</th>
                   <th>Observaciones</th>
                   <th>Modificado</th>
@@ -485,12 +475,7 @@ export default function HistorialPagos() {
                       {pago.num_guias > 1 && <small>guías</small>}
                     </td>
                     
-                    <td className="conductor-cell">
-                      <span className="conductor-email">
-                        {pago.correo_conductor.split('@')[0]}
-                      </span>
-                      <small>@{pago.correo_conductor.split('@')[1]}</small>
-                    </td>
+                  
                     
                     <td className="comprobante-cell">
                       <button

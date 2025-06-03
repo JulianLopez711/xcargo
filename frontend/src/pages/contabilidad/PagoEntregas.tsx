@@ -46,7 +46,7 @@ export default function PagoEntregas() {
   });
 
   // Estados específicos para mejor type safety
-  type PasoEstado = 'formulario' | 'procesando' | 'completado' | 'error';
+  type PasoEstado = 'formulario' | 'procesando' | 'completado' | 'error' | 'confirmacion';
 
   const [estado, setEstado] = useState<EstadoProceso>({
     paso: 'formulario' as PasoEstado,

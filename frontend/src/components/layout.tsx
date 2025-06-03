@@ -28,7 +28,7 @@ export default function Layout() {
     <div className="layout">
       <InstallPWAButton />
       <Navbar />
-      <NotificacionesFlujo />
+
       <main className="main-content" role="main">
         <div className="container-fluid">
           {isLoading ? (

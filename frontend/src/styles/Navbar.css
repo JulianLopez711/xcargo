@@ -163,6 +163,12 @@
   display: flex;
   align-items: center;
 }
+.navbar-notifications {
+  margin-left: auto;
+  margin-right: 1rem;
+  position: relative;
+}
+
 
 .navbar-username {
   display: flex;

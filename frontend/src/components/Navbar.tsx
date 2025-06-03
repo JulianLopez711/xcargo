@@ -11,6 +11,7 @@ import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
 import { operadorRoutes } from "../routes/operadorRoutes/operadorRoutes";
 import { supervisorRoutes } from "../routes/supervisorRoutes/supervisorRoutes";
 import { masterRoutes } from "../routes/masterRoutes/masterRoutes";
+import NotificacionesFlujo from "./NotificacionesFlujo";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -21,7 +22,10 @@ export default function Navbar() {
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   // Rutas por rol
-  const rutasPorRol: Record<string, { name: string; path: string; icon?: string; permission?: string }[]> = {
+  const rutasPorRol: Record<
+    string,
+    { name: string; path: string; icon?: string; permission?: string }[]
+  > = {
     admin: adminRoutes,
     contabilidad: contabilidadRoutes,
     conductor: conductorRoutes,
@@ -34,7 +38,10 @@ export default function Navbar() {
     if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
       setMenuAbierto(false);
     }
-    if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+    if (
+      mobileMenuRef.current &&
+      !mobileMenuRef.current.contains(e.target as Node)
+    ) {
       setMobileMenuOpen(false);
     }
   };
@@ -52,26 +59,24 @@ export default function Navbar() {
 
     // Si no hay permisos definidos o están vacíos, mostrar todas las rutas del rol
     if (!user.permisos || user.permisos.length === 0) {
-
       return rutasDelRol;
     }
 
     // Si hay permisos, filtrar según los permisos del usuario
-    const rutasFiltradas = rutasDelRol.filter(ruta => {
+    const rutasFiltradas = rutasDelRol.filter((ruta) => {
       // Si la ruta no tiene propiedad 'permission', mostrarla
       if (!ruta.permission) {
         return true;
       }
-      
+
       // Si la ruta tiene 'permission', verificar si el usuario tiene ese permiso
-      const tienePermiso = user.permisos!.some(permiso => 
-        permiso.id === ruta.permission || permiso.nombre === ruta.permission
+      const tienePermiso = user.permisos!.some(
+        (permiso) =>
+          permiso.id === ruta.permission || permiso.nombre === ruta.permission
       );
-      
-     
+
       return tienePermiso;
     });
-
 
     return rutasFiltradas;
   };
@@ -87,7 +92,7 @@ export default function Navbar() {
   const getNombreRol = (role: string) => {
     const nombres: Record<string, string> = {
       admin: "Administrador",
-      contabilidad: "Contabilidad", 
+      contabilidad: "Contabilidad",
       conductor: "Conductor",
       operador: "Operador",
       supervisor: "Supervisor",
@@ -119,22 +124,24 @@ export default function Navbar() {
         </div>
 
         {/* Mobile Menu Button */}
-        <button 
+        <button
           className="navbar-mobile-toggle"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           aria-label="Abrir menú"
         >
-          <span className={`hamburger ${mobileMenuOpen ? 'open' : ''}`}>
+          <span className={`hamburger ${mobileMenuOpen ? "open" : ""}`}>
             <span></span>
             <span></span>
             <span></span>
           </span>
         </button>
-
+        <div className="navbar-notifications">
+          <NotificacionesFlujo />
+        </div>
         {/* User Menu */}
         <div className="navbar-user" ref={menuRef}>
-          <button 
-            className="navbar-username" 
+          <button
+            className="navbar-username"
             onClick={() => setMenuAbierto(!menuAbierto)}
             aria-label="Menú de usuario"
           >
@@ -156,28 +163,33 @@ export default function Navbar() {
             <div className="user-dropdown">
               <div className="dropdown-header">
                 <strong>{getNombreRol(user.role)}</strong>
-                {user.empresa_carrier && (
-                  <small>{user.empresa_carrier}</small>
-                )}
+                {user.empresa_carrier && <small>{user.empresa_carrier}</small>}
               </div>
               <div className="dropdown-divider"></div>
-              <button onClick={() => alert("Ir a perfil")} className="dropdown-item">
+              <button
+                onClick={() => alert("Ir a perfil")}
+                className="dropdown-item"
+              >
                 <span>👤</span> Perfil
               </button>
-              <button onClick={() => navigate("/cambiar-clave")} className="dropdown-item">
+              <button
+                onClick={() => navigate("/cambiar-clave")}
+                className="dropdown-item"
+              >
                 <span>🔑</span> Cambiar contraseña
               </button>
-              
+
               {/* DEBUG: Mostrar información de permisos */}
               <div className="dropdown-divider"></div>
-              <div className="dropdown-item debug-info" style={{ fontSize: '12px', color: '#666' }}>
+              <div
+                className="dropdown-item debug-info"
+                style={{ fontSize: "12px", color: "#666" }}
+              >
                 <div>Rol: {user.role}</div>
                 <div>Rutas disponibles: {rutas.length}</div>
-                {user.permisos && (
-                  <div>Permisos: {user.permisos.length}</div>
-                )}
+                {user.permisos && <div>Permisos: {user.permisos.length}</div>}
               </div>
-              
+
               <div className="dropdown-divider"></div>
               <button onClick={logout} className="dropdown-item logout">
                 <span>🚪</span> Cerrar sesión
@@ -188,8 +200,8 @@ export default function Navbar() {
       </div>
 
       {/* Mobile Navigation Menu */}
-      <div 
-        className={`navbar-mobile-menu ${mobileMenuOpen ? 'open' : ''}`}
+      <div
+        className={`navbar-mobile-menu ${mobileMenuOpen ? "open" : ""}`}
         ref={mobileMenuRef}
       >
         <div className="mobile-menu-header">
@@ -199,14 +211,18 @@ export default function Navbar() {
             </div>
             <div className="mobile-user-details">
               <span className="mobile-user-email">{user.email}</span>
-              <span className="mobile-user-role">{getNombreRol(user.role)}</span>
+              <span className="mobile-user-role">
+                {getNombreRol(user.role)}
+              </span>
               {user.empresa_carrier && (
-                <span className="mobile-user-company">🏢 {user.empresa_carrier}</span>
+                <span className="mobile-user-company">
+                  🏢 {user.empresa_carrier}
+                </span>
               )}
             </div>
           </div>
         </div>
-        
+
         <div className="mobile-menu-links">
           {rutas.length === 0 ? (
             <div className="mobile-menu-empty">
@@ -234,20 +250,20 @@ export default function Navbar() {
         </div>
 
         <div className="mobile-menu-footer">
-          <button 
+          <button
             onClick={() => {
               navigate("/cambiar-clave");
               setMobileMenuOpen(false);
-            }} 
+            }}
             className="mobile-menu-action"
           >
             <span>🔑</span> Cambiar contraseña
           </button>
-          <button 
+          <button
             onClick={() => {
               logout();
               setMobileMenuOpen(false);
-            }} 
+            }}
             className="mobile-menu-action logout"
           >
             <span>🚪</span> Cerrar sesión
@@ -257,7 +273,7 @@ export default function Navbar() {
 
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
-        <div 
+        <div
           className="mobile-menu-overlay"
           onClick={() => setMobileMenuOpen(false)}
         />

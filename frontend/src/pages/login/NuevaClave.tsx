@@ -28,126 +28,172 @@ export default function CambiarClave() {
     setFortaleza(strength);
   }, [nueva]);
 
-const cambiar = async () => {
-  setMensaje("");
-  setError("");
+  const cambiar = async () => {
+    setMensaje("");
+    setError("");
 
-  // Validaciones
-  if (!nueva || !confirmar) {
-    setError("Por favor completa todos los campos");
-    return;
-  }
+    // Validaciones
+    if (!nueva || !confirmar) {
+      setError("Por favor completa todos los campos");
+      return;
+    }
 
-  if (nueva.length < 8) {
-    setError("La contraseña debe tener al menos 8 caracteres");
-    return;
-  }
+    if (nueva.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres");
+      return;
+    }
 
-  if (nueva !== confirmar) {
-    setError("Las contraseñas no coinciden");
-    return;
-  }
+    if (nueva !== confirmar) {
+      setError("Las contraseñas no coinciden");
+      return;
+    }
 
-  if (!correo) {
-    setError("No se encontró el correo. Por favor reinicia el proceso.");
-    navigate("/recuperar-clave");
-    return;
-  }
+    if (!correo) {
+      setError("No se encontró el correo. Por favor reinicia el proceso.");
+      navigate("/recuperar-clave");
+      return;
+    }
 
-  setCargando(true);
+    setCargando(true);
 
-  try {
-    // 🆕 DEBUGGING: Verificar qué código tenemos realmente
-    const codigoStorage = localStorage.getItem("codigo_recuperacion");
-    console.log('🔍 DEBUG Frontend:');
-    console.log('   - Correo:', correo);
-    console.log('   - Código en storage:', codigoStorage);
-    console.log('   - Tipo de código:', typeof codigoStorage);
-    console.log('   - Es null?:', codigoStorage === null);
-    console.log('   - Es string "null"?:', codigoStorage === 'null');
+    try {
+      // 🔧 SOLUCIÓN: Obtener código del localStorage o del servidor
+      let codigoFinal = null;
+      const codigoStorage = localStorage.getItem("codigo_recuperacion");
+      
+      console.log('🔍 DEBUG Frontend:');
+      console.log('   - Correo:', correo);
+      console.log('   - Código en storage:', codigoStorage);
 
-    // 🆕 SOLUCIÓN: Obtener código directamente del backend
-    let codigoFinal = null;
-    
-    // Solo usar el código del localStorage si realmente existe y no es "null"
-    if (codigoStorage && codigoStorage !== 'null' && codigoStorage.trim() !== '') {
-      codigoFinal = codigoStorage;
-      console.log('✅ Usando código del localStorage:', codigoFinal);
-    } else {
-      console.log('⚠️ No hay código válido en localStorage, obteniendo del servidor...');
+      // Verificar si hay código válido en localStorage
+      if (codigoStorage && codigoStorage !== 'null' && codigoStorage.trim() !== '') {
+        codigoFinal = codigoStorage;
+        console.log('✅ Usando código del localStorage:', codigoFinal);
+      } else {
+        console.log('⚠️ No hay código válido en localStorage, obteniendo del servidor...');
+        
+        try {
+          const debugResponse = await fetch("http://localhost:8000/auth/debug-codigos", {
+            method: 'GET',
+            headers: { 
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (!debugResponse.ok) {
+            throw new Error('Error obteniendo códigos del servidor');
+          }
+          
+          const debugData = await debugResponse.json();
+          console.log('📋 Respuesta debug servidor:', debugData);
+          
+          if (debugData.codigos_activos && debugData.codigos_activos[correo] && debugData.codigos_activos[correo].codigo) {
+            codigoFinal = debugData.codigos_activos[correo].codigo;
+            console.log('✅ Código obtenido del servidor:', codigoFinal);
+          } else {
+            throw new Error('No hay código activo en el servidor para este correo');
+          }
+        } catch (debugError) {
+          console.error('❌ Error obteniendo código del servidor:', debugError);
+          setError("No se encontró código activo. Por favor solicita un código nuevo desde 'Recuperar contraseña'.");
+          setTimeout(() => navigate("/recuperar-clave"), 2000);
+          return;
+        }
+      }
+
+      // 🔧 SOLUCIÓN: Construir el body correctamente
+      const requestBody = {
+        correo: correo,
+        nueva_clave: nueva,
+        ...(codigoFinal && { codigo: codigoFinal }) // Solo incluir código si existe
+      };
+
+      console.log('📤 Enviando datos:', {
+        correo,
+        nueva_clave: '[OCULTA]',
+        codigo: codigoFinal ? '[PRESENTE]' : '[AUSENTE]'
+      });
+
+      // 🔧 SOLUCIÓN: Headers mejorados
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json"
+      };
+
+      // Agregar token si existe (para usuarios logueados)
+      const authToken = localStorage.getItem('authToken');
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
+      const res = await fetch("http://localhost:8000/auth/cambiar-clave", {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(requestBody),
+      });
+
+      console.log('📥 Status de respuesta:', res.status);
+
+      // 🔧 SOLUCIÓN: Manejo robusto de respuesta
+      let data;
+      const responseText = await res.text();
       
       try {
-        const debugResponse = await fetch("http://localhost:8000/auth/debug-codigos");
-        const debugData = await debugResponse.json();
-        
-        console.log('📋 Respuesta debug servidor:', debugData);
-        
-        if (debugData.codigos_activos && debugData.codigos_activos[correo] && debugData.codigos_activos[correo].codigo) {
-          codigoFinal = debugData.codigos_activos[correo].codigo;
-          console.log('✅ Código obtenido del servidor:', codigoFinal);
-        } else {
-          throw new Error('No hay código activo en el servidor para este correo');
-        }
-      } catch (debugError) {
-        console.error('❌ Error obteniendo código del servidor:', debugError);
-        setError("No se encontró código activo. Por favor solicita un código nuevo desde 'Recuperar contraseña'.");
-        return;
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('❌ Error parseando respuesta:', parseError);
+        data = { detail: responseText || 'Respuesta inválida del servidor' };
       }
+
+      console.log('📥 Respuesta del servidor:', data);
+
+      if (!res.ok) {
+        const errorMessage = data.detail || data.mensaje || `Error ${res.status}: ${res.statusText}`;
+        throw new Error(errorMessage);
+      }
+
+      // 🔧 SOLUCIÓN: Mensaje de éxito y limpieza
+      setMensaje(data.mensaje || "Contraseña actualizada correctamente");
+      
+      // Limpiar localStorage
+      localStorage.removeItem("correo_recuperacion");
+      localStorage.removeItem("codigo_recuperacion");
+
+      // Redireccionar después de un breve delay
+      setTimeout(() => {
+        navigate("/");
+      }, 2000);
+
+    } catch (err: any) {
+      console.error('❌ Error completo:', err);
+      
+      // 🔧 SOLUCIÓN: Manejo de errores específicos
+      let errorMessage = 'Error inesperado al cambiar la contraseña';
+      
+      if (err.message) {
+        if (err.message.includes('código')) {
+          errorMessage = err.message;
+        } else if (err.message.includes('contraseña')) {
+          errorMessage = err.message;
+        } else if (err.message.includes('correo')) {
+          errorMessage = err.message;
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(errorMessage);
+      
+      // Si es error relacionado con código, redirigir después de un tiempo
+      if (errorMessage.includes('código') || errorMessage.includes('activo')) {
+        setTimeout(() => {
+          navigate("/recuperar-clave");
+        }, 3000);
+      }
+      
+    } finally {
+      setCargando(false);
     }
-
-    const requestBody = {
-      correo,
-      nueva_clave: nueva,
-      codigo: codigoFinal,
-    };
-
-    console.log('📤 Enviando datos:', {
-      correo,
-      nueva_clave: '[OCULTA]',
-      codigo: codigoFinal || '[NULL]'
-    });
-
-    const res = await fetch("http://localhost:8000/auth/cambiar-clave", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        ...(localStorage.getItem('authToken') && {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-        })
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    // Manejo robusto de respuesta
-    let data;
-    const responseText = await res.text();
-    
-    try {
-      data = JSON.parse(responseText);
-    } catch {
-      data = { detail: responseText };
-    }
-
-    console.log('📥 Respuesta del servidor:', res.status, data);
-
-    if (!res.ok) {
-      const errorMessage = data.detail || `Error ${res.status}: ${res.statusText}`;
-      throw new Error(errorMessage);
-    }
-
-    setMensaje("Contraseña actualizada correctamente");
-    localStorage.removeItem("correo_recuperacion");
-    localStorage.removeItem("codigo_recuperacion");
-
-    setTimeout(() => navigate("/"), 2000);
-  } catch (err: any) {
-    console.error('❌ Error completo:', err);
-    setError(err.message || 'Error inesperado al cambiar la contraseña');
-  } finally {
-    setCargando(false);
-  }
-};
-
+  };
 
   const getFortalezaColor = () => {
     switch (fortaleza) {

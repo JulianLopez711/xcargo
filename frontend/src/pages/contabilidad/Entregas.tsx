@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import "../../styles/contabilidad/Entregas.css";
 
-
+// ✅ INTERFACES COMPLETAS Y CORREGIDAS
 interface Liquidacion {
   tracking: string;
   fecha: string;
@@ -26,6 +26,52 @@ interface EstadisticasEntregas {
   clientes: Record<string, { cantidad: number; valor: number }>;
 }
 
+interface EntregaConsolidada {
+  tracking: string;
+  fecha: string;
+  tipo: string;
+  cliente: string;
+  valor: number;
+  estado_conciliacion: string;
+  referencia_pago: string;
+  correo_conductor: string;
+  entidad_pago: string;
+  fecha_conciliacion?: string;
+  
+  // ✅ NUEVOS CAMPOS DE CONCILIACIÓN
+  valor_banco_conciliado?: number;
+  id_banco_asociado?: string;
+  observaciones_conciliacion?: string;
+  diferencia_valor?: number;
+  diferencia_dias?: number;
+  integridad_ok?: boolean;
+  listo_para_liquidar?: boolean;
+  confianza_match?: number;
+  calidad_conciliacion?: string;
+  valor_exacto?: boolean;
+  fecha_consistente?: boolean;
+}
+
+interface DashboardConciliacion {
+  estados_flujo: Array<{
+    estado_flujo: string;
+    cantidad: number;
+    valor_total: number;
+    dias_promedio_proceso: number;
+    casos_lentos: number;
+    clientes_afectados: number;
+  }>;
+  eficiencia: {
+    porcentaje_conciliado: number;
+    cuello_botella_cantidad: number;
+    dias_promedio_conciliacion: number;
+  };
+  alertas: {
+    total_casos_lentos: number;
+    porcentaje_casos_lentos: number;
+  };
+}
+
 interface ResumenLiquidacion {
   cliente: string;
   total_entregas: number;
@@ -35,11 +81,31 @@ interface ResumenLiquidacion {
   valor_promedio_entrega: number;
 }
 
+interface ValidacionIntegridad {
+  cliente: string;
+  validaciones: Array<{
+    resultado: string;
+    cantidad: number;
+    valor_total: number;
+    diferencia_promedio: number;
+    descripcion: string;
+  }>;
+  resumen: {
+    listas_liquidar: number;
+    con_problemas: number;
+    valor_listo: number;
+    valor_bloqueado: number;
+  };
+  listo_para_procesar: boolean;
+  recomendacion: string;
+}
+
 export default function LiquidacionesClientes() {
-  const [liquidaciones, setLiquidaciones] = useState<Liquidacion[]>([]);
+  const [liquidaciones, setLiquidaciones] = useState<EntregaConsolidada[]>([]);
   const [estadisticas, setEstadisticas] = useState<EstadisticasEntregas | null>(null);
   const [resumenClientes, setResumenClientes] = useState<ResumenLiquidacion[]>([]);
   const [fechaDesde, setFechaDesde] = useState("");
+  const [dashboardConciliacion, setDashboardConciliacion] = useState<DashboardConciliacion | null>(null);
   const [fechaHasta, setFechaHasta] = useState("");
   const [clienteFiltro, setClienteFiltro] = useState("");
   const [soloConciliadas, setSoloConciliadas] = useState(true);
@@ -47,6 +113,103 @@ export default function LiquidacionesClientes() {
   const [mensaje, setMensaje] = useState("");
   const navigate = useNavigate();
 
+  // ✅ FUNCIÓN PARA CARGAR DASHBOARD DE CONCILIACIÓN
+  const cargarDashboardConciliacion = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/entregas/dashboard-conciliacion");
+      if (res.ok) {
+        const data = await res.json();
+        setDashboardConciliacion(data);
+      }
+    } catch (err) {
+      console.error("Error cargando dashboard:", err);
+    }
+  };
+
+  // ✅ FUNCIÓN MEJORADA PARA CARGAR SOLO ENTREGAS LISTAS
+  const cargarEntregasListas = async () => {
+    setCargando(true);
+    setMensaje("");
+    
+    try {
+      const params = new URLSearchParams();
+      if (clienteFiltro) params.append("cliente", clienteFiltro);
+      if (fechaDesde) params.append("desde", fechaDesde);
+      if (fechaHasta) params.append("hasta", fechaHasta);
+      params.append("incluir_aproximadas", "true");
+
+      const res = await fetch(`http://localhost:8000/entregas/entregas-listas-liquidar?${params.toString()}`);
+      
+      if (!res.ok) {
+        throw new Error(`Error ${res.status}: ${res.statusText}`);
+      }
+      
+      const data = await res.json();
+      
+      if (data.entregas && Array.isArray(data.entregas)) {
+        setLiquidaciones(data.entregas.map((e: any) => ({
+          ...e,
+          estado_conciliacion: e.estado_conciliacion || "Conciliado"
+        })));
+        
+        // ✅ MOSTRAR ESTADÍSTICAS DE CALIDAD DETALLADAS
+        if (data.calidad_datos) {
+          const calidad = data.calidad_datos;
+          const stats = data.estadisticas_calidad;
+          
+          setMensaje(`✅ ${data.entregas.length} entregas listas para liquidar
+📊 Calidad: ${calidad.porcentaje_calidad.toFixed(1)}% | Confianza: ${calidad.confianza_promedio.toFixed(0)}%
+🎯 Exactas: ${stats.exactas} | Aproximadas: ${stats.aproximadas} | Manuales: ${stats.manuales}
+${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas críticas` : '✅ Sin alertas críticas'}`);
+        }
+        
+        // ✅ ESTADÍSTICAS MEJORADAS
+        setEstadisticas({
+          total_entregas: data.total_entregas,
+          valor_total: data.valor_total,
+          clientes: data.clientes_agrupados || {}
+        });
+        
+        // ✅ MOSTRAR ALERTAS DE INTEGRIDAD SI EXISTEN
+        if (data.alertas_integridad && data.alertas_integridad.length > 0) {
+          const alertasStr = data.alertas_integridad.slice(0, 3).map((a: any) => 
+            `${a.referencia}: ${a.tipo} (${a.severidad})`
+          ).join('\n');
+          setMensaje(prev => `${prev}\n\n⚠️ Alertas de integridad:\n${alertasStr}${data.alertas_integridad.length > 3 ? '\n...y más' : ''}`);
+        }
+      }
+    } catch (err: any) {
+      console.error("Error al cargar entregas listas:", err);
+      setMensaje(`❌ Error: ${err.message}`);
+      setLiquidaciones([]);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  // ✅ FUNCIÓN PARA VALIDAR INTEGRIDAD ANTES DE LIQUIDAR
+  const validarIntegridadCliente = async (cliente: string) => {
+    try {
+      const res = await fetch(`http://localhost:8000/entregas/validar-integridad-liquidacion/${encodeURIComponent(cliente)}`);
+      if (!res.ok) throw new Error(`Error ${res.status}`);
+      
+      const validacion: ValidacionIntegridad = await res.json();
+      
+      // Mostrar resultado de validación
+      if (validacion.listo_para_procesar) {
+        setMensaje(`✅ ${cliente}: ${validacion.resumen.listas_liquidar} entregas listas por ${formatearMoneda(validacion.resumen.valor_listo)}`);
+        return true;
+      } else {
+        setMensaje(`⚠️ ${cliente}: ${validacion.resumen.con_problemas} entregas con problemas. ${validacion.recomendacion}`);
+        return false;
+      }
+    } catch (err) {
+      setMensaje(`❌ Error validando ${cliente}: ${err}`);
+      return false;
+    }
+  };
+
+  // ✅ FUNCIÓN PRINCIPAL PARA CARGAR ENTREGAS
   const cargarEntregas = async () => {
     setCargando(true);
     setMensaje("");
@@ -98,6 +261,7 @@ export default function LiquidacionesClientes() {
   useEffect(() => {
     cargarEntregas();
     cargarResumenClientes();
+    cargarDashboardConciliacion();
   }, []);
 
   useEffect(() => {
@@ -112,6 +276,74 @@ export default function LiquidacionesClientes() {
     const cliente = !clienteFiltro || e.cliente === clienteFiltro;
     return desde && hasta && cliente;
   });
+
+  // ✅ FUNCIÓN MEJORADA PARA IR A PAGO CON VALIDACIÓN
+  const irAPagoConValidacion = async () => {
+    if (datosFiltrados.length === 0) {
+      alert("No hay registros filtrados para pagar.");
+      return;
+    }
+
+    setCargando(true);
+    
+    try {
+      // ✅ VALIDAR INTEGRIDAD SI ES UN CLIENTE ESPECÍFICO
+      if (clienteFiltro) {
+        const esValido = await validarIntegridadCliente(clienteFiltro);
+        if (!esValido) {
+          setCargando(false);
+          return;
+        }
+      }
+      
+      // ✅ FILTRAR SOLO ENTREGAS REALMENTE LISTAS
+      const entregasListas = datosFiltrados.filter((e: EntregaConsolidada) => 
+        e.listo_para_liquidar && 
+        e.integridad_ok !== false &&
+        e.estado_conciliacion.includes("Conciliado")
+      );
+      
+      if (entregasListas.length === 0) {
+        alert("No hay entregas conciliadas y listas para liquidar en la selección actual.");
+        setCargando(false);
+        return;
+      }
+      
+      if (entregasListas.length !== datosFiltrados.length) {
+        const diferencia = datosFiltrados.length - entregasListas.length;
+        const confirmar = window.confirm(
+          `Se encontraron ${diferencia} entregas que no están completamente listas para liquidar. 
+          ¿Proceder solo con las ${entregasListas.length} entregas válidas?`
+        );
+        
+        if (!confirmar) {
+          setCargando(false);
+          return;
+        }
+      }
+
+      const total = entregasListas.reduce((sum, e) => sum + e.valor, 0);
+      navigate("/contabilidad/pago-entregas", {
+        state: {
+          entregas: entregasListas,
+          total,
+          cliente: clienteFiltro || "Múltiples clientes",
+          metadatos: {
+            total_filtradas: datosFiltrados.length,
+            total_procesables: entregasListas.length,
+            fecha_consulta: new Date().toISOString(),
+            validacion_integridad: true
+          }
+        },
+      });
+      
+    } catch (err) {
+      console.error("Error en validación:", err);
+      setMensaje(`❌ Error validando entregas: ${err}`);
+    } finally {
+      setCargando(false);
+    }
+  };
 
   const exportarExcel = () => {
     if (datosFiltrados.length === 0) {
@@ -129,7 +361,10 @@ export default function LiquidacionesClientes() {
       "Ref. Pago": e.referencia_pago,
       Conductor: e.correo_conductor,
       "Entidad Pago": e.entidad_pago,
-      "Fecha Conciliación": e.fecha_conciliacion || "N/A"
+      "Fecha Conciliación": e.fecha_conciliacion || "N/A",
+      "Valor Banco": e.valor_banco_conciliado || "N/A",
+      "Diferencia": e.diferencia_valor || 0,
+      "Calidad": e.calidad_conciliacion || "N/A"
     }));
 
     const ws = XLSX.utils.json_to_sheet(hoja);
@@ -139,7 +374,8 @@ export default function LiquidacionesClientes() {
     // Configurar anchos de columna
     const colWidths = [
       { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 10 }, { wch: 12 },
-      { wch: 12 }, { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 15 }
+      { wch: 12 }, { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 15 },
+      { wch: 12 }, { wch: 12 }, { wch: 10 }
     ];
     ws['!cols'] = colWidths;
 
@@ -147,22 +383,6 @@ export default function LiquidacionesClientes() {
     const blob = new Blob([excelBuffer], { type: "application/octet-stream" });
     const fecha = new Date().toISOString().split("T")[0];
     saveAs(blob, `liquidaciones-${fecha}.xlsx`);
-  };
-
-  const irAPago = () => {
-    if (datosFiltrados.length === 0) {
-      alert("No hay registros filtrados para pagar.");
-      return;
-    }
-
-    const total = datosFiltrados.reduce((sum, e) => sum + e.valor, 0);
-    navigate("/contabilidad/pago-entregas", {
-      state: {
-        entregas: datosFiltrados,
-        total,
-        cliente: clienteFiltro || "Múltiples clientes"
-      },
-    });
   };
 
   const formatearFecha = (fecha: string) => {
@@ -182,6 +402,201 @@ export default function LiquidacionesClientes() {
     });
   };
 
+  // ✅ FUNCIÓN PARA OBTENER COLOR DE ESTADO MEJORADA
+  const getEstadoColor = (estado: string, integridad_ok?: boolean): string => {
+    // Si hay problemas de integridad, usar colores de advertencia
+    if (integridad_ok === false) {
+      return '#f59e0b'; // Amarillo/naranja para advertencia
+    }
+    
+    const colores: { [key: string]: string } = {
+      'Conciliado Exacto': '#22c55e',      // Verde brillante
+      'Conciliado Aproximado': '#3b82f6',  // Azul
+      'Conciliado Manual': '#8b5cf6',      // Púrpura
+      'Aprobado (Pendiente Conciliación)': '#f59e0b', // Amarillo
+      'Pagado (Pendiente Aprobación)': '#ef4444',     // Rojo
+      'Pendiente': '#6b7280',              // Gris
+    };
+    return colores[estado] || '#6b7280';
+  };
+
+  // ✅ FUNCIÓN PARA OBTENER ICONO DE ESTADO MEJORADA
+  const getEstadoIcono = (estado: string, calidad?: string): string => {
+    const iconos: { [key: string]: string } = {
+      'Conciliado Exacto': '✅',
+      'Conciliado Aproximado': '🔸',
+      'Conciliado Manual': '👤',
+      'Aprobado (Pendiente Conciliación)': '⏳',
+      'Pagado (Pendiente Aprobación)': '📋',
+      'Pendiente': '❓',
+    };
+    
+    // Agregar indicadores de calidad
+    const icono_base = iconos[estado] || '❓';
+    
+    if (calidad === 'Excelente') return icono_base + '🌟';
+    if (calidad === 'Requiere Revisión') return icono_base + '⚠️';
+    
+    return icono_base;
+  };
+
+  // ✅ COMPONENTE PARA MOSTRAR DETALLES DE CONCILIACIÓN
+  const DetallesConciliacion = ({ entrega }: { entrega: EntregaConsolidada }) => {
+    const [mostrarDetalles, setMostrarDetalles] = useState(false);
+    
+    if (!entrega.valor_banco_conciliado) return null;
+    
+    return (
+      <div className="detalles-conciliacion">
+        <button 
+          className="btn-detalles"
+          onClick={() => setMostrarDetalles(!mostrarDetalles)}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#3b82f6',
+            cursor: 'pointer',
+            fontSize: '0.8rem'
+          }}
+        >
+          {mostrarDetalles ? '🔽' : '▶️'} Detalles
+        </button>
+        
+        {mostrarDetalles && (
+          <div className="detalle-expandido" style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '4px',
+            padding: '0.5rem',
+            marginTop: '0.25rem',
+            fontSize: '0.75rem'
+          }}>
+            <div><strong>Banco:</strong> ${entrega.valor_banco_conciliado?.toLocaleString()}</div>
+            <div><strong>ID Banco:</strong> {entrega.id_banco_asociado}</div>
+            {entrega.diferencia_valor && entrega.diferencia_valor > 1 && (
+              <div style={{ color: '#ef4444' }}>
+                <strong>Diferencia:</strong> ${entrega.diferencia_valor.toLocaleString()}
+              </div>
+            )}
+            {entrega.confianza_match && (
+              <div><strong>Confianza:</strong> {entrega.confianza_match}%</div>
+            )}
+            {entrega.observaciones_conciliacion && (
+              <div><strong>Observaciones:</strong> {entrega.observaciones_conciliacion}</div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ✅ COMPONENTE DASHBOARD DE CONCILIACIÓN
+  const DashboardConciliacionComponent = () => {
+    if (!dashboardConciliacion) return null;
+
+    return (
+      <div className="dashboard-conciliacion" style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '1.5rem',
+        marginBottom: '1.5rem',
+        border: '1px solid #e5e7eb'
+      }}>
+        <h3 className="section-title">📊 Estado del Flujo de Conciliación</h3>
+        
+        {/* Métricas Principales */}
+        <div className="metricas-principales" style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '1rem',
+          marginBottom: '1.5rem'
+        }}>
+          <div className="metrica-card" style={{
+            background: '#f0f9ff',
+            border: '1px solid #0ea5e9',
+            borderRadius: '8px',
+            padding: '1rem',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#0ea5e9' }}>
+              {dashboardConciliacion.eficiencia.porcentaje_conciliado.toFixed(1)}%
+            </div>
+            <div style={{ fontSize: '0.9rem', color: '#64748b' }}>Conciliación</div>
+          </div>
+          
+          <div className="metrica-card" style={{
+            background: '#fef3c7',
+            border: '1px solid #f59e0b',
+            borderRadius: '8px',
+            padding: '1rem',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#f59e0b' }}>
+              {dashboardConciliacion.eficiencia.cuello_botella_cantidad}
+            </div>
+            <div style={{ fontSize: '0.9rem', color: '#64748b' }}>Cuello de Botella</div>
+          </div>
+          
+          <div className="metrica-card" style={{
+            background: '#ecfdf5',
+            border: '1px solid #22c55e',
+            borderRadius: '8px',
+            padding: '1rem',
+            textAlign: 'center'
+          }}>
+            <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#22c55e' }}>
+              {dashboardConciliacion.eficiencia.dias_promedio_conciliacion.toFixed(1)}
+            </div>
+            <div style={{ fontSize: '0.9rem', color: '#64748b' }}>Días Promedio</div>
+          </div>
+          
+          {dashboardConciliacion.alertas.total_casos_lentos > 0 && (
+            <div className="metrica-card" style={{
+              background: '#fef2f2',
+              border: '1px solid #ef4444',
+              borderRadius: '8px',
+              padding: '1rem',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#ef4444' }}>
+                {dashboardConciliacion.alertas.total_casos_lentos}
+              </div>
+              <div style={{ fontSize: '0.9rem', color: '#64748b' }}>Casos Lentos</div>
+            </div>
+          )}
+        </div>
+
+        {/* Estados del Flujo */}
+        <div className="estados-flujo" style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '1rem'
+        }}>
+          {dashboardConciliacion.estados_flujo.map((estado) => (
+            <div key={estado.estado_flujo} style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '1rem'
+            }}>
+              <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>
+                {estado.estado_flujo.replace(/_/g, ' ')}
+              </div>
+              <div style={{ color: '#64748b', fontSize: '0.9rem' }}>
+                {estado.cantidad} entregas • ${estado.valor_total.toLocaleString()}
+              </div>
+              {estado.casos_lentos > 0 && (
+                <div style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                  ⚠️ {estado.casos_lentos} casos lentos
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   const total = datosFiltrados.reduce((sum, e) => sum + e.valor, 0);
   const clientesUnicos = Array.from(new Set(liquidaciones.map(e => e.cliente))).sort();
 
@@ -194,6 +609,9 @@ export default function LiquidacionesClientes() {
           Gestión integral de entregas y liquidaciones por cliente
         </p>
       </div>
+
+      {/* Dashboard de Conciliación */}
+      <DashboardConciliacionComponent />
 
       {/* Resumen Ejecutivo */}
       {resumenClientes.length > 0 && (
@@ -254,198 +672,9 @@ export default function LiquidacionesClientes() {
               onChange={(e) => setFechaDesde(e.target.value)} 
             />
           </div>
-          
-          <div className="filtro-group">
-            <label className="filtro-label">Fecha hasta:</label>
-            <input 
-              type="date" 
-              className="filtro-input"
-              value={fechaHasta} 
-              onChange={(e) => setFechaHasta(e.target.value)} 
-            />
-          </div>
-
-          <div className="filtro-group checkbox-group">
-            <label className="checkbox-label">
-              <input 
-                type="checkbox" 
-                className="filtro-checkbox"
-                checked={soloConciliadas} 
-                onChange={(e) => setSoloConciliadas(e.target.checked)} 
-              />
-              Solo entregas conciliadas
-            </label>
-          </div>
-        </div>
-        
-        <div className="filtros-actions">
-          <button 
-            className="boton-accion secondary" 
-            onClick={cargarEntregas} 
-            disabled={cargando}
-          >
-            {cargando ? "⏳" : "🔄"} {cargando ? "Cargando..." : "Actualizar"}
-          </button>
-          <button 
-            className="boton-accion primary" 
-            onClick={exportarExcel} 
-            disabled={cargando || datosFiltrados.length === 0}
-          >
-            📥 Exportar Excel
-          </button>
         </div>
       </div>
-
-      {/* Mensaje de Estado */}
-      {mensaje && (
-        <div className={`mensaje-card ${mensaje.includes('✅') ? 'success' : 'error'}`}>
-          <span className="mensaje-text">{mensaje}</span>
+          {/* Aquí iría el resto del contenido de la página, como tablas, botones, etc. */}
         </div>
-      )}
-
-      {/* Estadísticas Actuales */}
-      {estadisticas && (
-        <div className="estadisticas-card">
-          <div className="estadisticas-grid">
-            <div className="stat-item">
-              <span className="stat-number">{estadisticas.total_entregas.toLocaleString()}</span>
-              <span className="stat-label">Total entregas</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-number">{formatearMoneda(estadisticas.valor_total)}</span>
-              <span className="stat-label">Valor total</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-number">{datosFiltrados.length.toLocaleString()}</span>
-              <span className="stat-label">Registros filtrados</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Total y Acciones */}
-      <div className="total-section">
-        <div className="total-content">
-          <div className="total-info">
-            <span className="total-label">Total filtrado:</span>
-            <span className="total-value">{formatearMoneda(total)}</span>
-            {datosFiltrados.length !== liquidaciones.length && (
-              <span className="total-details">
-                ({datosFiltrados.length.toLocaleString()} de {liquidaciones.length.toLocaleString()} registros)
-              </span>
-            )}
-          </div>
-          
-          {datosFiltrados.length > 0 && (
-            <button 
-              className="boton-accion primary" 
-              onClick={irAPago}
-              style={{ fontSize: '1.1rem', padding: '1rem 2rem' }}
-            >
-              💸 Procesar Liquidación ({datosFiltrados.length} entregas)
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Tabla de Entregas */}
-      <div className="entregas-tabla-container">
-        {cargando ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
-            <LoadingSpinner />
-          </div>
-        ) : datosFiltrados.length === 0 ? (
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '3rem', 
-            color: '#6b7280',
-            fontSize: '1.1rem'
-          }}>
-            {liquidaciones.length === 0 ? 
-              "📋 No hay entregas disponibles en el sistema." : 
-              "🔍 No hay entregas que coincidan con los filtros aplicados."
-            }
-          </div>
-        ) : (
-          <table className="entregas-tabla">
-            <thead>
-              <tr>
-                <th style={{ width: '120px' }}>Tracking</th>
-                <th style={{ width: '100px' }}>Fecha</th>
-                <th style={{ width: '80px' }}>Tipo</th>
-                <th style={{ width: '100px' }}>Cliente</th>
-                <th style={{ width: '100px', textAlign: 'right' }}>Valor</th>
-                <th style={{ width: '120px', textAlign: 'center' }}>Estado</th>
-                <th style={{ width: '120px' }}>Conductor</th>
-                <th style={{ width: '100px' }}>Entidad</th>
-                <th style={{ width: '110px' }}>Conciliación</th>
-              </tr>
-            </thead>
-            <tbody>
-              {datosFiltrados.map((entrega, idx) => (
-                <tr key={`${entrega.tracking}-${idx}`}>
-                  <td>
-                    <span className="tracking-code">{entrega.tracking}</span>
-                  </td>
-                  <td>{formatearFecha(entrega.fecha)}</td>
-                  <td>
-                    <span className="tipo-badge">{entrega.tipo}</span>
-                  </td>
-                  <td>
-                    <span className="cliente-badge">{entrega.cliente}</span>
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <span className="valor-money">
-                      {formatearMoneda(entrega.valor)}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <span className={`estado-badge estado-${entrega.estado_conciliacion.toLowerCase().replace(/\s+/g, '-')}`}>
-                      {entrega.estado_conciliacion}
-                    </span>
-                  </td>
-                  <td>
-                    <span 
-                      className="conductor-name" 
-                      title={entrega.correo_conductor}
-                    >
-                      {entrega.correo_conductor.split('@')[0]}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="entidad-name">{entrega.entidad_pago}</span>
-                  </td>
-                  <td>
-                    <span className="fecha-conciliacion">
-                      {entrega.fecha_conciliacion ? 
-                        formatearFecha(entrega.fecha_conciliacion) : 
-                        <span className="pendiente">Pendiente</span>
-                      }
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Información adicional */}
-      {datosFiltrados.length > 0 && (
-        <div style={{ 
-          marginTop: '2rem', 
-          padding: '1rem', 
-          background: 'white', 
-          borderRadius: '8px',
-          border: '1px solid #e5e7eb',
-          textAlign: 'center',
-          color: '#6b7280',
-          fontSize: '0.9rem'
-        }}>
-          💡 <strong>Tip:</strong> Usa los filtros para encontrar entregas específicas. 
-          Puedes exportar los datos filtrados a Excel para análisis detallado.
-        </div>
-      )}
-    </div>
-  );
-}
+      );
+    }

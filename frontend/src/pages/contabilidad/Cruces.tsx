@@ -33,16 +33,33 @@ interface ResultadoConciliacion {
   }>;
 }
 
+// ✅ INTERFACE PARA ENDPOINT MEJORADO
+interface ResumenConciliacionMejorado {
+  resumen: {
+    total_movimientos_banco: number;
+    total_pagos_iniciales: number;           
+    total_procesados: number;                
+    referencias_unicas_utilizadas: number;   
+    conciliado_exacto: number;
+    conciliado_aproximado: number;
+    sin_match: number;                      
+  };
+  resultados: ResultadoConciliacion[];
+  referencias_usadas: string[];              
+  fecha_conciliacion: string;
+}
+
+// ✅ INTERFACE PARA COMPATIBILIDAD CON EL FRONTEND
 interface ResumenConciliacion {
   resumen: {
     total_movimientos_banco: number;
-    total_pagos_conductores: number;
+    total_pagos_conductores: number;           
     conciliado_exacto: number;
     conciliado_aproximado: number;
     multiple_match: number;
     diferencia_valor: number;
     diferencia_fecha: number;
-    sin_match: number;
+    sin_match: number;                      
   };
   resultados: ResultadoConciliacion[];
   fecha_conciliacion: string;
@@ -78,6 +95,19 @@ const Cruces: React.FC = () => {
   useEffect(() => {
     cargarEstadisticas();
   }, []);
+
+  // ✅ FUNCIÓN CARGAR ESTADÍSTICAS IMPLEMENTADA
+  const cargarEstadisticas = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/conciliacion/resumen-conciliacion");
+      if (res.ok) {
+        const data: EstadisticasGenerales = await res.json();
+        setEstadisticasGenerales(data);
+      }
+    } catch (err) {
+      console.error("Error cargando estadísticas:", err);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -140,7 +170,14 @@ const Cruces: React.FC = () => {
       }
 
       const result = await res.json();
-      setMensaje(`✅ ${result.mensaje}. Procesadas: ${result.consignaciones_procesadas} consignaciones.`);
+      
+      // ✅ MENSAJE MEJORADO CON DETALLES DE CARGA
+      if (result.movimientos_insertados > 0) {
+        setMensaje(`✅ ${result.mensaje}. Insertados: ${result.movimientos_insertados} movimientos nuevos.`);
+      } else {
+        setMensaje(`ℹ️ ${result.mensaje}. No se insertaron registros nuevos (posibles duplicados detectados).`);
+      }
+      
       setArchivo(null);
 
       const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -167,17 +204,50 @@ const Cruces: React.FC = () => {
     }
   };
 
+  // ✅ FUNCIÓN EJECUTAR CONCILIACIÓN CORREGIDA
   const ejecutarConciliacion = async () => {
     setProcesandoConciliacion(true);
     setMensaje("");
 
     try {
-      const res = await fetch("http://localhost:8000/conciliacion/conciliacion-automatica");
+      const res = await fetch("http://localhost:8000/conciliacion/conciliacion-automatica-mejorada");
+      
       if (!res.ok) throw new Error("Error al ejecutar conciliación");
 
-      const data: ResumenConciliacion = await res.json();
-      setResultadoConciliacion(data);
-      setMensaje(`✅ Conciliación completada. Procesados: ${data.resumen.total_movimientos_banco} movimientos.`);
+      const data: ResumenConciliacionMejorado = await res.json();
+      
+      // ✅ CONVERTIR A FORMATO ESPERADO POR EL FRONTEND
+      const dataConvertida: ResumenConciliacion = {
+        resumen: {
+          total_movimientos_banco: data.resumen.total_movimientos_banco,
+          total_pagos_conductores: data.resumen.total_pagos_iniciales,
+          conciliado_exacto: data.resumen.conciliado_exacto,
+          conciliado_aproximado: data.resumen.conciliado_aproximado,
+          multiple_match: 0,        // ✅ El endpoint mejorado no usa estos
+          diferencia_valor: 0,      // ✅ estados, los pone en 0
+          diferencia_fecha: 0,      // ✅ para compatibilidad
+          sin_match: data.resumen.sin_match
+        },
+        resultados: data.resultados,
+        fecha_conciliacion: data.fecha_conciliacion
+      };
+      
+      setResultadoConciliacion(dataConvertida);
+      
+      // ✅ MENSAJE MEJORADO CON DATOS DEL ENDPOINT NUEVO
+      const { resumen } = data;
+      const totalConciliados = resumen.conciliado_exacto + resumen.conciliado_aproximado;
+      const porcentajeConciliado = resumen.total_movimientos_banco > 0 
+        ? Math.round((totalConciliados / resumen.total_movimientos_banco) * 100)
+        : 0;
+      
+      setMensaje(
+        `✅ Conciliación completada. ` +
+        `Procesados: ${resumen.total_procesados} movimientos. ` +
+        `Conciliados: ${totalConciliados} (${porcentajeConciliado}%). ` +
+        `Referencias únicas usadas: ${resumen.referencias_unicas_utilizadas}.`
+      );
+      
       cargarEstadisticas();
     } catch (err: any) {
       console.error("Error en conciliación:", err);
@@ -187,18 +257,7 @@ const Cruces: React.FC = () => {
     }
   };
 
-  const cargarEstadisticas = async () => {
-    try {
-      const res = await fetch("http://localhost:8000/conciliacion/resumen-conciliacion");
-      if (res.ok) {
-        const data: EstadisticasGenerales = await res.json();
-        setEstadisticasGenerales(data);
-      }
-    } catch (err) {
-      console.error("Error cargando estadísticas:", err);
-    }
-  };
-
+  // ✅ FUNCIÓN MARCAR CONCILIADO MANUAL IMPLEMENTADA
   const marcarConciliadoManual = async (idBanco: string, referenciaPago?: string) => {
     try {
       const observaciones = prompt("Observaciones (opcional):") || "Conciliado manualmente";
@@ -216,9 +275,64 @@ const Cruces: React.FC = () => {
       if (!res.ok) throw new Error("Error al marcar como conciliado");
 
       setMensaje("✅ Marcado como conciliado manual.");
-      ejecutarConciliacion();
+      
+      // Recargar datos
+      cargarEstadisticas();
+      if (resultadoConciliacion) {
+        ejecutarConciliacion(); // Actualizar resultados
+      }
     } catch (err: any) {
       setMensaje("❌ " + err.message);
+    }
+  };
+
+  // ✅ FUNCIONES ADICIONALES ÚTILES
+  const validarDatos = async () => {
+    try {
+      setMensaje("🔍 Validando datos...");
+      const res = await fetch("http://localhost:8000/conciliacion/validar-datos-conciliacion");
+      if (!res.ok) throw new Error("Error al validar datos");
+      
+      const data = await res.json();
+      console.log("🔍 Validación de datos:", data);
+      
+      const problemas = data.resultados.filter((r: any) => 
+        !['movimientos_pendientes', 'pagos_disponibles_para_conciliar'].includes(r.problema) && r.cantidad > 0
+      );
+      
+      if (problemas.length > 0) {
+        const mensajeProblemas = problemas.map((p: any) => 
+          `• ${p.problema}: ${p.cantidad} casos`
+        ).join('\n');
+        
+        setMensaje(`⚠️ Problemas detectados en datos:\n${mensajeProblemas}`);
+      } else {
+        setMensaje("✅ Validación exitosa: Los datos están listos para conciliación");
+      }
+    } catch (err: any) {
+      console.error("Error validando datos:", err);
+      setMensaje("❌ Error validando datos: " + err.message);
+    }
+  };
+
+  const consultarEstadoReferencias = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/conciliacion/estado-referencias");
+      if (!res.ok) throw new Error("Error al consultar estado");
+      
+      const data = await res.json();
+      console.log("📊 Estado de referencias:", data);
+      
+      const resumen = data.resumen;
+      alert(
+        `Estado de Referencias:\n\n` +
+        `• Movimientos pendientes: ${resumen.total_movimientos_pendientes}\n` +
+        `• Pagos disponibles: ${resumen.total_pagos_disponibles}\n\n` +
+        `Ver consola para detalles completos.`
+      );
+    } catch (err: any) {
+      console.error("Error consultando estado:", err);
+      setMensaje("❌ Error consultando estado de referencias: " + err.message);
     }
   };
 
@@ -319,6 +433,41 @@ const Cruces: React.FC = () => {
           </button>
         </div>
 
+        {/* ✅ BOTONES ADICIONALES ÚTILES */}
+        <div className="acciones-adicionales" style={{display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap'}}>
+          <button
+            className="boton-secundario"
+            onClick={validarDatos}
+            style={{
+              padding: '8px 16px',
+              background: '#64748b',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            🔍 Validar Datos
+          </button>
+          
+          <button
+            className="boton-secundario"
+            onClick={consultarEstadoReferencias}
+            style={{
+              padding: '8px 16px',
+              background: '#7c3aed',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            📊 Estado Referencias
+          </button>
+        </div>
+
         <button
           className="boton-conciliar"
           onClick={ejecutarConciliacion}
@@ -334,10 +483,15 @@ const Cruces: React.FC = () => {
             className={`mensaje-estado ${
               mensaje.includes("✅")
                 ? "success"
-                : mensaje.includes("📤") || mensaje.includes("📄")
+                : mensaje.includes("📤") || mensaje.includes("📄") || mensaje.includes("🔍") || mensaje.includes("ℹ️")
                 ? "info"
                 : "error"
             }`}
+            style={{
+              whiteSpace: 'pre-line', // Para mostrar saltos de línea en problemas
+              maxHeight: '120px',
+              overflowY: 'auto'
+            }}
           >
             {mensaje}
           </div>
