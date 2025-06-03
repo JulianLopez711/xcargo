@@ -5,7 +5,6 @@ import { useLoading } from "../context/loadingContext";
 import LoadingSpinner from "./LoadingSpinner";
 import ChatBotBubble from "../components/ChatBotBubble";
 import InstallPWAButton from "../components/InstallPWAButton";
-import NotificacionesFlujo from '../components/NotificacionesFlujo';
 
 import { useEffect, useState } from "react";
 

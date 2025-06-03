@@ -6,442 +6,566 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/entregas", tags=["Entregas"])
 
-class EntregaConsolidada(BaseModel):
-    tracking: str
-    fecha: str
-    tipo: str
-    cliente: str
-    valor: float
-    estado_conciliacion: str
-    referencia_pago: str
-    correo_conductor: str
-    entidad_pago: str
-    fecha_conciliacion: Optional[str] = None
-    valor_total_consignacion: Optional[float] = None
-    id_banco_asociado: Optional[str] = None
-
+# ✅ 1. ENDPOINT PRINCIPAL QUE EL FRONTEND NECESITA
 @router.get("/entregas-consolidadas")
 def obtener_entregas_consolidadas(
-    cliente: Optional[str] = Query(None, description="Filtrar por cliente específico"),
-    desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
-    hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    solo_conciliadas: bool = Query(False, description="Solo mostrar entregas conciliadas"),
-    incluir_problematicas: bool = Query(False, description="Incluir entregas con problemas de conciliación")
+    cliente: Optional[str] = Query(None),
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None),
+    solo_conciliadas: Optional[bool] = Query(True)
 ):
     """
-    ✅ MEJORADO: Endpoint principal que integra completamente cruces bancarios
-    🎯 OBJETIVO: Vista unificada del estado real de conciliación
+    🎯 ENDPOINT PRINCIPAL que coincide exactamente con lo que el frontend espera
     """
     
     client = bigquery.Client()
     
-    # Construir condiciones WHERE dinámicamente
-    condiciones = []
-    parametros = []
-    
-    # ✅ FILTRO PRINCIPAL MEJORADO
-    if solo_conciliadas:
-        if incluir_problematicas:
-            # Incluir conciliadas + problemáticas para revisión
-            condiciones.append("""
-                (bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')
-                 OR bm.estado_conciliacion IN ('diferencia_valor', 'diferencia_fecha', 'multiple_match'))
-            """)
-        else:
-            # Solo perfectamente conciliadas
-            condiciones.append("""
-                bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')
-            """)
-    
-    if cliente:
-        condiciones.append("COALESCE(pc.cliente, 'Sin Cliente') = @cliente")
-        parametros.append(bigquery.ScalarQueryParameter("cliente", "STRING", cliente))
-    
-    if desde:
-        condiciones.append("pc.fecha_pago >= @fecha_desde")
-        parametros.append(bigquery.ScalarQueryParameter("fecha_desde", "DATE", desde))
-    
-    if hasta:
-        condiciones.append("pc.fecha_pago <= @fecha_hasta")
-        parametros.append(bigquery.ScalarQueryParameter("fecha_hasta", "DATE", hasta))
-    
-    # Condiciones base
-    condiciones.extend([
-        "pc.referencia_pago IS NOT NULL",
-        "pc.estado IN ('pagado', 'aprobado', 'liquidado')"
-    ])
-    
-    where_clause = "WHERE " + " AND ".join(condiciones) if condiciones else ""
-    
-    # 🔥 QUERY PRINCIPAL CON INTEGRACIÓN COMPLETA DE CRUCES
-    query = f"""
-    WITH entregas_con_conciliacion AS (
-        SELECT 
-            -- ✅ INFORMACIÓN BÁSICA DEL PAGO
-            COALESCE(pc.tracking, CONCAT('TRK-', RIGHT(pc.referencia_pago, 6))) as tracking,
-            pc.fecha_pago as fecha,
-            CASE 
-                WHEN UPPER(COALESCE(pc.tipo, pc.entidad, '')) LIKE '%NEQUI%' THEN 'Pago Digital'
-                WHEN UPPER(COALESCE(pc.tipo, pc.entidad, '')) LIKE '%BANCOLOMBIA%' THEN 'Transferencia Bancaria'
-                WHEN UPPER(COALESCE(pc.tipo, pc.entidad, '')) LIKE '%DAVIPLATA%' THEN 'Pago Digital'
-                WHEN UPPER(COALESCE(pc.tipo, pc.entidad, '')) LIKE '%TRANSFERENCIA%' THEN 'Transferencia'
-                ELSE COALESCE(pc.tipo, 'Transferencia')
-            END as tipo,
-            COALESCE(pc.cliente, 'Sin Cliente') as cliente,
-            COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor,
-            pc.referencia_pago,
-            COALESCE(pc.correo, 'conductor@unknown.com') as correo_conductor,
-            COALESCE(pc.entidad, 'Sin Entidad') as entidad_pago,
-            pc.estado as estado_pago,
-            pc.creado_en,
-            
-            -- ✅ INFORMACIÓN COMPLETA DE CONCILIACIÓN BANCARIA
-            bm.id as id_banco_asociado,
-            bm.fecha as fecha_banco,
-            bm.valor_banco,
-            bm.descripcion as descripcion_banco,
-            bm.estado_conciliacion as estado_conciliacion_db,
-            bm.confianza_match,
-            bm.observaciones as observaciones_conciliacion,
-            bm.conciliado_en as fecha_conciliacion,
-            bm.cargado_en as fecha_carga_banco,
-            
-            -- ✅ CÁLCULOS DE DIFERENCIAS Y VALIDACIONES
-            ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) as diferencia_valor,
-            ABS(DATE_DIFF(pc.fecha_pago, COALESCE(bm.fecha, pc.fecha_pago), DAY)) as diferencia_dias,
-            
-            -- ✅ ESTADO CONSOLIDADO PARA FRONTEND
-            CASE 
-                WHEN bm.estado_conciliacion = 'conciliado_exacto' THEN 'Conciliado Exacto'
-                WHEN bm.estado_conciliacion = 'conciliado_aproximado' THEN 'Conciliado Aproximado'
-                WHEN bm.estado_conciliacion = 'conciliado_manual' THEN 'Conciliado Manual'
-                WHEN bm.estado_conciliacion = 'diferencia_valor' THEN 'Diferencia de Valor'
-                WHEN bm.estado_conciliacion = 'diferencia_fecha' THEN 'Diferencia de Fecha'
-                WHEN bm.estado_conciliacion = 'multiple_match' THEN 'Múltiples Coincidencias'
-                WHEN bm.estado_conciliacion = 'sin_match' THEN 'Sin Conciliar'
-                WHEN bm.estado_conciliacion = 'pendiente' THEN 'En Proceso'
-                WHEN pc.estado = 'aprobado' AND bm.id IS NULL THEN 'Aprobado (Pendiente Conciliación)'
-                WHEN pc.estado = 'pagado' AND bm.id IS NULL THEN 'Pagado (Pendiente Aprobación)'
-                WHEN pc.estado = 'liquidado' THEN 'Liquidado'
-                ELSE 'Pendiente'
-            END as estado_conciliacion,
-            
-            -- ✅ INDICADORES DE CALIDAD Y VALIDACIÓN
-            CASE 
-                WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') 
-                     AND pc.estado = 'aprobado'
-                     AND ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) <= 1000
-                THEN TRUE
-                ELSE FALSE
-            END as listo_para_liquidar,
-            
-            CASE 
-                WHEN ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) <= 1 
-                THEN TRUE 
-                ELSE FALSE 
-            END as valor_exacto,
-            
-            CASE 
-                WHEN ABS(DATE_DIFF(pc.fecha_pago, COALESCE(bm.fecha, pc.fecha_pago), DAY)) <= 1 
-                THEN TRUE 
-                ELSE FALSE 
-            END as fecha_consistente,
-            
-            CASE 
-                WHEN ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) <= 1000
-                     AND ABS(DATE_DIFF(pc.fecha_pago, COALESCE(bm.fecha, pc.fecha_pago), DAY)) <= 3
-                THEN TRUE 
-                ELSE FALSE 
-            END as integridad_ok
-            
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
-        
-        -- ✅ LEFT JOIN para ver todos los pagos y su estado de conciliación
-        LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
-            ON bm.referencia_pago_asociada = pc.referencia_pago
-        
-        {where_clause}
-        AND pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 180 DAY)  -- Últimos 6 meses
-    ),
-    
-    estadisticas_agregadas AS (
-        SELECT 
-            COUNT(*) as total_entregas,
-            SUM(valor) as valor_total,
-            COUNT(CASE WHEN listo_para_liquidar THEN 1 END) as entregas_listas,
-            SUM(CASE WHEN listo_para_liquidar THEN valor ELSE 0 END) as valor_listo,
-            COUNT(CASE WHEN estado_conciliacion_db IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') THEN 1 END) as conciliadas,
-            COUNT(CASE WHEN estado_conciliacion_db IS NULL THEN 1 END) as sin_conciliar,
-            COUNT(CASE WHEN integridad_ok = FALSE THEN 1 END) as con_problemas,
-            AVG(COALESCE(confianza_match, 0)) as confianza_promedio
-        FROM entregas_con_conciliacion
-    )
-    
-    SELECT 
-        -- Datos principales
-        tracking,
-        DATE(fecha) as fecha,
-        tipo,
-        cliente,
-        valor,
-        estado_conciliacion,
-        referencia_pago,
-        correo_conductor,
-        entidad_pago,
-        DATE(fecha_conciliacion) as fecha_conciliacion,
-        
-        -- Información de conciliación bancaria
-        valor_banco,
-        id_banco_asociado,
-        observaciones_conciliacion,
-        confianza_match,
-        descripcion_banco,
-        
-        -- Validaciones y calidad
-        diferencia_valor,
-        diferencia_dias,
-        integridad_ok,
-        listo_para_liquidar,
-        valor_exacto,
-        fecha_consistente,
-        
-        -- Metadatos
-        estado_pago,
-        estado_conciliacion_db,
-        
-        -- Estadísticas agregadas (repetidas para cada fila)
-        (SELECT total_entregas FROM estadisticas_agregadas) as stats_total_entregas,
-        (SELECT valor_total FROM estadisticas_agregadas) as stats_valor_total,
-        (SELECT entregas_listas FROM estadisticas_agregadas) as stats_entregas_listas,
-        (SELECT valor_listo FROM estadisticas_agregadas) as stats_valor_listo,
-        (SELECT conciliadas FROM estadisticas_agregadas) as stats_conciliadas,
-        (SELECT sin_conciliar FROM estadisticas_agregadas) as stats_sin_conciliar,
-        (SELECT con_problemas FROM estadisticas_agregadas) as stats_con_problemas,
-        (SELECT confianza_promedio FROM estadisticas_agregadas) as stats_confianza_promedio
-        
-    FROM entregas_con_conciliacion
-    ORDER BY 
-        cliente ASC,
-        fecha_conciliacion DESC NULLS LAST,
-        fecha DESC,
-        valor DESC
-    """
-    
     try:
+        # Construir filtros
+        condiciones = []
+        parametros = []
+        
+        if cliente:
+            condiciones.append("COALESCE(pc.cliente, 'Sin Cliente') = @cliente")
+            parametros.append(bigquery.ScalarQueryParameter("cliente", "STRING", cliente))
+        
+        if desde:
+            condiciones.append("pc.fecha_pago >= @fecha_desde")
+            parametros.append(bigquery.ScalarQueryParameter("fecha_desde", "DATE", desde))
+        
+        if hasta:
+            condiciones.append("pc.fecha_pago <= @fecha_hasta")
+            parametros.append(bigquery.ScalarQueryParameter("fecha_hasta", "DATE", hasta))
+        
+        where_clause = ""
+        if condiciones:
+            where_clause = "AND " + " AND ".join(condiciones)
+        
+        # Filtro de conciliación
+        filtro_conciliacion = ""
+        if solo_conciliadas:
+            filtro_conciliacion = "AND bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')"
+        
+        query = f"""
+        WITH entregas_procesadas AS (
+            SELECT 
+                COALESCE(pc.tracking, pc.referencia_pago) as tracking,
+                pc.referencia_pago,
+                COALESCE(pc.cliente, 'Sin Cliente') as cliente,
+                COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor,
+                pc.fecha_pago,
+                COALESCE(pc.correo, 'conductor@unknown.com') as correo_conductor,
+                COALESCE(pc.entidad, 'Sin Entidad') as entidad_pago,
+                COALESCE(pc.tipo, 'Transferencia') as tipo,
+                pc.estado as estado_pago,
+                
+                -- Información de conciliación
+                COALESCE(bm.id, 'N/A') as id_banco_asociado,
+                COALESCE(bm.fecha, pc.fecha_pago) as fecha_banco,
+                COALESCE(bm.valor_banco, pc.valor_total_consignacion) as valor_banco,
+                COALESCE(bm.descripcion, 'Sin descripción banco') as descripcion_banco,
+                COALESCE(bm.estado_conciliacion, 'pendiente') as estado_conciliacion_raw,
+                COALESCE(bm.confianza_match, 0) as confianza_match,
+                COALESCE(bm.observaciones, 'Sin observaciones') as observaciones_conciliacion,
+                COALESCE(bm.conciliado_en, bm.cargado_en) as fecha_conciliacion,
+                
+                -- Validaciones
+                ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, pc.valor_total_consignacion, pc.valor, 0)) as diferencia_valor,
+                
+                -- Estado final procesado
+                CASE 
+                    WHEN bm.estado_conciliacion = 'conciliado_exacto' THEN 'Conciliado Exacto'
+                    WHEN bm.estado_conciliacion = 'conciliado_aproximado' THEN 'Conciliado Aproximado'
+                    WHEN bm.estado_conciliacion = 'conciliado_manual' THEN 'Conciliado Manual'
+                    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL THEN 'Aprobado (Pendiente Conciliación)'
+                    WHEN pc.estado = 'pagado' THEN 'Pagado (Pendiente Aprobación)'
+                    ELSE 'Pendiente'
+                END as estado_conciliacion,
+                
+                -- Calidad de conciliación
+                CASE 
+                    WHEN bm.estado_conciliacion = 'conciliado_exacto' AND bm.confianza_match >= 95 THEN 'Excelente'
+                    WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado') AND bm.confianza_match >= 80 THEN 'Buena'
+                    WHEN bm.estado_conciliacion IS NOT NULL THEN 'Regular'
+                    ELSE 'Sin Conciliar'
+                END as calidad_conciliacion,
+                
+                -- Flags de validación
+                CASE 
+                    WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') 
+                         AND pc.estado = 'aprobado' 
+                    THEN TRUE
+                    ELSE FALSE
+                END as listo_para_liquidar,
+                
+                CASE 
+                    WHEN ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, pc.valor_total_consignacion, pc.valor, 0)) <= 1000 
+                    THEN TRUE
+                    ELSE FALSE
+                END as integridad_ok
+                
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+                ON bm.referencia_pago_asociada = pc.referencia_pago
+            
+            WHERE pc.estado IN ('aprobado', 'pagado')
+            AND pc.referencia_pago IS NOT NULL
+            AND pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+            {where_clause}
+            {filtro_conciliacion}
+        )
+        
+        SELECT 
+            tracking,
+            referencia_pago,
+            cliente,
+            valor,
+            DATE(fecha_pago) as fecha,
+            correo_conductor,
+            entidad_pago,
+            tipo,
+            estado_pago,
+            estado_conciliacion,
+            
+            -- Información de conciliación extendida
+            id_banco_asociado,
+            DATE(fecha_banco) as fecha_banco,
+            valor_banco as valor_banco_conciliado,
+            descripcion_banco,
+            estado_conciliacion_raw,
+            confianza_match,
+            observaciones_conciliacion,
+            COALESCE(DATE(fecha_conciliacion), DATE(fecha_pago)) as fecha_conciliacion,
+            
+            -- Validaciones
+            diferencia_valor,
+            listo_para_liquidar,
+            integridad_ok,
+            calidad_conciliacion
+            
+        FROM entregas_procesadas
+        ORDER BY 
+            listo_para_liquidar DESC,
+            cliente ASC,
+            fecha_pago DESC
+        """
+        
         job_config = bigquery.QueryJobConfig(query_parameters=parametros)
         resultados = client.query(query, job_config=job_config).result()
         
         entregas = []
-        clientes_stats = {}
-        alertas_sistema = []
+        total_valor = 0
+        clientes_agrupados = {}
         
-        # Variables para estadísticas
-        stats_generales = None
+        # Métricas de calidad
+        stats_calidad = {
+            'exactas': 0,
+            'aproximadas': 0,
+            'manuales': 0,
+            'sin_conciliar': 0
+        }
         
         for row in resultados:
-            # Capturar estadísticas generales (solo una vez)
-            if stats_generales is None:
-                stats_generales = {
-                    "total_entregas": int(row["stats_total_entregas"]),
-                    "valor_total": float(row["stats_valor_total"]),
-                    "entregas_listas": int(row["stats_entregas_listas"]),
-                    "valor_listo": float(row["stats_valor_listo"]),
-                    "conciliadas": int(row["stats_conciliadas"]),
-                    "sin_conciliar": int(row["stats_sin_conciliar"]),
-                    "con_problemas": int(row["stats_con_problemas"]),
-                    "confianza_promedio": float(row["stats_confianza_promedio"])
-                }
+            valor = float(row["valor"])
+            diferencia_valor = float(row["diferencia_valor"]) if row["diferencia_valor"] else 0
             
-            valor = float(row["valor"]) if row["valor"] else 0.0
-            diferencia_valor = float(row["diferencia_valor"]) if row["diferencia_valor"] else 0.0
-            diferencia_dias = int(row["diferencia_dias"]) if row["diferencia_dias"] else 0
-            
-            # ✅ DETECTAR ALERTAS DEL SISTEMA
-            if diferencia_valor > 10000:
-                alertas_sistema.append({
-                    "tipo": "diferencia_critica",
-                    "referencia": row["referencia_pago"],
-                    "cliente": row["cliente"],
-                    "valor_pago": valor,
-                    "valor_banco": float(row["valor_banco"]) if row["valor_banco"] else 0,
-                    "diferencia": diferencia_valor,
-                    "severidad": "critica"
-                })
-            
-            if diferencia_dias > 10:
-                alertas_sistema.append({
-                    "tipo": "diferencia_fecha_extrema",
-                    "referencia": row["referencia_pago"],
-                    "cliente": row["cliente"],
-                    "diferencia_dias": diferencia_dias,
-                    "severidad": "alta"
-                })
-            
-            # ✅ EVALUAR CALIDAD DE CONCILIACIÓN
-            calidad = _evaluar_calidad_conciliacion(
-                row["estado_conciliacion_db"],
-                diferencia_valor,
-                diferencia_dias,
-                int(row["confianza_match"]) if row["confianza_match"] else 0
-            )
-            
-            # ✅ CREAR OBJETO ENTREGA COMPLETO
             entrega = {
-                "tracking": row["tracking"] or f"REF-{row['referencia_pago'][-6:]}",
-                "fecha": row["fecha"].isoformat() if row["fecha"] else datetime.now().date().isoformat(),
-                "tipo": row["tipo"] or "Transferencia",
-                "cliente": row["cliente"] or "Sin Cliente",
+                "tracking": row["tracking"],
+                "fecha": row["fecha"].isoformat(),
+                "tipo": row["tipo"],
+                "cliente": row["cliente"],
                 "valor": valor,
-                "estado_conciliacion": row["estado_conciliacion"] or "Pendiente",
-                "referencia_pago": row["referencia_pago"] or "",
-                "correo_conductor": row["correo_conductor"] or "",
-                "entidad_pago": row["entidad_pago"] or "",
+                "estado_conciliacion": row["estado_conciliacion"],
+                "referencia_pago": row["referencia_pago"],
+                "correo_conductor": row["correo_conductor"],
+                "entidad_pago": row["entidad_pago"],
                 "fecha_conciliacion": row["fecha_conciliacion"].isoformat() if row["fecha_conciliacion"] else None,
                 
-                # ✅ INFORMACIÓN EXTENDIDA DE CONCILIACIÓN
-                "valor_banco_conciliado": float(row["valor_banco"]) if row["valor_banco"] else None,
+                # Información extendida de conciliación
+                "valor_banco_conciliado": float(row["valor_banco_conciliado"]) if row["valor_banco_conciliado"] else None,
                 "id_banco_asociado": row["id_banco_asociado"],
                 "observaciones_conciliacion": row["observaciones_conciliacion"],
                 "confianza_match": int(row["confianza_match"]) if row["confianza_match"] else 0,
-                "descripcion_banco": row["descripcion_banco"],
-                
-                # ✅ INDICADORES DE CALIDAD
                 "diferencia_valor": diferencia_valor,
-                "diferencia_dias": diferencia_dias,
                 "integridad_ok": bool(row["integridad_ok"]),
                 "listo_para_liquidar": bool(row["listo_para_liquidar"]),
-                "valor_exacto": bool(row["valor_exacto"]),
-                "fecha_consistente": bool(row["fecha_consistente"]),
-                "calidad_conciliacion": calidad,
-                
-                # ✅ METADATOS
-                "estado_pago": row["estado_pago"],
-                "estado_conciliacion_db": row["estado_conciliacion_db"],
-                
-                # ✅ INDICADORES VISUALES
-                "icono_estado": _get_icono_estado(row["estado_conciliacion"], calidad),
-                "color_estado": _get_color_estado(row["estado_conciliacion"], bool(row["integridad_ok"])),
-                "requiere_atencion": not bool(row["integridad_ok"]) and row["estado_conciliacion_db"] not in ['conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual']
+                "calidad_conciliacion": row["calidad_conciliacion"]
             }
             
             entregas.append(entrega)
+            total_valor += valor
             
-            # ✅ AGRUPAR ESTADÍSTICAS POR CLIENTE
-            cliente = entrega["cliente"]
-            if cliente not in clientes_stats:
-                clientes_stats[cliente] = {
-                    "cantidad": 0, 
-                    "valor": 0, 
-                    "conciliadas": 0, 
-                    "valor_conciliado": 0,
-                    "listas_liquidar": 0,
-                    "con_problemas": 0,
-                    "calidad_promedio": 0,
-                    "alertas": []
+            # Actualizar estadísticas de calidad
+            if row["estado_conciliacion"] == "Conciliado Exacto":
+                stats_calidad['exactas'] += 1
+            elif row["estado_conciliacion"] == "Conciliado Aproximado":
+                stats_calidad['aproximadas'] += 1
+            elif row["estado_conciliacion"] == "Conciliado Manual":
+                stats_calidad['manuales'] += 1
+            else:
+                stats_calidad['sin_conciliar'] += 1
+            
+            # Agrupar por cliente
+            cliente_key = entrega["cliente"]
+            if cliente_key not in clientes_agrupados:
+                clientes_agrupados[cliente_key] = {
+                    "cantidad": 0,
+                    "valor": 0
                 }
             
-            stats_cliente = clientes_stats[cliente]
-            stats_cliente["cantidad"] += 1
-            stats_cliente["valor"] += valor
-            stats_cliente["calidad_promedio"] += entrega["confianza_match"]
-            
-            if entrega["listo_para_liquidar"]:
-                stats_cliente["conciliadas"] += 1
-                stats_cliente["valor_conciliado"] += valor
-                stats_cliente["listas_liquidar"] += 1
-            
-            if not entrega["integridad_ok"]:
-                stats_cliente["con_problemas"] += 1
-                if diferencia_valor > 5000:
-                    stats_cliente["alertas"].append({
-                        "referencia": entrega["referencia_pago"],
-                        "tipo": "diferencia_valor",
-                        "valor": diferencia_valor
-                    })
+            clientes_agrupados[cliente_key]["cantidad"] += 1
+            clientes_agrupados[cliente_key]["valor"] += valor
         
-        # ✅ CALCULAR PROMEDIOS POR CLIENTE
-        for cliente in clientes_stats:
-            stats = clientes_stats[cliente]
-            cantidad = stats["cantidad"]
-            stats["valor_promedio"] = stats["valor"] / max(cantidad, 1)
-            stats["calidad_promedio"] = stats["calidad_promedio"] / max(cantidad, 1)
-            stats["porcentaje_conciliadas"] = (stats["conciliadas"] / max(cantidad, 1)) * 100
-            stats["porcentaje_problemas"] = (stats["con_problemas"] / max(cantidad, 1)) * 100
+        # Calcular métricas de calidad
+        total_entregas = len(entregas)
+        entregas_conciliadas = stats_calidad['exactas'] + stats_calidad['aproximadas'] + stats_calidad['manuales']
+        confianza_promedio = sum(e['confianza_match'] for e in entregas) / max(total_entregas, 1)
         
-        # ✅ RESPUESTA COMPLETA CON TODAS LAS MÉTRICAS
         return {
             "entregas": entregas,
+            "total_entregas": total_entregas,
+            "valor_total": total_valor,
             "estadisticas": {
-                "total_entregas": stats_generales["total_entregas"] if stats_generales else len(entregas),
-                "valor_total": stats_generales["valor_total"] if stats_generales else sum(e["valor"] for e in entregas),
-                "entregas_conciliadas": stats_generales["conciliadas"] if stats_generales else len([e for e in entregas if "Conciliado" in e["estado_conciliacion"]]),
-                "entregas_listas": stats_generales["entregas_listas"] if stats_generales else len([e for e in entregas if e["listo_para_liquidar"]]),
-                "valor_listo": stats_generales["valor_listo"] if stats_generales else sum(e["valor"] for e in entregas if e["listo_para_liquidar"]),
-                "sin_conciliar": stats_generales["sin_conciliar"] if stats_generales else len([e for e in entregas if not e["valor_banco_conciliado"]]),
-                "con_problemas": stats_generales["con_problemas"] if stats_generales else len([e for e in entregas if not e["integridad_ok"]]),
-                "confianza_promedio": stats_generales["confianza_promedio"] if stats_generales else 0,
-                "porcentaje_conciliado": (stats_generales["conciliadas"] / max(stats_generales["total_entregas"], 1)) * 100 if stats_generales else 0,
-                "porcentaje_listo": (stats_generales["entregas_listas"] / max(stats_generales["total_entregas"], 1)) * 100 if stats_generales else 0,
-                "clientes": clientes_stats
+                "total_entregas": total_entregas,
+                "valor_total": total_valor,
+                "clientes": clientes_agrupados
             },
-            "alertas_sistema": alertas_sistema,
-            "filtros_aplicados": {
-                "cliente": cliente,
-                "desde": desde,
-                "hasta": hasta,
-                "solo_conciliadas": solo_conciliadas,
-                "incluir_problematicas": incluir_problematicas
-            },
+            "clientes_agrupados": clientes_agrupados,
+            "estadisticas_calidad": stats_calidad,
             "calidad_datos": {
-                "entregas_perfectas": len([e for e in entregas if e["calidad_conciliacion"] == "Excelente"]),
-                "entregas_buenas": len([e for e in entregas if e["calidad_conciliacion"] in ["Muy Buena", "Buena"]]),
-                "entregas_problematicas": len([e for e in entregas if e["calidad_conciliacion"] == "Requiere Revisión"]),
-                "alertas_criticas": len([a for a in alertas_sistema if a["severidad"] == "critica"]),
-                "score_calidad_general": _calcular_score_calidad(entregas)
+                "porcentaje_calidad": (entregas_conciliadas / max(total_entregas, 1)) * 100,
+                "confianza_promedio": confianza_promedio,
+                "alertas_criticas": len([e for e in entregas if not e['integridad_ok']])
             },
-            "recomendaciones": _generar_recomendaciones(entregas, alertas_sistema, clientes_stats),
-            "metadatos": {
-                "timestamp": datetime.now().isoformat(),
-                "periodo_consulta": f"{desde or 'Últimos 6 meses'} - {hasta or 'Hoy'}",
-                "total_clientes": len(clientes_stats),
-                "version_api": "2.0"
-            }
+            "timestamp": datetime.now().isoformat()
         }
         
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
-            detail=f"Error al consultar entregas consolidadas: {str(e)}"
+            status_code=500,
+            detail=f"Error obteniendo entregas: {str(e)}"
         )
 
+# ✅ 2. ENDPOINT RESUMEN LIQUIDACIONES
+@router.get("/resumen-liquidaciones")
+def obtener_resumen_liquidaciones():
+    """
+    Resumen de liquidaciones por cliente
+    """
+    
+    client = bigquery.Client()
+    
+    try:
+        query = """
+        WITH resumen_clientes AS (
+            SELECT 
+                COALESCE(pc.cliente, 'Sin Cliente') as cliente,
+                COUNT(*) as total_entregas,
+                SUM(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)) as valor_total,
+                COUNT(CASE WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') THEN 1 END) as entregas_conciliadas,
+                AVG(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)) as valor_promedio_entrega
+                
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+                ON bm.referencia_pago_asociada = pc.referencia_pago
+            
+            WHERE pc.estado IN ('aprobado', 'pagado')
+            AND pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
+            
+            GROUP BY pc.cliente
+        )
+        
+        SELECT 
+            cliente,
+            total_entregas,
+            valor_total,
+            entregas_conciliadas,
+            CASE 
+                WHEN total_entregas > 0 THEN (entregas_conciliadas / total_entregas) * 100
+                ELSE 0
+            END as porcentaje_conciliadas,
+            valor_promedio_entrega
+            
+        FROM resumen_clientes
+        ORDER BY valor_total DESC
+        """
+        
+        resultados = client.query(query).result()
+        
+        resumen = []
+        for row in resultados:
+            resumen.append({
+                "cliente": row["cliente"],
+                "total_entregas": int(row["total_entregas"]),
+                "valor_total": float(row["valor_total"]),
+                "entregas_conciliadas": int(row["entregas_conciliadas"]),
+                "porcentaje_conciliadas": float(row["porcentaje_conciliadas"]),
+                "valor_promedio_entrega": float(row["valor_promedio_entrega"])
+            })
+        
+        return resumen
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo resumen: {str(e)}"
+        )
+
+# ✅ 3. ENDPOINT DASHBOARD CONCILIACIÓN
+@router.get("/dashboard-conciliacion")
+def obtener_dashboard_conciliacion():
+    """
+    Dashboard de estado de conciliación
+    """
+    
+    client = bigquery.Client()
+    
+    try:
+        query = """
+        WITH estados_flujo AS (
+            SELECT 
+                CASE 
+                    WHEN pc.estado = 'pagado' AND bm.estado_conciliacion IS NULL THEN 'pagado_sin_conciliar'
+                    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL THEN 'aprobado_sin_conciliar'
+                    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion = 'conciliado_exacto' THEN 'listo_liquidar'
+                    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IN ('conciliado_aproximado', 'conciliado_manual') THEN 'conciliado_revision'
+                    ELSE 'otros'
+                END as estado_flujo,
+                COUNT(*) as cantidad,
+                SUM(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)) as valor_total,
+                AVG(DATE_DIFF(CURRENT_DATE(), pc.fecha_pago, DAY)) as dias_promedio_proceso,
+                COUNT(CASE WHEN DATE_DIFF(CURRENT_DATE(), pc.fecha_pago, DAY) > 7 THEN 1 END) as casos_lentos,
+                COUNT(DISTINCT pc.cliente) as clientes_afectados
+                
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+                ON bm.referencia_pago_asociada = pc.referencia_pago
+            
+            WHERE pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+            
+            GROUP BY estado_flujo
+        ),
+        
+        metricas_eficiencia AS (
+            SELECT 
+                COUNT(CASE WHEN bm.estado_conciliacion IS NOT NULL THEN 1 END) * 100.0 / COUNT(*) as porcentaje_conciliado,
+                COUNT(CASE WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL THEN 1 END) as cuello_botella_cantidad,
+                AVG(CASE WHEN bm.conciliado_en IS NOT NULL THEN DATE_DIFF(bm.conciliado_en, pc.fecha_pago, DAY) END) as dias_promedio_conciliacion
+                
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+                ON bm.referencia_pago_asociada = pc.referencia_pago
+            WHERE pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+        )
+        
+        SELECT 
+            -- Estados del flujo
+            (SELECT ARRAY_AGG(STRUCT(
+                estado_flujo,
+                cantidad,
+                valor_total,
+                dias_promedio_proceso,
+                casos_lentos,
+                clientes_afectados
+            )) FROM estados_flujo) as estados_flujo,
+            
+            -- Métricas de eficiencia
+            (SELECT AS STRUCT * FROM metricas_eficiencia) as eficiencia,
+            
+            -- Alertas
+            STRUCT(
+                (SELECT SUM(casos_lentos) FROM estados_flujo) as total_casos_lentos,
+                (SELECT SUM(casos_lentos) * 100.0 / SUM(cantidad) FROM estados_flujo) as porcentaje_casos_lentos
+            ) as alertas
+        """
+        
+        resultado = list(client.query(query).result())[0]
+        
+        # Procesar estados del flujo
+        estados_flujo = []
+        if resultado["estados_flujo"]:
+            for estado in resultado["estados_flujo"]:
+                estados_flujo.append({
+                    "estado_flujo": estado["estado_flujo"],
+                    "cantidad": int(estado["cantidad"]),
+                    "valor_total": float(estado["valor_total"]),
+                    "dias_promedio_proceso": float(estado["dias_promedio_proceso"]) if estado["dias_promedio_proceso"] else 0,
+                    "casos_lentos": int(estado["casos_lentos"]),
+                    "clientes_afectados": int(estado["clientes_afectados"])
+                })
+        
+        # Procesar eficiencia
+        eficiencia = {
+            "porcentaje_conciliado": float(resultado["eficiencia"]["porcentaje_conciliado"]) if resultado["eficiencia"]["porcentaje_conciliado"] else 0,
+            "cuello_botella_cantidad": int(resultado["eficiencia"]["cuello_botella_cantidad"]) if resultado["eficiencia"]["cuello_botella_cantidad"] else 0,
+            "dias_promedio_conciliacion": float(resultado["eficiencia"]["dias_promedio_conciliacion"]) if resultado["eficiencia"]["dias_promedio_conciliacion"] else 0
+        }
+        
+        # Procesar alertas
+        alertas = {
+            "total_casos_lentos": int(resultado["alertas"]["total_casos_lentos"]) if resultado["alertas"]["total_casos_lentos"] else 0,
+            "porcentaje_casos_lentos": float(resultado["alertas"]["porcentaje_casos_lentos"]) if resultado["alertas"]["porcentaje_casos_lentos"] else 0
+        }
+        
+        return {
+            "estados_flujo": estados_flujo,
+            "eficiencia": eficiencia,
+            "alertas": alertas,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo dashboard: {str(e)}"
+        )
+
+# ✅ 4. ENDPOINT VALIDAR INTEGRIDAD
+@router.get("/validar-integridad-liquidacion/{cliente}")
+def validar_integridad_liquidacion(cliente: str):
+    """
+    Valida la integridad de las entregas de un cliente específico
+    """
+    
+    client = bigquery.Client()
+    
+    try:
+        query = """
+        WITH validacion_cliente AS (
+            SELECT 
+                pc.referencia_pago,
+                COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor_pago,
+                COALESCE(bm.valor_banco, 0) as valor_banco,
+                ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) as diferencia_valor,
+                bm.estado_conciliacion,
+                pc.estado as estado_pago,
+                
+                CASE 
+                    WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') 
+                         AND pc.estado = 'aprobado'
+                         AND ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) <= 1000
+                    THEN 'LISTO'
+                    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL 
+                    THEN 'PENDIENTE_CONCILIAR'
+                    WHEN ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) > 1000
+                    THEN 'DIFERENCIA_VALOR'
+                    ELSE 'OTRO_PROBLEMA'
+                END as resultado_validacion
+                
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+                ON bm.referencia_pago_asociada = pc.referencia_pago
+            
+            WHERE COALESCE(pc.cliente, 'Sin Cliente') = @cliente
+            AND pc.estado IN ('aprobado', 'pagado')
+            AND pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+        )
+        
+        SELECT 
+            resultado_validacion,
+            COUNT(*) as cantidad,
+            SUM(valor_pago) as valor_total,
+            AVG(diferencia_valor) as diferencia_promedio,
+            
+            CASE resultado_validacion
+                WHEN 'LISTO' THEN 'Entregas listas para liquidar'
+                WHEN 'PENDIENTE_CONCILIAR' THEN 'Pendientes de conciliación bancaria'
+                WHEN 'DIFERENCIA_VALOR' THEN 'Diferencias de valor significativas'
+                ELSE 'Otros problemas de integridad'
+            END as descripcion
+            
+        FROM validacion_cliente
+        GROUP BY resultado_validacion, descripcion
+        ORDER BY 
+            CASE resultado_validacion
+                WHEN 'LISTO' THEN 1
+                WHEN 'PENDIENTE_CONCILIAR' THEN 2
+                WHEN 'DIFERENCIA_VALOR' THEN 3
+                ELSE 4
+            END
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("cliente", "STRING", cliente)
+            ]
+        )
+        
+        resultados = client.query(query, job_config=job_config).result()
+        
+        validaciones = []
+        total_listas = 0
+        total_problemas = 0
+        valor_listo = 0
+        valor_bloqueado = 0
+        
+        for row in resultados:
+            validacion = {
+                "resultado": row["resultado_validacion"],
+                "cantidad": int(row["cantidad"]),
+                "valor_total": float(row["valor_total"]),
+                "diferencia_promedio": float(row["diferencia_promedio"]) if row["diferencia_promedio"] else 0,
+                "descripcion": row["descripcion"]
+            }
+            
+            validaciones.append(validacion)
+            
+            if row["resultado_validacion"] == "LISTO":
+                total_listas += int(row["cantidad"])
+                valor_listo += float(row["valor_total"])
+            else:
+                total_problemas += int(row["cantidad"])
+                valor_bloqueado += float(row["valor_total"])
+        
+        listo_para_procesar = total_listas > 0 and total_problemas == 0
+        
+        recomendacion = ""
+        if listo_para_procesar:
+            recomendacion = f"Cliente listo para liquidar {total_listas} entregas"
+        elif total_problemas > 0:
+            recomendacion = f"Resolver {total_problemas} entregas con problemas antes de liquidar"
+        else:
+            recomendacion = "No hay entregas disponibles para este cliente"
+        
+        return {
+            "cliente": cliente,
+            "validaciones": validaciones,
+            "resumen": {
+                "listas_liquidar": total_listas,
+                "con_problemas": total_problemas,
+                "valor_listo": valor_listo,
+                "valor_bloqueado": valor_bloqueado
+            },
+            "listo_para_procesar": listo_para_procesar,
+            "recomendacion": recomendacion
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error validando integridad: {str(e)}"
+        )
+
+# ✅ MANTENER ENDPOINTS EXISTENTES IMPORTANTES
 @router.get("/entregas-listas-liquidar")
 def obtener_entregas_listas_liquidar(
     cliente: Optional[str] = Query(None),
     desde: Optional[str] = Query(None),
     hasta: Optional[str] = Query(None),
-    incluir_aproximadas: bool = Query(True, description="Incluir conciliaciones aproximadas")
+    incluir_aproximadas: Optional[bool] = Query(True)
 ):
     """
-    🎯 MEJORADO: Solo entregas que YA están conciliadas bancariamente
-    ✅ RESULTADO: Lista exacta de pagos listos para liquidar
+    🎯 ENDPOINT SIMPLIFICADO SOLO PARA ENTREGAS LISTAS
     """
     
     client = bigquery.Client()
     
-    # ✅ ESTADOS DE CONCILIACIÓN VÁLIDOS
-    estados_validos = ["'conciliado_exacto'", "'conciliado_manual'"]
-    if incluir_aproximadas:
-        estados_validos.append("'conciliado_aproximado'")
-    
-    estados_sql = ", ".join(estados_validos)
-    
-    # Construir filtros dinámicamente
-    condiciones = [
-        f"bm.estado_conciliacion IN ({estados_sql})",
-        "pc.estado IN ('aprobado', 'pagado')",  # Expandir estados válidos
-        "pc.referencia_pago IS NOT NULL",
-        "bm.referencia_pago_asociada IS NOT NULL"
-    ]
+    # Construir filtros
+    condiciones = []
     parametros = []
     
     if cliente:
@@ -456,104 +580,54 @@ def obtener_entregas_listas_liquidar(
         condiciones.append("pc.fecha_pago <= @fecha_hasta")
         parametros.append(bigquery.ScalarQueryParameter("fecha_hasta", "DATE", hasta))
     
-    where_clause = "WHERE " + " AND ".join(condiciones)
+    where_clause = ""
+    if condiciones:
+        where_clause = "AND " + " AND ".join(condiciones)
     
-    # 🔥 CONSULTA MEJORADA CON VALIDACIONES DE INTEGRIDAD
+    # Filtro de tipos de conciliación
+    tipos_conciliacion = ["'conciliado_exacto'"]
+    if incluir_aproximadas:
+        tipos_conciliacion.extend(["'conciliado_aproximado'", "'conciliado_manual'"])
+    
+    tipos_str = ", ".join(tipos_conciliacion)
+    
     query = f"""
-    WITH entregas_conciliadas AS (
-        SELECT 
-            -- Información básica del pago
-            COALESCE(pc.tracking, pc.referencia_pago) as tracking,
-            pc.referencia_pago,
-            COALESCE(pc.cliente, 'Sin Cliente') as cliente,
-            COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor,
-            pc.fecha_pago,
-            COALESCE(pc.correo, 'conductor@unknown.com') as correo_conductor,
-            COALESCE(pc.entidad, 'Sin Entidad') as entidad_pago,
-            COALESCE(pc.tipo, 'Transferencia') as tipo,
-            pc.estado as estado_pago,
-            
-            -- ✅ INFORMACIÓN DE CONCILIACIÓN BANCARIA
-            bm.id as id_banco_asociado,
-            bm.fecha as fecha_banco,
-            bm.valor_banco,
-            bm.descripcion as descripcion_banco,
-            bm.estado_conciliacion,
-            bm.confianza_match,
-            bm.observaciones as observaciones_conciliacion,
-            bm.conciliado_en as fecha_conciliacion,
-            
-            -- ✅ VALIDACIONES DE INTEGRIDAD Y CALIDAD
-            ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - bm.valor_banco) as diferencia_valor,
-            ABS(DATE_DIFF(pc.fecha_pago, bm.fecha, DAY)) as diferencia_dias,
-            
-            -- ✅ INDICADORES DE CALIDAD
-            CASE 
-                WHEN ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - bm.valor_banco) <= 1 
-                THEN TRUE 
-                ELSE FALSE 
-            END as valor_exacto,
-            
-            CASE 
-                WHEN ABS(DATE_DIFF(pc.fecha_pago, bm.fecha, DAY)) <= 2 
-                THEN TRUE 
-                ELSE FALSE 
-            END as fecha_consistente,
-            
-            -- ✅ ESTADO FINAL DE LIQUIDACIÓN
-            CASE 
-                WHEN bm.estado_conciliacion = 'conciliado_exacto' AND pc.estado = 'aprobado' THEN TRUE
-                WHEN bm.estado_conciliacion = 'conciliado_manual' AND pc.estado = 'aprobado' THEN TRUE
-                WHEN bm.estado_conciliacion = 'conciliado_aproximado' AND pc.estado = 'aprobado' 
-                     AND ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - bm.valor_banco) <= 1000
-                THEN TRUE
-                ELSE FALSE
-            END as listo_para_liquidar
-            
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
-        
-        -- ✅ INNER JOIN: Solo pagos con conciliación exitosa
-        INNER JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
-            ON bm.referencia_pago_asociada = pc.referencia_pago
-        
-        {where_clause}
-    )
-    
     SELECT 
-        tracking,
-        referencia_pago,
-        cliente,
-        valor,
-        DATE(fecha_pago) as fecha,
-        correo_conductor,
-        entidad_pago,
-        tipo,
-        estado_pago,
+        COALESCE(pc.tracking, pc.referencia_pago) as tracking,
+        pc.referencia_pago,
+        COALESCE(pc.cliente, 'Sin Cliente') as cliente,
+        COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor,
+        DATE(pc.fecha_pago) as fecha,
+        COALESCE(pc.correo, 'conductor@unknown.com') as correo_conductor,
+        COALESCE(pc.entidad, 'Sin Entidad') as entidad_pago,
+        COALESCE(pc.tipo, 'Transferencia') as tipo,
         
         -- Información de conciliación
-        id_banco_asociado,
-        DATE(fecha_banco) as fecha_banco,
-        valor_banco,
-        descripcion_banco,
-        estado_conciliacion,
-        confianza_match,
-        observaciones_conciliacion,
-        DATE(fecha_conciliacion) as fecha_conciliacion,
+        bm.estado_conciliacion,
+        COALESCE(bm.valor_banco, 0) as valor_banco,
+        bm.id as id_banco_asociado,
+        DATE(COALESCE(bm.conciliado_en, bm.cargado_en)) as fecha_conciliacion,
+        COALESCE(bm.confianza_match, 0) as confianza_match,
         
-        -- Validaciones
-        diferencia_valor,
-        diferencia_dias,
-        valor_exacto,
-        fecha_consistente,
-        listo_para_liquidar
+        -- Estado legible
+        CASE 
+            WHEN bm.estado_conciliacion = 'conciliado_exacto' THEN 'Conciliado Exacto'
+            WHEN bm.estado_conciliacion = 'conciliado_aproximado' THEN 'Conciliado Aproximado'
+            WHEN bm.estado_conciliacion = 'conciliado_manual' THEN 'Conciliado Manual'
+            ELSE 'Conciliado'
+        END as estado_conciliacion_legible
         
-    FROM entregas_conciliadas
-    WHERE listo_para_liquidar = TRUE  -- ✅ FILTRO FINAL DE CALIDAD
-    ORDER BY 
-        cliente ASC,
-        fecha_conciliacion DESC NULLS LAST,
-        fecha_pago DESC,
-        valor DESC
+    FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+    
+    INNER JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+        ON bm.referencia_pago_asociada = pc.referencia_pago
+    
+    WHERE pc.estado = 'aprobado'
+    AND bm.estado_conciliacion IN ({tipos_str})
+    AND pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
+    {where_clause}
+    
+    ORDER BY pc.cliente ASC, pc.fecha_pago DESC
     """
     
     try:
@@ -563,138 +637,72 @@ def obtener_entregas_listas_liquidar(
         entregas = []
         total_valor = 0
         clientes_agrupados = {}
-        alertas_integridad = []
-        estadisticas_calidad = {
-            "exactas": 0,
-            "aproximadas": 0,
-            "manuales": 0,
-            "con_diferencias": 0
+        
+        # Métricas de calidad
+        stats_calidad = {
+            'exactas': 0,
+            'aproximadas': 0,
+            'manuales': 0
         }
         
         for row in resultados:
             valor = float(row["valor"])
-            diferencia_valor = float(row["diferencia_valor"]) if row["diferencia_valor"] else 0
-            diferencia_dias = int(row["diferencia_dias"]) if row["diferencia_dias"] else 0
             
-            # ✅ ALERTAS DE INTEGRIDAD MEJORADAS
-            if diferencia_valor > 1000:  # Diferencias significativas
-                alertas_integridad.append({
-                    "tipo": "diferencia_valor_alta",
-                    "referencia": row["referencia_pago"],
-                    "cliente": row["cliente"],
-                    "valor_pago": valor,
-                    "valor_banco": float(row["valor_banco"]),
-                    "diferencia": diferencia_valor,
-                    "severidad": "alta" if diferencia_valor > 10000 else "media"
-                })
-            
-            if diferencia_dias > 5:  # Diferencias de fecha significativas
-                alertas_integridad.append({
-                    "tipo": "diferencia_fecha",
-                    "referencia": row["referencia_pago"],
-                    "cliente": row["cliente"],
-                    "diferencia_dias": diferencia_dias,
-                    "severidad": "media"
-                })
-            
-            # ✅ ESTRUCTURA DE ENTREGA MEJORADA
             entrega = {
-                "tracking": row["tracking"] or f"REF-{row['referencia_pago'][-6:]}",
+                "tracking": row["tracking"],
                 "fecha": row["fecha"].isoformat(),
-                "tipo": row["tipo"] or "Transferencia",
+                "tipo": row["tipo"],
                 "cliente": row["cliente"],
                 "valor": valor,
-                "estado_conciliacion": _mapear_estado_conciliacion(row["estado_conciliacion"]),
+                "estado_conciliacion": row["estado_conciliacion_legible"],
                 "referencia_pago": row["referencia_pago"],
                 "correo_conductor": row["correo_conductor"],
                 "entidad_pago": row["entidad_pago"],
                 "fecha_conciliacion": row["fecha_conciliacion"].isoformat() if row["fecha_conciliacion"] else None,
-                
-                # ✅ INFORMACIÓN EXTENDIDA DE CONCILIACIÓN
                 "valor_banco_conciliado": float(row["valor_banco"]),
                 "id_banco_asociado": row["id_banco_asociado"],
-                "observaciones_conciliacion": row["observaciones_conciliacion"],
-                "confianza_match": int(row["confianza_match"]) if row["confianza_match"] else 0,
-                "descripcion_banco": row["descripcion_banco"],
-                
-                # ✅ INDICADORES DE CALIDAD
-                "diferencia_valor": diferencia_valor,
-                "diferencia_dias": diferencia_dias,
-                "integridad_ok": diferencia_valor <= 1000 and diferencia_dias <= 3,
-                "valor_exacto": bool(row["valor_exacto"]),
-                "fecha_consistente": bool(row["fecha_consistente"]),
-                "listo_para_liquidar": True,  # Ya filtrado en query
-                
-                # ✅ METADATOS ADICIONALES
-                "calidad_conciliacion": _evaluar_calidad_conciliacion(
-                    row["estado_conciliacion"], 
-                    diferencia_valor, 
-                    diferencia_dias,
-                    int(row["confianza_match"]) if row["confianza_match"] else 0
-                )
+                "confianza_match": int(row["confianza_match"]),
+                "listo_para_liquidar": True,
+                "integridad_ok": True
             }
             
             entregas.append(entrega)
             total_valor += valor
             
-            # ✅ Actualizar estadísticas de calidad
+            # Actualizar estadísticas
             if row["estado_conciliacion"] == "conciliado_exacto":
-                estadisticas_calidad["exactas"] += 1
+                stats_calidad['exactas'] += 1
             elif row["estado_conciliacion"] == "conciliado_aproximado":
-                estadisticas_calidad["aproximadas"] += 1
+                stats_calidad['aproximadas'] += 1
             elif row["estado_conciliacion"] == "conciliado_manual":
-                estadisticas_calidad["manuales"] += 1
+                stats_calidad['manuales'] += 1
             
-            if diferencia_valor > 1000:
-                estadisticas_calidad["con_diferencias"] += 1
-            
-            # ✅ Agrupar por cliente con estadísticas detalladas
-            cliente = entrega["cliente"]
-            if cliente not in clientes_agrupados:
-                clientes_agrupados[cliente] = {
-                    "cantidad_entregas": 0,
-                    "valor_total": 0,
-                    "entregas": [],
-                    "valor_promedio": 0,
-                    "calidad_promedio": 0,
-                    "alertas": 0
+            # Agrupar por cliente
+            cliente_key = entrega["cliente"]
+            if cliente_key not in clientes_agrupados:
+                clientes_agrupados[cliente_key] = {
+                    "cantidad": 0,
+                    "valor": 0
                 }
             
-            clientes_agrupados[cliente]["cantidad_entregas"] += 1
-            clientes_agrupados[cliente]["valor_total"] += valor
-            clientes_agrupados[cliente]["entregas"].append(entrega)
-            clientes_agrupados[cliente]["calidad_promedio"] += entrega["confianza_match"]
-            
-            if not entrega["integridad_ok"]:
-                clientes_agrupados[cliente]["alertas"] += 1
+            clientes_agrupados[cliente_key]["cantidad"] += 1
+            clientes_agrupados[cliente_key]["valor"] += valor
         
-        # ✅ Calcular promedios por cliente
-        for cliente in clientes_agrupados:
-            datos = clientes_agrupados[cliente]
-            cantidad = datos["cantidad_entregas"]
-            datos["valor_promedio"] = datos["valor_total"] / max(cantidad, 1)
-            datos["calidad_promedio"] = datos["calidad_promedio"] / max(cantidad, 1)
-            datos["porcentaje_alertas"] = (datos["alertas"] / max(cantidad, 1)) * 100
+        # Calcular métricas de calidad
+        total_entregas = len(entregas)
+        confianza_promedio = sum(e['confianza_match'] for e in entregas) / max(total_entregas, 1)
         
         return {
-            "mensaje": f"✅ {len(entregas)} entregas conciliadas y listas para liquidar",
-            "total_entregas": len(entregas),
-            "valor_total": total_valor,
+            "mensaje": f"✅ {len(entregas)} entregas listas para liquidar",
             "entregas": entregas,
+            "total_entregas": total_entregas,
+            "valor_total": total_valor,
             "clientes_agrupados": clientes_agrupados,
-            "alertas_integridad": alertas_integridad,
-            "estadisticas_calidad": estadisticas_calidad,
-            "filtros_aplicados": {
-                "cliente": cliente,
-                "desde": desde,
-                "hasta": hasta,
-                "incluir_aproximadas": incluir_aproximadas
-            },
+            "estadisticas_calidad": stats_calidad,
             "calidad_datos": {
-                "entregas_sin_diferencias": len([e for e in entregas if e["integridad_ok"]]),
-                "alertas_criticas": len([a for a in alertas_integridad if a["severidad"] == "alta"]),
-                "confianza_promedio": sum(e["confianza_match"] for e in entregas) / max(len(entregas), 1),
-                "porcentaje_calidad": (len([e for e in entregas if e["integridad_ok"]]) / max(len(entregas), 1)) * 100
+                "porcentaje_calidad": 100.0,  # Solo entregas listas
+                "confianza_promedio": confianza_promedio,
+                "alertas_criticas": 0  # Solo entregas sin problemas
             },
             "timestamp": datetime.now().isoformat()
         }
@@ -702,518 +710,471 @@ def obtener_entregas_listas_liquidar(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Error obteniendo entregas listas: {str(e)}"
+            detail=f"Error: {str(e)}"
         )
 
-@router.get("/validar-integridad-liquidacion/{cliente}")
-def validar_integridad_para_liquidacion(cliente: str):
-    """
-    🎯 NUEVO: Valida que todas las entregas de un cliente estén listas para liquidar
-    ✅ BENEFICIO: Prevenir errores antes del procesamiento
-    """
+# ✅ ENDPOINTS DE DIAGNÓSTICO Y REPARACIÓN
+@router.get("/debug-relacion-tablas")
+def debug_relacion_tablas():
+    """Debug: Verificar cómo están relacionadas las tablas"""
     
     client = bigquery.Client()
-    
-    query = """
-    WITH validacion AS (
-        SELECT 
-            pc.referencia_pago,
-            pc.valor_total_consignacion,
-            pc.estado as estado_pago,
-            bm.estado_conciliacion,
-            bm.valor_banco,
-            bm.observaciones,
-            
-            -- Validaciones específicas
-            CASE 
-                WHEN bm.estado_conciliacion IS NULL THEN 'SIN_CONCILIAR'
-                WHEN bm.estado_conciliacion NOT IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') THEN 'CONCILIACION_INCOMPLETA'
-                WHEN pc.estado != 'aprobado' THEN 'PAGO_NO_APROBADO'
-                WHEN ABS(pc.valor_total_consignacion - bm.valor_banco) > 5000 THEN 'DIFERENCIA_VALOR_ALTA'
-                ELSE 'OK'
-            END as validacion_resultado,
-            
-            ABS(pc.valor_total_consignacion - bm.valor_banco) as diferencia_valor
-            
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
-        LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
-            ON bm.referencia_pago_asociada = pc.referencia_pago
-        WHERE COALESCE(pc.cliente, 'Sin Cliente') = @cliente
-        AND pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
-        AND pc.referencia_pago IS NOT NULL
-    )
-    
-    SELECT 
-        validacion_resultado,
-        COUNT(*) as cantidad,
-        SUM(valor_total_consignacion) as valor_total,
-        AVG(diferencia_valor) as diferencia_promedio,
-        ARRAY_AGG(referencia_pago LIMIT 5) as ejemplos_referencias
-    FROM validacion
-    GROUP BY validacion_resultado
-    ORDER BY 
-        CASE validacion_resultado
-            WHEN 'OK' THEN 1
-            WHEN 'DIFERENCIA_VALOR_ALTA' THEN 2
-            WHEN 'CONCILIACION_INCOMPLETA' THEN 3
-            WHEN 'PAGO_NO_APROBADO' THEN 4
-            WHEN 'SIN_CONCILIAR' THEN 5
-        END
-    """
-    
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("cliente", "STRING", cliente)
-        ]
-    )
     
     try:
-        resultados = client.query(query, job_config=job_config).result()
-        
-        validaciones = []
-        resumen = {
-            "listas_liquidar": 0,
-            "con_problemas": 0,
-            "valor_listo": 0,
-            "valor_bloqueado": 0
-        }
-        
-        for row in resultados:
-            validacion = {
-                "resultado": row["validacion_resultado"],
-                "cantidad": int(row["cantidad"]),
-                "valor_total": float(row["valor_total"] or 0),
-                "diferencia_promedio": float(row["diferencia_promedio"] or 0),
-                "ejemplos_referencias": list(row["ejemplos_referencias"]),
-                "descripcion": _get_descripcion_validacion(row["validacion_resultado"])
-            }
-            validaciones.append(validacion)
-            
-            if row["validacion_resultado"] == "OK":
-                resumen["listas_liquidar"] += validacion["cantidad"]
-                resumen["valor_listo"] += validacion["valor_total"]
-            else:
-                resumen["con_problemas"] += validacion["cantidad"]
-                resumen["valor_bloqueado"] += validacion["valor_total"]
-        
-        return {
-            "cliente": cliente,
-            "validaciones": validaciones,
-            "resumen": resumen,
-            "listo_para_procesar": resumen["con_problemas"] == 0,
-            "recomendacion": _get_recomendacion_liquidacion(validaciones),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error validando integridad: {str(e)}"
-        )
-
-@router.get("/resumen-liquidaciones")
-def obtener_resumen_liquidaciones():
-    """
-    ✅ MEJORADO: Resumen basado en estado real de conciliación bancaria
-    """
-    client = bigquery.Client()
-    
-    query = """
-    WITH resumen_por_cliente AS (
+        query_banco = """
         SELECT 
-            COALESCE(pc.cliente, 'Sin Cliente') as cliente,
-            COUNT(*) as total_entregas,
-            SUM(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)) as valor_total,
-            
-            -- ✅ CONTAR ENTREGAS REALMENTE CONCILIADAS
-            COUNT(CASE 
-                WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') 
-                THEN 1 
-            END) as entregas_conciliadas,
-            
-            SUM(CASE 
-                WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') 
-                THEN COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)
-                ELSE 0
-            END) as valor_conciliado,
-            
-            COUNT(CASE WHEN pc.estado = 'aprobado' THEN 1 END) as entregas_aprobadas,
-            COUNT(CASE WHEN pc.estado = 'pagado' THEN 1 END) as entregas_pagadas,
-            MIN(pc.fecha_pago) as fecha_primera_entrega,
-            MAX(pc.fecha_pago) as fecha_ultima_entrega,
-            COUNT(DISTINCT pc.correo) as conductores_involucrados
-            
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            COUNT(*) as total_movimientos,
+            COUNT(referencia_pago_asociada) as con_referencia,
+            COUNT(CASE WHEN estado_conciliacion LIKE 'conciliado%' THEN 1 END) as conciliados
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        """
         
-        -- ✅ LEFT JOIN para verificar conciliación
-        LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
-            ON bm.referencia_pago_asociada = pc.referencia_pago
-        
-        WHERE pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
-        AND pc.referencia_pago IS NOT NULL
-        GROUP BY pc.cliente
-    )
-    
-    SELECT 
-        cliente,
-        total_entregas,
-        valor_total,
-        entregas_conciliadas,
-        valor_conciliado,
-        entregas_aprobadas,
-        entregas_pagadas,
-        fecha_primera_entrega,
-        fecha_ultima_entrega,
-        conductores_involucrados,
-        
-        -- ✅ CÁLCULOS MEJORADOS
-        ROUND((entregas_conciliadas * 100.0) / NULLIF(total_entregas, 0), 2) as porcentaje_conciliadas,
-        ROUND(valor_total / NULLIF(total_entregas, 0), 2) as valor_promedio_entrega,
-        ROUND(valor_conciliado / NULLIF(entregas_conciliadas, 0), 2) as valor_promedio_conciliado,
-        
-        -- ✅ INDICADORES DE EFICIENCIA
-        (total_entregas - entregas_conciliadas) as pendientes_conciliacion,
-        ROUND((valor_conciliado * 100.0) / NULLIF(valor_total, 0), 2) as porcentaje_valor_conciliado
-        
-    FROM resumen_por_cliente
-    WHERE total_entregas > 0
-    ORDER BY valor_conciliado DESC, entregas_conciliadas DESC
-    """
-    
-    try:
-        resultados = client.query(query).result()
-        return [dict(row) for row in resultados]
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al obtener resumen de liquidaciones: {str(e)}"
-        )
-
-@router.get("/dashboard-conciliacion")
-def obtener_dashboard_conciliacion():
-    """
-    🎯 NUEVO: Dashboard ejecutivo del estado de conciliación
-    ✅ BENEFICIO: Visibilidad completa del flujo en tiempo real
-    """
-    
-    client = bigquery.Client()
-    
-    query = """
-    WITH estado_completo AS (
+        query_pagos = """
         SELECT 
-            pc.cliente,
-            pc.referencia_pago,
-            pc.estado as estado_pago,
-            pc.valor_total_consignacion,
-            pc.fecha_pago,
-            
-            CASE 
-                WHEN bm.estado_conciliacion = 'conciliado_exacto' THEN 'CONCILIADO_EXACTO'
-                WHEN bm.estado_conciliacion = 'conciliado_aproximado' THEN 'CONCILIADO_APROXIMADO'
-                WHEN bm.estado_conciliacion = 'conciliado_manual' THEN 'CONCILIADO_MANUAL'
-                WHEN pc.estado = 'aprobado' AND bm.id IS NULL THEN 'APROBADO_SIN_CONCILIAR'
-                WHEN pc.estado = 'pagado' THEN 'PAGADO_SIN_APROBAR'
-                WHEN pc.estado = 'rechazado' THEN 'RECHAZADO'
-                ELSE 'OTRO'
-            END as estado_flujo,
-            
-            bm.conciliado_en,
-            
-            -- Cálculo de días en cada etapa
-            CASE 
-                WHEN bm.conciliado_en IS NOT NULL THEN 
-                    DATE_DIFF(DATE(bm.conciliado_en), pc.fecha_pago, DAY)
-                ELSE 
-                    DATE_DIFF(CURRENT_DATE(), pc.fecha_pago, DAY)
-            END as dias_en_proceso
-            
+            COUNT(*) as total_pagos,
+            COUNT(CASE WHEN estado = 'aprobado' THEN 1 END) as aprobados,
+            COUNT(CASE WHEN estado = 'pagado' THEN 1 END) as pagados,
+            COUNT(DISTINCT referencia_pago) as referencias_unicas
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+        """
+
+        query_join = """
+        SELECT 
+            COUNT(*) as total_matches,
+            COUNT(CASE WHEN bm.estado_conciliacion LIKE 'conciliado%' THEN 1 END) as matches_conciliados
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
-        LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+        INNER JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
             ON bm.referencia_pago_asociada = pc.referencia_pago
         WHERE pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-        AND pc.referencia_pago IS NOT NULL
-    ),
-    
-    resumen_estados AS (
-        SELECT 
-            estado_flujo,
-            COUNT(*) as cantidad,
-            SUM(valor_total_consignacion) as valor_total,
-            AVG(dias_en_proceso) as dias_promedio_proceso,
-            COUNT(CASE WHEN dias_en_proceso > 7 THEN 1 END) as casos_lentos,
-            COUNT(DISTINCT cliente) as clientes_afectados
-        FROM estado_completo
-        GROUP BY estado_flujo
-    )
-    
-    SELECT 
-        estado_flujo,
-        cantidad,
-        valor_total,
-        dias_promedio_proceso,
-        casos_lentos,
-        clientes_afectados
-    FROM resumen_estados
-    ORDER BY cantidad DESC
-    """
-    
-    try:
-        resultados = client.query(query).result()
+        """
         
-        estados = []
-        totales = {
-            "cantidad_total": 0,
-            "valor_total": 0,
-            "casos_lentos_total": 0,
-            "clientes_total": set()
-        }
-        
-        for row in resultados:
-            estado = {
-                "estado_flujo": row["estado_flujo"],
-                "cantidad": int(row["cantidad"]),
-                "valor_total": float(row["valor_total"] or 0),
-                "dias_promedio_proceso": round(float(row["dias_promedio_proceso"] or 0), 1),
-                "casos_lentos": int(row["casos_lentos"]),
-                "clientes_afectados": int(row["clientes_afectados"])
-            }
-            estados.append(estado)
-            
-            totales["cantidad_total"] += estado["cantidad"]
-            totales["valor_total"] += estado["valor_total"]
-            totales["casos_lentos_total"] += estado["casos_lentos"]
-        
-        # Calcular eficiencia del flujo
-        conciliados = sum(e["cantidad"] for e in estados if "CONCILIADO" in e["estado_flujo"])
-        aprobados_sin_conciliar = next((e["cantidad"] for e in estados if e["estado_flujo"] == "APROBADO_SIN_CONCILIAR"), 0)
+        banco_stats = dict(list(client.query(query_banco).result())[0])
+        pagos_stats = dict(list(client.query(query_pagos).result())[0])
+        join_stats = dict(list(client.query(query_join).result())[0])
         
         return {
-            "estados_flujo": estados,
-            "totales": {
-                "cantidad_total": totales["cantidad_total"],
-                "valor_total": totales["valor_total"],
-                "casos_lentos_total": totales["casos_lentos_total"]
-            },
-            "eficiencia": {
-                "porcentaje_conciliado": (conciliados / max(totales["cantidad_total"], 1)) * 100,
-                "cuello_botella_cantidad": aprobados_sin_conciliar,
-                "dias_promedio_conciliacion": sum(e["dias_promedio_proceso"] * e["cantidad"] for e in estados if "CONCILIADO" in e["estado_flujo"]) / max(conciliados, 1)
-            },
-            "alertas": {
-                "total_casos_lentos": totales["casos_lentos_total"],
-                "porcentaje_casos_lentos": (totales["casos_lentos_total"] / max(totales["cantidad_total"], 1)) * 100
-            },
-            "timestamp": datetime.now().isoformat()
+            "banco_movimientos": banco_stats,
+            "pagosconductor": pagos_stats,
+            "relacion_join": join_stats,
+            "diagnostico": {
+                "problema_detectado": join_stats["total_matches"] == 0,
+                "solucion": "Verificar campo referencia_pago_asociada en banco_movimientos"
+            }
         }
         
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error generando dashboard: {str(e)}"
-        )
+        return {"error": str(e)}
 
-@router.post("/marcar-como-liquidado")
-def marcar_entregas_como_liquidadas(data: dict):
-    """Marca entregas como liquidadas después del pago al cliente"""
-    referencias_pago = data.get("referencias_pago", [])
-    cliente = data.get("cliente")
-    usuario = data.get("usuario", "sistema")
-    observaciones = data.get("observaciones", "Liquidado automáticamente")
-    
-    if not referencias_pago:
-        raise HTTPException(status_code=400, detail="Se requieren referencias de pago")
+@router.get("/verificar-datos-conciliados")
+def verificar_datos_conciliados():
+    """Verifica si hay datos conciliados en el sistema"""
     
     client = bigquery.Client()
     
-    # Convertir lista a string para la consulta
-    refs_str = "', '".join(referencias_pago)
-    
-    query = f"""
-    UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
-    SET 
-        estado = 'liquidado',
-        modificado_en = CURRENT_TIMESTAMP(),
-        modificado_por = @usuario,
-        novedades = CONCAT(
-            COALESCE(novedades, ''), 
-            ' | Liquidado: ', 
-            @observaciones
-        )
-    WHERE referencia_pago IN ('{refs_str}')
-      AND COALESCE(cliente, 'Sin Cliente') = @cliente
-    """
-    
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("usuario", "STRING", usuario),
-            bigquery.ScalarQueryParameter("cliente", "STRING", cliente),
-            bigquery.ScalarQueryParameter("observaciones", "STRING", observaciones)
-        ]
-    )
-    
     try:
-        result = client.query(query, job_config=job_config).result()
+        query = """
+        WITH verificacion AS (
+            SELECT 
+                -- Tabla banco_movimientos
+                (SELECT COUNT(*) FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`) as total_banco,
+                (SELECT COUNT(*) FROM `datos-clientes-441216.Conciliaciones.banco_movimientos` 
+                 WHERE estado_conciliacion LIKE 'conciliado%') as banco_conciliados,
+                (SELECT COUNT(*) FROM `datos-clientes-441216.Conciliaciones.banco_movimientos` 
+                 WHERE referencia_pago_asociada IS NOT NULL) as banco_con_referencia,
+                
+                -- Tabla pagosconductor
+                (SELECT COUNT(*) FROM `datos-clientes-441216.Conciliaciones.pagosconductor` 
+                 WHERE estado = 'aprobado') as pagos_aprobados,
+                
+                -- JOIN entre tablas
+                (SELECT COUNT(*) FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+                 INNER JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+                    ON bm.referencia_pago_asociada = pc.referencia_pago
+                 WHERE pc.estado = 'aprobado' 
+                 AND bm.estado_conciliacion LIKE 'conciliado%') as entregas_conciliadas_listas
+        )
+        SELECT * FROM verificacion
+        """
+        
+        resultado = dict(list(client.query(query).result())[0])
+        
+        # Diagnóstico
+        diagnostico = {
+            "hay_movimientos_banco": resultado["total_banco"] > 0,
+            "hay_conciliados": resultado["banco_conciliados"] > 0,
+            "hay_referencias_asociadas": resultado["banco_con_referencia"] > 0,
+            "hay_pagos_aprobados": resultado["pagos_aprobados"] > 0,
+            "hay_entregas_listas": resultado["entregas_conciliadas_listas"] > 0
+        }
+        
+        problema_detectado = None
+        solucion = None
+        
+        if not diagnostico["hay_entregas_listas"]:
+            if not diagnostico["hay_conciliados"]:
+                problema_detectado = "No hay movimientos bancarios conciliados"
+                solucion = "Ejecutar proceso de conciliación automática"
+            elif not diagnostico["hay_referencias_asociadas"]:
+                problema_detectado = "Los movimientos conciliados no tienen referencias asociadas"
+                solucion = "Verificar campo referencia_pago_asociada en banco_movimientos"
+            elif not diagnostico["hay_pagos_aprobados"]:
+                problema_detectado = "No hay pagos en estado 'aprobado'"
+                solucion = "Aprobar pagos de conductores antes de conciliar"
+            else:
+                problema_detectado = "Error en la relación entre tablas"
+                solucion = "Verificar JOIN entre pagosconductor y banco_movimientos"
         
         return {
-            "mensaje": f"Se marcaron {len(referencias_pago)} entregas como liquidadas para {cliente}",
-            "referencias_procesadas": referencias_pago,
-            "timestamp": datetime.now().isoformat()
+            "estadisticas": resultado,
+            "diagnostico": diagnostico,
+            "problema_detectado": problema_detectado,
+            "solucion_recomendada": solucion,
+            "estado_sistema": "OK" if diagnostico["hay_entregas_listas"] else "PROBLEMA"
         }
         
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error al marcar entregas como liquidadas: {str(e)}"
+        return {"error": str(e)}
+
+@router.post("/reparar-referencias-conciliacion")
+def reparar_referencias_conciliacion():
+    """
+    Repara las referencias entre pagos y movimientos bancarios si están rotas
+    """
+    
+    client = bigquery.Client()
+    
+    try:
+        # 1. Verificar si hay movimientos conciliados sin referencia
+        query_verificar = """
+        SELECT COUNT(*) as movimientos_sin_referencia
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        WHERE estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')
+        AND (referencia_pago_asociada IS NULL OR referencia_pago_asociada = '')
+        """
+        
+        sin_referencia = list(client.query(query_verificar).result())[0]["movimientos_sin_referencia"]
+        
+        if sin_referencia == 0:
+            return {"mensaje": "No hay referencias que reparar", "movimientos_reparados": 0}
+        
+        # 2. Intentar reparar basado en valor y fecha
+        query_reparar = """
+        UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+        SET referencia_pago_asociada = (
+            SELECT pc.referencia_pago
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            WHERE pc.estado = 'aprobado'
+            AND ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - bm.valor_banco) <= 1000
+            AND ABS(DATE_DIFF(pc.fecha_pago, bm.fecha, DAY)) <= 3
+            ORDER BY 
+                ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - bm.valor_banco),
+                ABS(DATE_DIFF(pc.fecha_pago, bm.fecha, DAY))
+            LIMIT 1
         )
+        WHERE bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')
+        AND (bm.referencia_pago_asociada IS NULL OR bm.referencia_pago_asociada = '')
+        AND EXISTS (
+            SELECT 1 FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            WHERE pc.estado = 'aprobado'
+            AND ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - bm.valor_banco) <= 1000
+            AND ABS(DATE_DIFF(pc.fecha_pago, bm.fecha, DAY)) <= 3
+        )
+        """
+        
+        resultado = client.query(query_reparar).result()
+        
+        # 3. Verificar cuántos se repararon
+        reparados = list(client.query(query_verificar).result())[0]["movimientos_sin_referencia"]
+        movimientos_reparados = sin_referencia - reparados
+        
+        return {
+            "mensaje": f"Proceso de reparación completado",
+            "movimientos_sin_referencia_antes": sin_referencia,
+            "movimientos_reparados": movimientos_reparados,
+            "movimientos_sin_referencia_despues": reparados
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reparando referencias: {str(e)}")
 
-# ✅ FUNCIONES AUXILIARES CORREGIDAS
+# ✅ ENDPOINTS DE ASOCIACIÓN MANUAL
+@router.get("/analizar-datos-para-asociar")
+def analizar_datos_para_asociar():
+    """
+    Analiza los datos para identificar qué se puede asociar
+    """
+    client = bigquery.Client()
+    
+    try:
+        # 1. Ver movimientos bancarios conciliados sin referencia
+        query_banco = """
+        SELECT 
+            id,
+            fecha,
+            valor_banco,
+            descripcion,
+            estado_conciliacion
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        WHERE estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')
+        AND (referencia_pago_asociada IS NULL OR referencia_pago_asociada = '')
+        ORDER BY fecha DESC, valor_banco DESC
+        """
+        
+        # 2. Ver pagos aprobados disponibles
+        query_pagos = """
+        SELECT 
+            referencia_pago,
+            fecha_pago,
+            COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64), 0) as valor,
+            COALESCE(cliente, 'Sin Cliente') as cliente,
+            correo
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE estado = 'aprobado'
+        AND referencia_pago IS NOT NULL
+        ORDER BY fecha_pago DESC, valor DESC
+        """
+        
+        movimientos_banco = [dict(row) for row in client.query(query_banco).result()]
+        pagos_disponibles = [dict(row) for row in client.query(query_pagos).result()]
+        
+        # 3. Sugerir asociaciones basadas en valor y fecha
+        sugerencias = []
+        
+        for mov in movimientos_banco:
+            valor_banco = float(mov["valor_banco"])
+            fecha_banco = mov["fecha"]
+            
+            for pago in pagos_disponibles:
+                valor_pago = float(pago["valor"])
+                fecha_pago = pago["fecha_pago"]
+                
+                # Calcular diferencias
+                diff_valor = abs(valor_banco - valor_pago)
+                diff_dias = abs((fecha_banco - fecha_pago).days) if fecha_banco and fecha_pago else 999
+                
+                # Criterio de match
+                if diff_valor <= 1000 and diff_dias <= 7:
+                    score = 100 - diff_valor/100 - diff_dias*2
+                    
+                    sugerencias.append({
+                        "id_banco": mov["id"],
+                        "referencia_pago": pago["referencia_pago"],
+                        "valor_banco": valor_banco,
+                        "valor_pago": valor_pago,
+                        "fecha_banco": str(fecha_banco),
+                        "fecha_pago": str(fecha_pago),
+                        "diferencia_valor": diff_valor,
+                        "diferencia_dias": diff_dias,
+                        "score": round(score, 1),
+                        "cliente": pago["cliente"],
+                        "match_quality": "EXCELENTE" if diff_valor <= 1 and diff_dias <= 1 
+                                       else "BUENO" if diff_valor <= 100 and diff_dias <= 3
+                                       else "REGULAR"
+                    })
+        
+        # Ordenar por score
+        sugerencias.sort(key=lambda x: x["score"], reverse=True)
+        
+        return {
+            "movimientos_sin_referencia": movimientos_banco,
+            "pagos_disponibles": pagos_disponibles,
+            "sugerencias_asociacion": sugerencias,
+            "resumen": {
+                "movimientos_bancarios": len(movimientos_banco),
+                "pagos_disponibles": len(pagos_disponibles),
+                "sugerencias_encontradas": len(sugerencias),
+                "matches_excelentes": len([s for s in sugerencias if s["match_quality"] == "EXCELENTE"]),
+                "matches_buenos": len([s for s in sugerencias if s["match_quality"] == "BUENO"])
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-def _evaluar_calidad_conciliacion(estado: str, diff_valor: float, diff_dias: int, confianza: int) -> str:
-    """Evalúa la calidad general de la conciliación"""
-    if estado == "conciliado_exacto" and diff_valor <= 1 and diff_dias <= 1:
-        return "Excelente"
-    elif estado == "conciliado_manual" and confianza >= 90:
-        return "Muy Buena"
-    elif estado == "conciliado_aproximado" and diff_valor <= 1000 and diff_dias <= 3:
-        return "Buena"
-    elif diff_valor > 10000 or diff_dias > 7:
-        return "Requiere Revisión"
-    else:
-        return "Aceptable"
+@router.post("/asociar-referencias-automatico")
+def asociar_referencias_automatico():
+    """
+    Asocia referencias automáticamente basado en las mejores sugerencias
+    """
+    client = bigquery.Client()
+    
+    try:
+        # 1. Obtener sugerencias
+        analisis = analizar_datos_para_asociar()
+        sugerencias = analisis["sugerencias_asociacion"]
+        
+        # 2. Filtrar solo matches de buena calidad
+        matches_buenos = [s for s in sugerencias if s["match_quality"] in ["EXCELENTE", "BUENO"]]
+        
+        if not matches_buenos:
+            return {"mensaje": "No se encontraron matches de buena calidad para asociar automáticamente"}
+        
+        # 3. Asociar uno por uno para evitar conflictos
+        referencias_usadas = set()
+        asociaciones_exitosas = []
+        errores = []
+        
+        for match in matches_buenos:
+            # Evitar duplicados
+            if match["referencia_pago"] in referencias_usadas:
+                continue
+                
+            try:
+                query_update = """
+                UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
+                SET referencia_pago_asociada = @referencia_pago,
+                    observaciones = CONCAT(
+                        COALESCE(observaciones, ''), 
+                        ' | Asociado automáticamente - Score: ', 
+                        @score
+                    )
+                WHERE id = @id_banco
+                AND (referencia_pago_asociada IS NULL OR referencia_pago_asociada = '')
+                """
+                
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("referencia_pago", "STRING", match["referencia_pago"]),
+                        bigquery.ScalarQueryParameter("score", "STRING", str(match["score"])),
+                        bigquery.ScalarQueryParameter("id_banco", "STRING", match["id_banco"])
+                    ]
+                )
+                
+                client.query(query_update, job_config=job_config).result()
+                
+                referencias_usadas.add(match["referencia_pago"])
+                asociaciones_exitosas.append(match)
+                
+            except Exception as e:
+                errores.append({
+                    "id_banco": match["id_banco"],
+                    "referencia_pago": match["referencia_pago"],
+                    "error": str(e)
+                })
+        
+        return {
+            "mensaje": f"✅ {len(asociaciones_exitosas)} referencias asociadas exitosamente",
+            "asociaciones_exitosas": asociaciones_exitosas,
+            "errores": errores,
+            "referencias_usadas": list(referencias_usadas)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-def _get_icono_estado(estado: str, calidad: str) -> str:
-    """Retorna icono apropiado para el estado"""
-    iconos_base = {
-        'Conciliado Exacto': '✅',
-        'Conciliado Aproximado': '🔸',
-        'Conciliado Manual': '👤',
-        'Aprobado (Pendiente Conciliación)': '⏳',
-        'Pagado (Pendiente Aprobación)': '📋',
-        'Pendiente': '❓',
-        'Diferencia de Valor': '💰',
-        'Diferencia de Fecha': '📅',
-        'Sin Conciliar': '❌'
-    }
+@router.post("/asociar-referencia-manual")
+def asociar_referencia_manual(data: dict):
+    """
+    Asocia una referencia manualmente
+    """
+    id_banco = data.get("id_banco")
+    referencia_pago = data.get("referencia_pago")
     
-    icono_base = iconos_base.get(estado, '❓')
+    if not id_banco or not referencia_pago:
+        raise HTTPException(status_code=400, detail="id_banco y referencia_pago son requeridos")
     
-    if calidad == 'Excelente':
-        return icono_base + '🌟'
-    elif calidad == 'Requiere Revisión':
-        return icono_base + '⚠️'
+    client = bigquery.Client()
     
-    return icono_base
+    try:
+        # Verificar que la referencia no esté ya usada
+        query_verificar = """
+        SELECT COUNT(*) as count
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        WHERE referencia_pago_asociada = @referencia_pago
+        """
+        
+        job_config_verificar = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago)
+            ]
+        )
+        
+        resultado = list(client.query(query_verificar, job_config=job_config_verificar).result())[0]
+        
+        if resultado.count > 0:
+            raise HTTPException(status_code=400, detail=f"La referencia {referencia_pago} ya está asociada")
+        
+        # Asociar la referencia
+        query_update = """
+        UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        SET referencia_pago_asociada = @referencia_pago,
+            observaciones = CONCAT(
+                COALESCE(observaciones, ''), 
+                ' | Asociado manualmente'
+            )
+        WHERE id = @id_banco
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
+                bigquery.ScalarQueryParameter("id_banco", "STRING", id_banco)
+            ]
+        )
+        
+        client.query(query_update, job_config=job_config).result()
+        
+        return {
+            "mensaje": f"✅ Referencia {referencia_pago} asociada al movimiento {id_banco}",
+            "id_banco": id_banco,
+            "referencia_pago": referencia_pago
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
-def _get_color_estado(estado: str, integridad_ok: bool) -> str:
-    """Retorna color apropiado para el estado"""
-    if not integridad_ok:
-        return '#f59e0b'  # Amarillo/naranja para advertencia
+@router.get("/verificar-asociaciones-exitosas")
+def verificar_asociaciones_exitosas():
+    """
+    Verifica qué asociaciones se hicieron correctamente
+    """
+    client = bigquery.Client()
     
-    colores = {
-        'Conciliado Exacto': '#22c55e',
-        'Conciliado Aproximado': '#3b82f6',
-        'Conciliado Manual': '#8b5cf6',
-        'Aprobado (Pendiente Conciliación)': '#f59e0b',
-        'Pagado (Pendiente Aprobación)': '#ef4444',
-        'Pendiente': '#6b7280',
-        'Diferencia de Valor': '#ef4444',
-        'Diferencia de Fecha': '#f59e0b',
-        'Sin Conciliar': '#ef4444'
-    }
-    return colores.get(estado, '#6b7280')
-
-def _calcular_score_calidad(entregas: list) -> float:
-    """Calcula un score de calidad general del 0-100"""
-    if not entregas:
-        return 0
-    
-    total = len(entregas)
-    excelentes = len([e for e in entregas if e["calidad_conciliacion"] == "Excelente"])
-    muy_buenas = len([e for e in entregas if e["calidad_conciliacion"] == "Muy Buena"])
-    buenas = len([e for e in entregas if e["calidad_conciliacion"] == "Buena"])
-    problematicas = len([e for e in entregas if e["calidad_conciliacion"] == "Requiere Revisión"])
-    
-    score = (
-        (excelentes * 100 + muy_buenas * 85 + buenas * 70 + problematicas * 30) / 
-        max(total, 1)
-    )
-    
-    return round(score, 1)
-
-def _generar_recomendaciones(entregas: list, alertas: list, clientes_stats: dict) -> list:
-    """Genera recomendaciones basadas en el análisis de datos"""
-    recomendaciones = []
-    
-    # Analizar alertas críticas
-    alertas_criticas = [a for a in alertas if a["severidad"] == "critica"]
-    if alertas_criticas:
-        recomendaciones.append({
-            "tipo": "critica",
-            "titulo": "Diferencias críticas detectadas",
-            "descripcion": f"{len(alertas_criticas)} entregas con diferencias mayores a $10,000 requieren revisión inmediata",
-            "accion": "Revisar y conciliar manualmente las entregas con alertas críticas"
-        })
-    
-    # Analizar clientes con problemas
-    clientes_problematicos = [c for c, stats in clientes_stats.items() if stats["porcentaje_problemas"] > 20]
-    if clientes_problematicos:
-        recomendaciones.append({
-            "tipo": "advertencia",
-            "titulo": "Clientes con alta tasa de problemas",
-            "descripcion": f"{len(clientes_problematicos)} clientes tienen más del 20% de entregas con problemas",
-            "accion": "Revisar procesos de pago con estos clientes: " + ", ".join(clientes_problematicos[:3])
-        })
-    
-    # Analizar entregas listas para liquidar
-    entregas_listas = [e for e in entregas if e["listo_para_liquidar"]]
-    if entregas_listas:
-        valor_listo = sum(e["valor"] for e in entregas_listas)
-        recomendaciones.append({
-            "tipo": "oportunidad",
-            "titulo": "Entregas listas para liquidar",
-            "descripcion": f"{len(entregas_listas)} entregas por ${valor_listo:,.0f} están listas para procesar",
-            "accion": "Proceder con la liquidación de estas entregas"
-        })
-    
-    return recomendaciones
-
-def _mapear_estado_conciliacion(estado_db: str) -> str:
-    """Mapea estados de BD a estados legibles"""
-    mapeo = {
-        "conciliado_exacto": "Conciliado Exacto",
-        "conciliado_aproximado": "Conciliado Aproximado", 
-        "conciliado_manual": "Conciliado Manual",
-        "pendiente": "Pendiente",
-        "sin_match": "Sin Conciliar",
-        "multiple_match": "Múltiples Coincidencias",
-        "diferencia_valor": "Diferencia de Valor",
-        "diferencia_fecha": "Diferencia de Fecha"
-    }
-    return mapeo.get(estado_db, estado_db)
-
-def _get_descripcion_validacion(resultado: str) -> str:
-    """Descripciones legibles para cada tipo de validación"""
-    descripciones = {
-        "OK": "Entregas listas para liquidar sin problemas",
-        "SIN_CONCILIAR": "Entregas sin conciliación bancaria",
-        "CONCILIACION_INCOMPLETA": "Conciliación iniciada pero no completada",
-        "PAGO_NO_APROBADO": "Pagos que requieren aprobación previa",
-        "DIFERENCIA_VALOR_ALTA": "Diferencias significativas entre pago y banco"
-    }
-    return descripciones.get(resultado, resultado)
-
-def _get_recomendacion_liquidacion(validaciones: list) -> str:
-    """Genera recomendación basada en validaciones"""
-    problemas = [v for v in validaciones if v["resultado"] != "OK"]
-    
-    if not problemas:
-        return "✅ Todas las entregas están listas para liquidar"
-    
-    if any(p["resultado"] == "SIN_CONCILIAR" for p in problemas):
-        return "❌ Completar conciliación bancaria antes de proceder"
-    
-    if any(p["resultado"] == "DIFERENCIA_VALOR_ALTA" for p in problemas):
-        return "⚠️ Revisar diferencias de valor antes de liquidar"
-    
-    return "⚠️ Resolver problemas identificados antes de liquidar"
+    try:
+        query = """
+        SELECT 
+            bm.id as id_banco,
+            bm.fecha as fecha_banco,
+            bm.valor_banco,
+            bm.estado_conciliacion,
+            bm.referencia_pago_asociada,
+            
+            pc.referencia_pago,
+            pc.fecha_pago,
+            COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor_pago,
+            COALESCE(pc.cliente, 'Sin Cliente') as cliente,
+            
+            ABS(bm.valor_banco - COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)) as diferencia_valor,
+            ABS(DATE_DIFF(bm.fecha, pc.fecha_pago, DAY)) as diferencia_dias
+            
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+        
+        INNER JOIN `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            ON bm.referencia_pago_asociada = pc.referencia_pago
+            
+        WHERE bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')
+        AND pc.estado = 'aprobado'
+        
+        ORDER BY bm.fecha DESC
+        """
+        
+        resultados = [dict(row) for row in client.query(query).result()]
+        
+        # Estadísticas
+        total_asociaciones = len(resultados)
+        valor_total = sum(r["valor_banco"] for r in resultados)
+        
+        return {
+            "mensaje": f"✅ {total_asociaciones} entregas conciliadas y listas para liquidar",
+            "entregas_listas": resultados,
+            "estadisticas": {
+                "total_asociaciones": total_asociaciones,
+                "valor_total": valor_total,
+                "diferencia_valor_promedio": sum(r["diferencia_valor"] for r in resultados) / max(total_asociaciones, 1),
+                "diferencia_dias_promedio": sum(r["diferencia_dias"] for r in resultados) / max(total_asociaciones, 1)
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")

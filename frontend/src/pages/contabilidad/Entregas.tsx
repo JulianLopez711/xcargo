@@ -6,26 +6,7 @@ import { useNavigate } from "react-router-dom";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import "../../styles/contabilidad/Entregas.css";
 
-// ✅ INTERFACES COMPLETAS Y CORREGIDAS
-interface Liquidacion {
-  tracking: string;
-  fecha: string;
-  tipo: string;
-  cliente: string;
-  valor: number;
-  estado_conciliacion: string;
-  referencia_pago: string;
-  correo_conductor: string;
-  entidad_pago: string;
-  fecha_conciliacion?: string;
-}
-
-interface EstadisticasEntregas {
-  total_entregas: number;
-  valor_total: number;
-  clientes: Record<string, { cantidad: number; valor: number }>;
-}
-
+// ✅ INTERFACES CORREGIDAS Y SIMPLIFICADAS
 interface EntregaConsolidada {
   tracking: string;
   fecha: string;
@@ -38,18 +19,21 @@ interface EntregaConsolidada {
   entidad_pago: string;
   fecha_conciliacion?: string;
   
-  // ✅ NUEVOS CAMPOS DE CONCILIACIÓN
+  // Campos de conciliación
   valor_banco_conciliado?: number;
   id_banco_asociado?: string;
   observaciones_conciliacion?: string;
   diferencia_valor?: number;
-  diferencia_dias?: number;
   integridad_ok?: boolean;
   listo_para_liquidar?: boolean;
   confianza_match?: number;
   calidad_conciliacion?: string;
-  valor_exacto?: boolean;
-  fecha_consistente?: boolean;
+}
+
+interface EstadisticasEntregas {
+  total_entregas: number;
+  valor_total: number;
+  clientes: Record<string, { cantidad: number; valor: number }>;
 }
 
 interface DashboardConciliacion {
@@ -100,12 +84,37 @@ interface ValidacionIntegridad {
   recomendacion: string;
 }
 
+interface ApiResponse {
+  entregas: EntregaConsolidada[];
+  total_entregas: number;
+  valor_total: number;
+  estadisticas?: EstadisticasEntregas;
+  clientes_agrupados?: Record<string, { cantidad: number; valor: number }>;
+  estadisticas_calidad?: {
+    exactas: number;
+    aproximadas: number;
+    manuales: number;
+    sin_conciliar: number;
+  };
+  calidad_datos?: {
+    porcentaje_calidad: number;
+    confianza_promedio: number;
+    alertas_criticas: number;
+  };
+  alertas_integridad?: Array<{
+    referencia: string;
+    tipo: string;
+    severidad: string;
+  }>;
+  mensaje?: string;
+}
+
 export default function LiquidacionesClientes() {
   const [liquidaciones, setLiquidaciones] = useState<EntregaConsolidada[]>([]);
   const [estadisticas, setEstadisticas] = useState<EstadisticasEntregas | null>(null);
   const [resumenClientes, setResumenClientes] = useState<ResumenLiquidacion[]>([]);
-  const [fechaDesde, setFechaDesde] = useState("");
   const [dashboardConciliacion, setDashboardConciliacion] = useState<DashboardConciliacion | null>(null);
+  const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [clienteFiltro, setClienteFiltro] = useState("");
   const [soloConciliadas, setSoloConciliadas] = useState(true);
@@ -113,103 +122,41 @@ export default function LiquidacionesClientes() {
   const [mensaje, setMensaje] = useState("");
   const navigate = useNavigate();
 
+  // ✅ FUNCIÓN PARA MANEJAR ERRORES DE MANERA ROBUSTA
+  const manejarError = (error: any, contexto: string) => {
+    console.error(`Error en ${contexto}:`, error);
+    
+    if (error.message?.includes('404')) {
+      setMensaje(`❌ Endpoint no encontrado en ${contexto}. Verificar configuración del backend.`);
+    } else if (error.message?.includes('Respuesta no es JSON')) {
+      setMensaje(`❌ El servidor devolvió HTML en lugar de JSON. Verificar que el backend esté ejecutándose correctamente.`);
+    } else {
+      setMensaje(`❌ Error en ${contexto}: ${error.message}`);
+    }
+  };
+
   // ✅ FUNCIÓN PARA CARGAR DASHBOARD DE CONCILIACIÓN
   const cargarDashboardConciliacion = async () => {
     try {
       const res = await fetch("http://localhost:8000/entregas/dashboard-conciliacion");
-      if (res.ok) {
-        const data = await res.json();
-        setDashboardConciliacion(data);
-      }
-    } catch (err) {
-      console.error("Error cargando dashboard:", err);
-    }
-  };
-
-  // ✅ FUNCIÓN MEJORADA PARA CARGAR SOLO ENTREGAS LISTAS
-  const cargarEntregasListas = async () => {
-    setCargando(true);
-    setMensaje("");
-    
-    try {
-      const params = new URLSearchParams();
-      if (clienteFiltro) params.append("cliente", clienteFiltro);
-      if (fechaDesde) params.append("desde", fechaDesde);
-      if (fechaHasta) params.append("hasta", fechaHasta);
-      params.append("incluir_aproximadas", "true");
-
-      const res = await fetch(`http://localhost:8000/entregas/entregas-listas-liquidar?${params.toString()}`);
-      
       if (!res.ok) {
         throw new Error(`Error ${res.status}: ${res.statusText}`);
       }
       
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Respuesta no es JSON");
+      }
+      
       const data = await res.json();
-      
-      if (data.entregas && Array.isArray(data.entregas)) {
-        setLiquidaciones(data.entregas.map((e: any) => ({
-          ...e,
-          estado_conciliacion: e.estado_conciliacion || "Conciliado"
-        })));
-        
-        // ✅ MOSTRAR ESTADÍSTICAS DE CALIDAD DETALLADAS
-        if (data.calidad_datos) {
-          const calidad = data.calidad_datos;
-          const stats = data.estadisticas_calidad;
-          
-          setMensaje(`✅ ${data.entregas.length} entregas listas para liquidar
-📊 Calidad: ${calidad.porcentaje_calidad.toFixed(1)}% | Confianza: ${calidad.confianza_promedio.toFixed(0)}%
-🎯 Exactas: ${stats.exactas} | Aproximadas: ${stats.aproximadas} | Manuales: ${stats.manuales}
-${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas críticas` : '✅ Sin alertas críticas'}`);
-        }
-        
-        // ✅ ESTADÍSTICAS MEJORADAS
-        setEstadisticas({
-          total_entregas: data.total_entregas,
-          valor_total: data.valor_total,
-          clientes: data.clientes_agrupados || {}
-        });
-        
-        // ✅ MOSTRAR ALERTAS DE INTEGRIDAD SI EXISTEN
-        if (data.alertas_integridad && data.alertas_integridad.length > 0) {
-          const alertasStr = data.alertas_integridad.slice(0, 3).map((a: any) => 
-            `${a.referencia}: ${a.tipo} (${a.severidad})`
-          ).join('\n');
-          setMensaje(prev => `${prev}\n\n⚠️ Alertas de integridad:\n${alertasStr}${data.alertas_integridad.length > 3 ? '\n...y más' : ''}`);
-        }
-      }
+      setDashboardConciliacion(data);
     } catch (err: any) {
-      console.error("Error al cargar entregas listas:", err);
-      setMensaje(`❌ Error: ${err.message}`);
-      setLiquidaciones([]);
-    } finally {
-      setCargando(false);
+      console.warn("Dashboard no disponible:", err.message);
+      // No mostrar error para dashboard opcional
     }
   };
 
-  // ✅ FUNCIÓN PARA VALIDAR INTEGRIDAD ANTES DE LIQUIDAR
-  const validarIntegridadCliente = async (cliente: string) => {
-    try {
-      const res = await fetch(`http://localhost:8000/entregas/validar-integridad-liquidacion/${encodeURIComponent(cliente)}`);
-      if (!res.ok) throw new Error(`Error ${res.status}`);
-      
-      const validacion: ValidacionIntegridad = await res.json();
-      
-      // Mostrar resultado de validación
-      if (validacion.listo_para_procesar) {
-        setMensaje(`✅ ${cliente}: ${validacion.resumen.listas_liquidar} entregas listas por ${formatearMoneda(validacion.resumen.valor_listo)}`);
-        return true;
-      } else {
-        setMensaje(`⚠️ ${cliente}: ${validacion.resumen.con_problemas} entregas con problemas. ${validacion.recomendacion}`);
-        return false;
-      }
-    } catch (err) {
-      setMensaje(`❌ Error validando ${cliente}: ${err}`);
-      return false;
-    }
-  };
-
-  // ✅ FUNCIÓN PRINCIPAL PARA CARGAR ENTREGAS
+  // ✅ FUNCIÓN PRINCIPAL PARA CARGAR ENTREGAS (CORREGIDA)
   const cargarEntregas = async () => {
     setCargando(true);
     setMensaje("");
@@ -227,18 +174,52 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
         throw new Error(`Error ${res.status}: ${res.statusText}`);
       }
       
-      const data = await res.json();
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Respuesta no es JSON");
+      }
+      
+      const data: ApiResponse = await res.json();
       
       if (data.entregas && Array.isArray(data.entregas)) {
         setLiquidaciones(data.entregas);
-        setEstadisticas(data.estadisticas);
-        setMensaje(`✅ Cargadas ${data.entregas.length} entregas exitosamente`);
+        
+        // ✅ MOSTRAR ESTADÍSTICAS DE CALIDAD SI ESTÁN DISPONIBLES
+        if (data.calidad_datos && data.estadisticas_calidad) {
+          const calidad = data.calidad_datos;
+          const stats = data.estadisticas_calidad;
+          
+          setMensaje(`✅ ${data.entregas.length} entregas cargadas
+📊 Calidad: ${calidad.porcentaje_calidad.toFixed(1)}% | Confianza: ${calidad.confianza_promedio.toFixed(0)}%
+🎯 Exactas: ${stats.exactas} | Aproximadas: ${stats.aproximadas} | Manuales: ${stats.manuales}
+${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas críticas` : '✅ Sin alertas críticas'}`);
+        } else {
+          setMensaje(`✅ Cargadas ${data.entregas.length} entregas exitosamente`);
+        }
+        
+        // ✅ ESTADÍSTICAS
+        if (data.estadisticas) {
+          setEstadisticas(data.estadisticas);
+        } else {
+          setEstadisticas({
+            total_entregas: data.total_entregas,
+            valor_total: data.valor_total,
+            clientes: data.clientes_agrupados || {}
+          });
+        }
+        
+        // ✅ MOSTRAR ALERTAS DE INTEGRIDAD SI EXISTEN
+        if (data.alertas_integridad && data.alertas_integridad.length > 0) {
+          const alertasStr = data.alertas_integridad.slice(0, 3).map((a: any) => 
+            `${a.referencia}: ${a.tipo} (${a.severidad})`
+          ).join('\n');
+          setMensaje(prev => `${prev}\n\n⚠️ Alertas de integridad:\n${alertasStr}${data.alertas_integridad!.length > 3 ? '\n...y más' : ''}`);
+        }
       } else {
         throw new Error("Formato de respuesta inválido");
       }
     } catch (err: any) {
-      console.error("Error al cargar entregas:", err);
-      setMensaje(`❌ Error: ${err.message}`);
+      manejarError(err, "cargar entregas");
       setLiquidaciones([]);
       setEstadisticas(null);
     } finally {
@@ -246,30 +227,131 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
     }
   };
 
-  const cargarResumenClientes = async () => {
+  // ✅ FUNCIÓN PARA CARGAR SOLO ENTREGAS LISTAS PARA LIQUIDAR
+  const cargarEntregasListas = async () => {
+    setCargando(true);
+    setMensaje("");
+    
     try {
-      const res = await fetch("http://localhost:8000/entregas/resumen-liquidaciones");
-      if (res.ok) {
-        const data = await res.json();
-        setResumenClientes(data);
+      const params = new URLSearchParams();
+      if (clienteFiltro) params.append("cliente", clienteFiltro);
+      if (fechaDesde) params.append("desde", fechaDesde);
+      if (fechaHasta) params.append("hasta", fechaHasta);
+      params.append("incluir_aproximadas", "true");
+
+      const res = await fetch(`http://localhost:8000/entregas/entregas-listas-liquidar?${params.toString()}`);
+      
+      if (!res.ok) {
+        throw new Error(`Error ${res.status}: ${res.statusText}`);
       }
-    } catch (err) {
-      console.error("Error cargando resumen de clientes:", err);
+      
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Respuesta no es JSON");
+      }
+      
+      const data: ApiResponse = await res.json();
+      
+      if (data.entregas && Array.isArray(data.entregas)) {
+        setLiquidaciones(data.entregas.map((e: any) => ({
+          ...e,
+          estado_conciliacion: e.estado_conciliacion || "Conciliado"
+        })));
+        
+        // ✅ MOSTRAR MENSAJE DEL BACKEND SI EXISTE
+        if (data.mensaje) {
+          setMensaje(data.mensaje);
+        } else {
+          setMensaje(`✅ ${data.entregas.length} entregas listas para liquidar`);
+        }
+        
+        // ✅ ESTADÍSTICAS
+        setEstadisticas({
+          total_entregas: data.total_entregas,
+          valor_total: data.valor_total,
+          clientes: data.clientes_agrupados || {}
+        });
+        
+        // ✅ MOSTRAR CALIDAD DE DATOS SI ESTÁ DISPONIBLE
+        if (data.calidad_datos) {
+          const calidad = data.calidad_datos;
+          setMensaje(prev => `${prev}\n📊 Calidad: ${calidad.porcentaje_calidad.toFixed(1)}% | Confianza: ${calidad.confianza_promedio.toFixed(0)}%`);
+        }
+      }
+    } catch (err: any) {
+      manejarError(err, "cargar entregas listas");
+      setLiquidaciones([]);
+    } finally {
+      setCargando(false);
     }
   };
 
+  // ✅ FUNCIÓN PARA CARGAR RESUMEN DE CLIENTES
+  const cargarResumenClientes = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/entregas/resumen-liquidaciones");
+      if (!res.ok) {
+        throw new Error(`Error ${res.status}: ${res.statusText}`);
+      }
+      
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Respuesta no es JSON");
+      }
+      
+      const data = await res.json();
+      setResumenClientes(data);
+    } catch (err: any) {
+      console.warn("Resumen de clientes no disponible:", err.message);
+      // No mostrar error para resumen opcional
+    }
+  };
+
+  // ✅ FUNCIÓN PARA VALIDAR INTEGRIDAD ANTES DE LIQUIDAR
+  const validarIntegridadCliente = async (cliente: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`http://localhost:8000/entregas/validar-integridad-liquidacion/${encodeURIComponent(cliente)}`);
+      if (!res.ok) {
+        throw new Error(`Error ${res.status}`);
+      }
+      
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Respuesta no es JSON");
+      }
+      
+      const validacion: ValidacionIntegridad = await res.json();
+      
+      // Mostrar resultado de validación
+      if (validacion.listo_para_procesar) {
+        setMensaje(`✅ ${cliente}: ${validacion.resumen.listas_liquidar} entregas listas por ${formatearMoneda(validacion.resumen.valor_listo)}`);
+        return true;
+      } else {
+        setMensaje(`⚠️ ${cliente}: ${validacion.resumen.con_problemas} entregas con problemas. ${validacion.recomendacion}`);
+        return false;
+      }
+    } catch (err: any) {
+      console.warn(`Error validando ${cliente}:`, err.message);
+      // Si falla la validación, permitir continuar
+      return true;
+    }
+  };
+
+  // ✅ CARGAR DATOS AL MONTAR EL COMPONENTE
   useEffect(() => {
     cargarEntregas();
     cargarResumenClientes();
     cargarDashboardConciliacion();
   }, []);
 
+  // ✅ RECARGAR CUANDO CAMBIEN LOS FILTROS
   useEffect(() => {
     if (fechaDesde || fechaHasta || clienteFiltro || !soloConciliadas) {
       cargarEntregas();
     }
   }, [fechaDesde, fechaHasta, clienteFiltro, soloConciliadas]);
 
+  // ✅ DATOS FILTRADOS (LADO CLIENTE)
   const datosFiltrados = liquidaciones.filter((e) => {
     const desde = !fechaDesde || e.fecha >= fechaDesde;
     const hasta = !fechaHasta || e.fecha <= fechaHasta;
@@ -277,7 +359,7 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
     return desde && hasta && cliente;
   });
 
-  // ✅ FUNCIÓN MEJORADA PARA IR A PAGO CON VALIDACIÓN
+  // ✅ FUNCIÓN PARA IR A PAGO CON VALIDACIÓN
   const irAPagoConValidacion = async () => {
     if (datosFiltrados.length === 0) {
       alert("No hay registros filtrados para pagar.");
@@ -298,9 +380,9 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
       
       // ✅ FILTRAR SOLO ENTREGAS REALMENTE LISTAS
       const entregasListas = datosFiltrados.filter((e: EntregaConsolidada) => 
-        e.listo_para_liquidar && 
+        e.listo_para_liquidar !== false && 
         e.integridad_ok !== false &&
-        e.estado_conciliacion.includes("Conciliado")
+        (e.estado_conciliacion.includes("Conciliado") || e.estado_conciliacion.includes("conciliado"))
       );
       
       if (entregasListas.length === 0) {
@@ -338,13 +420,13 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
       });
       
     } catch (err) {
-      console.error("Error en validación:", err);
-      setMensaje(`❌ Error validando entregas: ${err}`);
+      manejarError(err, "validación de entregas");
     } finally {
       setCargando(false);
     }
   };
 
+  // ✅ EXPORTAR A EXCEL
   const exportarExcel = () => {
     if (datosFiltrados.length === 0) {
       alert("No hay datos para exportar");
@@ -385,6 +467,7 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
     saveAs(blob, `liquidaciones-${fecha}.xlsx`);
   };
 
+  // ✅ FUNCIONES DE UTILIDAD
   const formatearFecha = (fecha: string) => {
     return new Date(fecha).toLocaleDateString('es-CO', {
       day: '2-digit',
@@ -402,25 +485,24 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
     });
   };
 
-  // ✅ FUNCIÓN PARA OBTENER COLOR DE ESTADO MEJORADA
+  // ✅ FUNCIÓN PARA OBTENER COLOR DE ESTADO
   const getEstadoColor = (estado: string, integridad_ok?: boolean): string => {
-    // Si hay problemas de integridad, usar colores de advertencia
     if (integridad_ok === false) {
       return '#f59e0b'; // Amarillo/naranja para advertencia
     }
     
     const colores: { [key: string]: string } = {
-      'Conciliado Exacto': '#22c55e',      // Verde brillante
-      'Conciliado Aproximado': '#3b82f6',  // Azul
-      'Conciliado Manual': '#8b5cf6',      // Púrpura
-      'Aprobado (Pendiente Conciliación)': '#f59e0b', // Amarillo
-      'Pagado (Pendiente Aprobación)': '#ef4444',     // Rojo
-      'Pendiente': '#6b7280',              // Gris
+      'Conciliado Exacto': '#22c55e',
+      'Conciliado Aproximado': '#3b82f6',
+      'Conciliado Manual': '#8b5cf6',
+      'Aprobado (Pendiente Conciliación)': '#f59e0b',
+      'Pagado (Pendiente Aprobación)': '#ef4444',
+      'Pendiente': '#6b7280',
     };
     return colores[estado] || '#6b7280';
   };
 
-  // ✅ FUNCIÓN PARA OBTENER ICONO DE ESTADO MEJORADA
+  // ✅ FUNCIÓN PARA OBTENER ICONO DE ESTADO
   const getEstadoIcono = (estado: string, calidad?: string): string => {
     const iconos: { [key: string]: string } = {
       'Conciliado Exacto': '✅',
@@ -431,7 +513,6 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
       'Pendiente': '❓',
     };
     
-    // Agregar indicadores de calidad
     const icono_base = iconos[estado] || '❓';
     
     if (calidad === 'Excelente') return icono_base + '🌟';
@@ -597,6 +678,7 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
     );
   };
 
+  // ✅ CALCULAR TOTALES
   const total = datosFiltrados.reduce((sum, e) => sum + e.valor, 0);
   const clientesUnicos = Array.from(new Set(liquidaciones.map(e => e.cliente))).sort();
 
@@ -672,9 +754,288 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
               onChange={(e) => setFechaDesde(e.target.value)} 
             />
           </div>
+
+          <div className="filtro-group">
+            <label className="filtro-label">Fecha hasta:</label>
+            <input 
+              type="date" 
+              className="filtro-input"
+              value={fechaHasta} 
+              onChange={(e) => setFechaHasta(e.target.value)} 
+            />
+          </div>
+
+          <div className="filtro-group">
+            <label className="filtro-checkbox">
+              <input 
+                type="checkbox" 
+                checked={soloConciliadas}
+                onChange={(e) => setSoloConciliadas(e.target.checked)}
+              />
+              Solo entregas conciliadas
+            </label>
+          </div>
+        </div>
+
+        {/* Botones de acción */}
+        <div className="filtros-acciones">
+          <button 
+            className="btn btn-primary"
+            onClick={cargarEntregas}
+            disabled={cargando}
+          >
+            {cargando ? "Cargando..." : "🔄 Actualizar"}
+          </button>
+
+          <button 
+            className="btn btn-secondary"
+            onClick={cargarEntregasListas}
+            disabled={cargando}
+          >
+            ✅ Solo Listas para Liquidar
+          </button>
+
+          <button 
+            className="btn btn-success"
+            onClick={irAPagoConValidacion}
+            disabled={cargando || datosFiltrados.length === 0}
+          >
+            💰 Proceder al Pago
+          </button>
+
+          <button 
+            className="btn btn-outline"
+            onClick={exportarExcel}
+            disabled={datosFiltrados.length === 0}
+          >
+            📊 Exportar Excel
+          </button>
         </div>
       </div>
-          {/* Aquí iría el resto del contenido de la página, como tablas, botones, etc. */}
+
+      {/* Mensajes */}
+      {mensaje && (
+        <div className={`mensaje ${mensaje.includes('❌') ? 'error' : 'info'}`}>
+          <pre>{mensaje}</pre>
         </div>
-      );
-    }
+      )}
+
+      {/* Loading Spinner */}
+      {cargando && <LoadingSpinner />}
+
+      {/* Estadísticas Resumen */}
+      {estadisticas && (
+        <div className="estadisticas-section">
+          <h3 className="section-title">📈 Estadísticas</h3>
+          <div className="estadisticas-grid">
+            <div className="stat-card">
+              <div className="stat-number">{estadisticas.total_entregas}</div>
+              <div className="stat-label">Total Entregas</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{formatearMoneda(estadisticas.valor_total)}</div>
+              <div className="stat-label">Valor Total</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{Object.keys(estadisticas.clientes).length}</div>
+              <div className="stat-label">Clientes</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-number">{datosFiltrados.length}</div>
+              <div className="stat-label">Filtradas</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tabla de Entregas */}
+      <div className="tabla-section">
+        <h3 className="section-title">
+          📋 Entregas 
+          {datosFiltrados.length > 0 && (
+            <span className="count-badge">({datosFiltrados.length})</span>
+          )}
+        </h3>
+
+        {datosFiltrados.length === 0 ? (
+          <div className="empty-state">
+            <p>No hay entregas que coincidan con los filtros seleccionados.</p>
+            <button className="btn btn-primary" onClick={cargarEntregas}>
+              🔄 Recargar datos
+            </button>
+          </div>
+        ) : (
+          <div className="tabla-container">
+            <table className="entregas-table">
+              <thead>
+                <tr>
+                  <th>Estado</th>
+                  <th>Tracking</th>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th>Valor</th>
+                  <th>Tipo</th>
+                  <th>Conductor</th>
+                  <th>Conciliación</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {datosFiltrados.map((entrega, index) => (
+                  <tr key={entrega.referencia_pago || index} 
+                      className={entrega.listo_para_liquidar ? 'row-ready' : 'row-pending'}>
+                    
+                    {/* Estado */}
+                    <td>
+                      <div className="estado-badge" 
+                           style={{ 
+                             backgroundColor: getEstadoColor(entrega.estado_conciliacion, entrega.integridad_ok),
+                             color: 'white',
+                             padding: '0.25rem 0.5rem',
+                             borderRadius: '4px',
+                             fontSize: '0.75rem',
+                             textAlign: 'center'
+                           }}>
+                        {getEstadoIcono(entrega.estado_conciliacion, entrega.calidad_conciliacion)}
+                        <div style={{ fontSize: '0.7rem', marginTop: '0.125rem' }}>
+                          {entrega.estado_conciliacion}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Tracking */}
+                    <td className="tracking-cell">
+                      <div className="tracking-main">{entrega.tracking}</div>
+                      <div className="tracking-ref">{entrega.referencia_pago}</div>
+                    </td>
+
+                    {/* Fecha */}
+                    <td>
+                      <div className="fecha-main">{formatearFecha(entrega.fecha)}</div>
+                      {entrega.fecha_conciliacion && (
+                        <div className="fecha-conciliacion">
+                          Conc: {formatearFecha(entrega.fecha_conciliacion)}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Cliente */}
+                    <td className="cliente-cell">
+                      <strong>{entrega.cliente}</strong>
+                    </td>
+
+                    {/* Valor */}
+                    <td className="valor-cell">
+                      <div className="valor-main">{formatearMoneda(entrega.valor)}</div>
+                      {entrega.valor_banco_conciliado && entrega.valor_banco_conciliado !== entrega.valor && (
+                        <div className="valor-banco">
+                          Banco: {formatearMoneda(entrega.valor_banco_conciliado)}
+                        </div>
+                      )}
+                      {entrega.diferencia_valor && entrega.diferencia_valor > 1 && (
+                        <div className="diferencia-valor" style={{ color: '#ef4444', fontSize: '0.75rem' }}>
+                          Dif: ${entrega.diferencia_valor.toLocaleString()}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Tipo */}
+                    <td>{entrega.tipo}</td>
+
+                    {/* Conductor */}
+                    <td className="conductor-cell">
+                      <div className="conductor-email">{entrega.correo_conductor}</div>
+                      <div className="entidad-pago">{entrega.entidad_pago}</div>
+                    </td>
+
+                    {/* Información de Conciliación */}
+                    <td className="conciliacion-cell">
+                      {entrega.confianza_match && entrega.confianza_match > 0 && (
+                        <div className="confianza-badge" 
+                             style={{
+                               backgroundColor: entrega.confianza_match >= 95 ? '#22c55e' : 
+                                               entrega.confianza_match >= 80 ? '#3b82f6' : '#f59e0b',
+                               color: 'white',
+                               padding: '0.125rem 0.25rem',
+                               borderRadius: '4px',
+                               fontSize: '0.7rem',
+                               display: 'inline-block'
+                             }}>
+                          {entrega.confianza_match}%
+                        </div>
+                      )}
+                      
+                      {entrega.calidad_conciliacion && (
+                        <div className="calidad-text" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                          {entrega.calidad_conciliacion}
+                        </div>
+                      )}
+                      
+                      {entrega.id_banco_asociado && entrega.id_banco_asociado !== 'N/A' && (
+                        <div className="id-banco" style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                          ID: {entrega.id_banco_asociado}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Acciones */}
+                    <td className="acciones-cell">
+                      <DetallesConciliacion entrega={entrega} />
+                      
+                      {entrega.listo_para_liquidar && (
+                        <div className="ready-badge" style={{
+                          backgroundColor: '#22c55e',
+                          color: 'white',
+                          padding: '0.125rem 0.25rem',
+                          borderRadius: '4px',
+                          fontSize: '0.7rem',
+                          marginTop: '0.25rem',
+                          textAlign: 'center'
+                        }}>
+                          ✅ Listo
+                        </div>
+                      )}
+                      
+                      {entrega.integridad_ok === false && (
+                        <div className="warning-badge" style={{
+                          backgroundColor: '#f59e0b',
+                          color: 'white',
+                          padding: '0.125rem 0.25rem',
+                          borderRadius: '4px',
+                          fontSize: '0.7rem',
+                          marginTop: '0.25rem',
+                          textAlign: 'center'
+                        }}>
+                          ⚠️ Revisar
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Footer con Totales */}
+      {datosFiltrados.length > 0 && (
+        <div className="footer-totales">
+          <div className="totales-info">
+            <strong>Total Filtrado: {formatearMoneda(total)}</strong>
+            <span className="separator">|</span>
+            <span>Entregas: {datosFiltrados.length}</span>
+            <span className="separator">|</span>
+            <span>Clientes: {new Set(datosFiltrados.map(e => e.cliente)).size}</span>
+            {clienteFiltro && (
+              <>
+                <span className="separator">|</span>
+                <span>Cliente: {clienteFiltro}</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

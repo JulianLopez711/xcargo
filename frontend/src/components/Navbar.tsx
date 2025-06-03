@@ -11,7 +11,7 @@ import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
 import { operadorRoutes } from "../routes/operadorRoutes/operadorRoutes";
 import { supervisorRoutes } from "../routes/supervisorRoutes/supervisorRoutes";
 import { masterRoutes } from "../routes/masterRoutes/masterRoutes";
-import NotificacionesFlujo from "./NotificacionesFlujo";
+
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -135,9 +135,6 @@ export default function Navbar() {
             <span></span>
           </span>
         </button>
-        <div className="navbar-notifications">
-          <NotificacionesFlujo />
-        </div>
         {/* User Menu */}
         <div className="navbar-user" ref={menuRef}>
           <button

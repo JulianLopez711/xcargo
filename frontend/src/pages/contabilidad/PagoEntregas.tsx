@@ -22,7 +22,7 @@ interface FormularioPago {
 }
 
 interface EstadoProceso {
-  paso: 'formulario' | 'procesando' | 'completado' | 'error'| 'confirmacion';
+  paso: "formulario" | "procesando" | "completado" | "error" | "confirmacion";
   mensaje: string;
   progreso: number;
 }
@@ -30,86 +30,98 @@ interface EstadoProceso {
 export default function PagoEntregas() {
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   // Obtener datos desde la navegación o usar valores por defecto
-  const { entregas = [], total = 0 }: { entregas: Entrega[]; total: number } = 
+  const { entregas = [], total = 0 }: { entregas: Entrega[]; total: number } =
     location.state || { entregas: [], total: 0 };
 
   const [formulario, setFormulario] = useState<FormularioPago>({
     valor_pago: total.toString(),
-    fecha_pago: new Date().toISOString().split('T')[0],
+    fecha_pago: new Date().toISOString().split("T")[0],
     hora_pago: new Date().toTimeString().slice(0, 5),
-    tipo: 'Transferencia',
-    entidad: '',
+    tipo: "Transferencia",
+    entidad: "",
     referencia: `PAY_${Date.now()}`,
-    comprobante: null
+    comprobante: null,
   });
 
   // Estados específicos para mejor type safety
-  type PasoEstado = 'formulario' | 'procesando' | 'completado' | 'error' | 'confirmacion';
+  type PasoEstado =
+    | "formulario"
+    | "procesando"
+    | "completado"
+    | "error"
+    | "confirmacion";
 
   const [estado, setEstado] = useState<EstadoProceso>({
-    paso: 'formulario' as PasoEstado,
-    mensaje: '',
-    progreso: 0
+    paso: "formulario" as PasoEstado,
+    mensaje: "",
+    progreso: 0,
   });
 
-  const [errores, setErrores] = useState<{[key: string]: string}>({});
+  const [errores, setErrores] = useState<{ [key: string]: string }>({});
   const [enviandoCorreo, setEnviandoCorreo] = useState(false);
 
   // Verificar si llegamos con datos válidos
   useEffect(() => {
     if (entregas.length === 0) {
       setEstado({
-        paso: 'error' as PasoEstado,
-        mensaje: 'No se encontraron entregas para procesar',
-        progreso: 0
+        paso: "error" as PasoEstado,
+        mensaje: "No se encontraron entregas para procesar",
+        progreso: 0,
       });
     }
   }, [entregas]);
 
   const validarFormulario = (): boolean => {
-    const nuevosErrores: {[key: string]: string} = {};
+    const nuevosErrores: { [key: string]: string } = {};
 
     // Validar valor
-    const valorNum = parseFloat(formulario.valor_pago.replace(/[,$]/g, ''));
+    const valorNum = parseFloat(formulario.valor_pago.replace(/[,$]/g, ""));
     if (isNaN(valorNum) || valorNum <= 0) {
-      nuevosErrores.valor_pago = 'El valor debe ser mayor a cero';
+      nuevosErrores.valor_pago = "El valor debe ser mayor a cero";
     }
 
     // Validar fecha
     const fechaPago = new Date(formulario.fecha_pago);
     const hoy = new Date();
     if (fechaPago > hoy) {
-      nuevosErrores.fecha_pago = 'La fecha no puede ser futura';
+      nuevosErrores.fecha_pago = "La fecha no puede ser futura";
     }
 
     // Validar hora
     if (!/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(formulario.hora_pago)) {
-      nuevosErrores.hora_pago = 'Formato de hora inválido (HH:MM)';
+      nuevosErrores.hora_pago = "Formato de hora inválido (HH:MM)";
     }
 
     // Validar campos requeridos
     if (!formulario.entidad.trim()) {
-      nuevosErrores.entidad = 'La entidad bancaria es requerida';
+      nuevosErrores.entidad = "La entidad bancaria es requerida";
     }
 
     if (!formulario.referencia.trim()) {
-      nuevosErrores.referencia = 'La referencia es requerida';
+      nuevosErrores.referencia = "La referencia es requerida";
     }
 
     if (!formulario.comprobante) {
-      nuevosErrores.comprobante = 'El comprobante es requerido';
+      nuevosErrores.comprobante = "El comprobante es requerido";
     } else {
       // Validar archivo
       const maxSize = 10 * 1024 * 1024; // 10MB
       if (formulario.comprobante.size > maxSize) {
-        nuevosErrores.comprobante = 'El archivo es demasiado grande (máximo 10MB)';
+        nuevosErrores.comprobante =
+          "El archivo es demasiado grande (máximo 10MB)";
       }
 
-      const tiposPermitidos = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+      const tiposPermitidos = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/pdf",
+      ];
       if (!tiposPermitidos.includes(formulario.comprobante.type)) {
-        nuevosErrores.comprobante = 'Tipo de archivo no permitido (JPG, PNG, WEBP, PDF)';
+        nuevosErrores.comprobante =
+          "Tipo de archivo no permitido (JPG, PNG, WEBP, PDF)";
       }
     }
 
@@ -119,20 +131,20 @@ export default function PagoEntregas() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const archivo = e.target.files?.[0] || null;
-    setFormulario(prev => ({ ...prev, comprobante: archivo }));
-    
+    setFormulario((prev) => ({ ...prev, comprobante: archivo }));
+
     // Limpiar error de comprobante si se selecciona un archivo
     if (archivo && errores.comprobante) {
-      setErrores(prev => ({ ...prev, comprobante: '' }));
+      setErrores((prev) => ({ ...prev, comprobante: "" }));
     }
   };
 
   const handleInputChange = (campo: keyof FormularioPago, valor: string) => {
-    setFormulario(prev => ({ ...prev, [campo]: valor }));
-    
+    setFormulario((prev) => ({ ...prev, [campo]: valor }));
+
     // Limpiar error del campo al modificarlo
     if (errores[campo]) {
-      setErrores(prev => ({ ...prev, [campo]: '' }));
+      setErrores((prev) => ({ ...prev, [campo]: "" }));
     }
   };
 
@@ -142,18 +154,20 @@ export default function PagoEntregas() {
     }
 
     setEstado({
-      paso: 'procesando' as PasoEstado,
-      mensaje: 'Validando datos y preparando el pago...',
-      progreso: 10
+      paso: "procesando" as PasoEstado,
+      mensaje: "Validando datos y preparando el pago...",
+      progreso: 10,
     });
 
     try {
       // Preparar FormData
       const formData = new FormData();
-      
+
       // Obtener correo del usuario
-      const usuario = JSON.parse(localStorage.getItem("user") || '{"email":"conductor@sistema.com"}');
-      
+      const usuario = JSON.parse(
+        localStorage.getItem("user") || '{"email":"conductor@sistema.com"}'
+      );
+
       formData.append("correo", usuario.email);
       formData.append("valor_pago_str", formulario.valor_pago);
       formData.append("fecha_pago", formulario.fecha_pago);
@@ -162,80 +176,86 @@ export default function PagoEntregas() {
       formData.append("entidad", formulario.entidad);
       formData.append("referencia", formulario.referencia);
       formData.append("comprobante", formulario.comprobante!);
-      
+
       // Preparar guías en formato JSON
-      const guiasData = entregas.map(entrega => ({
+      const guiasData = entregas.map((entrega) => ({
         referencia: entrega.referencia || entrega.tracking,
         tracking: entrega.tracking,
         valor: entrega.valor,
-        cliente: entrega.cliente
+        cliente: entrega.cliente,
       }));
-      
+
       formData.append("guias", JSON.stringify(guiasData));
 
       setEstado({
-        paso: 'procesando' as PasoEstado,
-        mensaje: 'Enviando pago al servidor...',
-        progreso: 50
+        paso: "procesando" as PasoEstado,
+        mensaje: "Enviando pago al servidor...",
+        progreso: 50,
       });
 
       // Enviar al servidor
-      const response = await fetch("http://localhost:8000/pagos/registrar-conductor", {
-        method: "POST",
-        body: formData,
-        signal: AbortSignal.timeout(60000) // 60 segundos timeout
-      });
+      const response = await fetch(
+        "http://localhost:8000/pagos/registrar-conductor",
+        {
+          method: "POST",
+          body: formData,
+          signal: AbortSignal.timeout(60000), // 60 segundos timeout
+        }
+      );
 
       setEstado({
-        paso: 'procesando' as PasoEstado,
-        mensaje: 'Procesando respuesta del servidor...',
-        progreso: 80
+        paso: "procesando" as PasoEstado,
+        mensaje: "Procesando respuesta del servidor...",
+        progreso: 80,
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Error ${response.status}: ${response.statusText}`);
+        throw new Error(
+          errorData.detail || `Error ${response.status}: ${response.statusText}`
+        );
       }
 
       const resultado = await response.json();
 
       setEstado({
-        paso: 'completado' as PasoEstado,
+        paso: "completado" as PasoEstado,
         mensaje: `✅ Pago registrado exitosamente. Referencia: ${formulario.referencia}`,
-        progreso: 100
+        progreso: 100,
       });
 
       // Preguntar si desea enviar correo de confirmación
       setTimeout(() => {
         const deseaEnviar = window.confirm(
-          `Pago registrado correctamente por ${new Intl.NumberFormat('es-CO', {
-            style: 'currency',
-            currency: 'COP'
-          }).format(parseFloat(formulario.valor_pago))} para ${entregas.length} entregas.\n\n¿Deseas enviar confirmación al cliente por correo?`
+          `Pago registrado correctamente por ${new Intl.NumberFormat("es-CO", {
+            style: "currency",
+            currency: "COP",
+          }).format(parseFloat(formulario.valor_pago))} para ${
+            entregas.length
+          } entregas.\n\n¿Deseas enviar confirmación al cliente por correo?`
         );
-        
+
         if (deseaEnviar) {
           enviarCorreoConfirmacion();
         }
       }, 1000);
-
     } catch (error: any) {
       console.error("Error registrando pago:", error);
-      
+
       let mensajeError = "Error desconocido";
-      
-      if (error instanceof TypeError && error.message.includes('fetch')) {
+
+      if (error instanceof TypeError && error.message.includes("fetch")) {
         mensajeError = "No se pudo conectar al servidor";
-      } else if (error.name === 'AbortError') {
+      } else if (error.name === "AbortError") {
         mensajeError = "La operación tardó demasiado tiempo";
       } else {
         mensajeError = error.message;
       }
 
       setEstado({
-        paso: 'error' as PasoEstado,
+        paso: "error" as PasoEstado,
         mensaje: `❌ Error al registrar el pago: ${mensajeError}`,
-        progreso: 0
+        progreso: 0,
       });
     }
   };
@@ -247,20 +267,23 @@ export default function PagoEntregas() {
     }
 
     setEnviandoCorreo(true);
-    
+
     try {
       const cliente = entregas[0]?.cliente || "Sin cliente";
       const formData = new FormData();
-      
+
       formData.append("cliente", cliente);
       formData.append("total", formulario.valor_pago);
       formData.append("entregas", JSON.stringify(entregas));
       formData.append("comprobante", formulario.comprobante);
 
-      const response = await fetch("http://localhost:8000/enviar-confirmacion-email/", {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch(
+        "http://localhost:8000/enviar-confirmacion-email/",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
       if (response.ok) {
         alert("📧 Correo de confirmación enviado exitosamente");
@@ -281,24 +304,24 @@ export default function PagoEntregas() {
 
   const reiniciarFormulario = () => {
     setEstado({
-      paso: 'formulario' as PasoEstado,
-      mensaje: '',
-      progreso: 0
+      paso: "formulario" as PasoEstado,
+      mensaje: "",
+      progreso: 0,
     });
     setErrores({});
   };
 
   const formatearMoneda = (valor: number): string => {
-    return new Intl.NumberFormat('es-CO', {
-      style: 'currency',
-      currency: 'COP',
+    return new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: "COP",
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0
+      maximumFractionDigits: 0,
     }).format(valor);
   };
 
   // Render de estados especiales
-  if (estado.paso === 'error' && entregas.length === 0) {
+  if (estado.paso === "error" && entregas.length === 0) {
     return (
       <div className="pago-entregas-page error-state">
         <div className="error-container">
@@ -326,11 +349,11 @@ export default function PagoEntregas() {
       </div>
 
       {/* Progreso */}
-      {estado.paso === 'procesando' && (
+      {estado.paso === "procesando" && (
         <div className="progreso-container">
           <div className="progreso-bar">
-            <div 
-              className="progreso-fill" 
+            <div
+              className="progreso-fill"
               style={{ width: `${estado.progreso}%` }}
             ></div>
           </div>
@@ -339,7 +362,7 @@ export default function PagoEntregas() {
       )}
 
       {/* Estado completado */}
-      {estado.paso === 'completado' && (
+      {estado.paso === "completado" && (
         <div className="completado-container">
           <div className="completado-card">
             <h3>✅ Pago Registrado Exitosamente</h3>
@@ -357,7 +380,7 @@ export default function PagoEntregas() {
       )}
 
       {/* Estado de error */}
-      {estado.paso === 'error' && entregas.length > 0 && (
+      {estado.paso === "error" && entregas.length > 0 && (
         <div className="error-container">
           <h3>❌ Error al Procesar el Pago</h3>
           <p>{estado.mensaje}</p>
@@ -373,12 +396,12 @@ export default function PagoEntregas() {
       )}
 
       {/* Formulario principal */}
-      {estado.paso === 'formulario' && (
+      {estado.paso === "formulario" && (
         <>
           {/* Resumen de entregas */}
           <div className="resumen-entregas">
             <h3 className="resumen-titulo">📦 Entregas a Pagar</h3>
-            
+
             <div className="resumen-stats">
               <div className="stat-item">
                 <span className="stat-numero">{entregas.length}</span>
@@ -389,7 +412,9 @@ export default function PagoEntregas() {
                 <span className="stat-label">Total</span>
               </div>
               <div className="stat-item">
-                <span className="stat-numero">{entregas[0]?.cliente || 'Varios'}</span>
+                <span className="stat-numero">
+                  {entregas[0]?.cliente || "Varios"}
+                </span>
                 <span className="stat-label">Cliente</span>
               </div>
             </div>
@@ -409,10 +434,14 @@ export default function PagoEntregas() {
                   {entregas.slice(0, 5).map((entrega, idx) => (
                     <tr key={idx}>
                       <td className="tracking-cell">{entrega.tracking}</td>
-                      <td>{new Date(entrega.fecha).toLocaleDateString('es-ES')}</td>
+                      <td>
+                        {new Date(entrega.fecha).toLocaleDateString("es-ES")}
+                      </td>
                       <td>{entrega.tipo}</td>
                       <td>{entrega.cliente}</td>
-                      <td className="valor-cell">{formatearMoneda(entrega.valor)}</td>
+                      <td className="valor-cell">
+                        {formatearMoneda(entrega.valor)}
+                      </td>
                     </tr>
                   ))}
                   {entregas.length > 5 && (
@@ -430,7 +459,7 @@ export default function PagoEntregas() {
           {/* Formulario de pago */}
           <div className="formulario-pago">
             <h3 className="formulario-titulo">💳 Información del Pago</h3>
-            
+
             <div className="formulario-grid">
               <div className="campo-grupo">
                 <label className="campo-label">
@@ -439,9 +468,11 @@ export default function PagoEntregas() {
                 <input
                   type="text"
                   value={formulario.valor_pago}
-                  onChange={(e) => handleInputChange('valor_pago', e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("valor_pago", e.target.value)
+                  }
                   placeholder="$0"
-                  className={`campo-input ${errores.valor_pago ? 'error' : ''}`}
+                  className={`campo-input ${errores.valor_pago ? "error" : ""}`}
                 />
                 {errores.valor_pago && (
                   <span className="campo-error">{errores.valor_pago}</span>
@@ -455,9 +486,11 @@ export default function PagoEntregas() {
                 <input
                   type="date"
                   value={formulario.fecha_pago}
-                  onChange={(e) => handleInputChange('fecha_pago', e.target.value)}
-                  max={new Date().toISOString().split('T')[0]}
-                  className={`campo-input ${errores.fecha_pago ? 'error' : ''}`}
+                  onChange={(e) =>
+                    handleInputChange("fecha_pago", e.target.value)
+                  }
+                  max={new Date().toISOString().split("T")[0]}
+                  className={`campo-input ${errores.fecha_pago ? "error" : ""}`}
                 />
                 {errores.fecha_pago && (
                   <span className="campo-error">{errores.fecha_pago}</span>
@@ -471,8 +504,10 @@ export default function PagoEntregas() {
                 <input
                   type="time"
                   value={formulario.hora_pago}
-                  onChange={(e) => handleInputChange('hora_pago', e.target.value)}
-                  className={`campo-input ${errores.hora_pago ? 'error' : ''}`}
+                  onChange={(e) =>
+                    handleInputChange("hora_pago", e.target.value)
+                  }
+                  className={`campo-input ${errores.hora_pago ? "error" : ""}`}
                 />
                 {errores.hora_pago && (
                   <span className="campo-error">{errores.hora_pago}</span>
@@ -485,7 +520,7 @@ export default function PagoEntregas() {
                 </label>
                 <select
                   value={formulario.tipo}
-                  onChange={(e) => handleInputChange('tipo', e.target.value)}
+                  onChange={(e) => handleInputChange("tipo", e.target.value)}
                   className="campo-input"
                 >
                   <option value="Transferencia">Transferencia Bancaria</option>
@@ -504,9 +539,9 @@ export default function PagoEntregas() {
                 <input
                   type="text"
                   value={formulario.entidad}
-                  onChange={(e) => handleInputChange('entidad', e.target.value)}
+                  onChange={(e) => handleInputChange("entidad", e.target.value)}
                   placeholder="Ej: Bancolombia, Nequi, Davivienda..."
-                  className={`campo-input ${errores.entidad ? 'error' : ''}`}
+                  className={`campo-input ${errores.entidad ? "error" : ""}`}
                 />
                 {errores.entidad && (
                   <span className="campo-error">{errores.entidad}</span>
@@ -520,9 +555,11 @@ export default function PagoEntregas() {
                 <input
                   type="text"
                   value={formulario.referencia}
-                  onChange={(e) => handleInputChange('referencia', e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("referencia", e.target.value)
+                  }
                   placeholder="Referencia única del pago"
-                  className={`campo-input ${errores.referencia ? 'error' : ''}`}
+                  className={`campo-input ${errores.referencia ? "error" : ""}`}
                 />
                 {errores.referencia && (
                   <span className="campo-error">{errores.referencia}</span>
@@ -536,9 +573,10 @@ export default function PagoEntregas() {
                 📎 Comprobante de Pago <span className="requerido">*</span>
               </label>
               <p className="campo-ayuda">
-                Sube una imagen (JPG, PNG, WEBP) o PDF del comprobante. Máximo 10MB.
+                Sube una imagen (JPG, PNG, WEBP) o PDF del comprobante. Máximo
+                10MB.
               </p>
-              
+
               <div className="upload-area">
                 <input
                   type="file"
@@ -551,9 +589,15 @@ export default function PagoEntregas() {
                   {formulario.comprobante ? (
                     <div className="archivo-seleccionado">
                       <span className="archivo-icono">📄</span>
-                      <span className="archivo-nombre">{formulario.comprobante.name}</span>
+                      <span className="archivo-nombre">
+                        {formulario.comprobante.name}
+                      </span>
                       <span className="archivo-tamaño">
-                        ({(formulario.comprobante.size / (1024 * 1024)).toFixed(2)}MB)
+                        (
+                        {(formulario.comprobante.size / (1024 * 1024)).toFixed(
+                          2
+                        )}
+                        MB)
                       </span>
                     </div>
                   ) : (
@@ -564,7 +608,7 @@ export default function PagoEntregas() {
                   )}
                 </label>
               </div>
-              
+
               {errores.comprobante && (
                 <span className="campo-error">{errores.comprobante}</span>
               )}
@@ -572,19 +616,21 @@ export default function PagoEntregas() {
 
             {/* Acciones */}
             <div className="formulario-acciones">
-              <button 
-                onClick={volverAtras} 
+              <button
+                onClick={volverAtras}
                 className="btn-cancelar"
-                disabled={estado.paso === 'procesando'}
+                disabled={estado.paso === "procesando"}
               >
                 ← Cancelar
               </button>
-              <button 
-                onClick={registrarPago} 
+              <button
+                onClick={registrarPago}
                 className="btn-registrar"
-                disabled={estado.paso === 'procesando'}
+                disabled={estado.paso === "procesando"}
               >
-                {estado.paso === 'procesando' ? '⏳ Procesando...' : '✅ Registrar Pago'}
+                {estado.paso === "procesando"
+                  ? "⏳ Procesando..."
+                  : "✅ Registrar Pago"}
               </button>
             </div>
           </div>
