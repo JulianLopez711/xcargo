@@ -70,9 +70,9 @@
 }
 
 .close-btn {
+  color: white;
   background: none;
   border: none;
-  color: white;
   font-size: 18px;
   cursor: pointer;
   padding: 4px;
@@ -147,7 +147,7 @@
 
 .mensaje-timestamp {
   font-size: 11px;
-  color: #6c757d;
+  color: #ffffff;
   margin-left: 8px;
 }
 
@@ -494,7 +494,7 @@
 /* Estado del usuario en el header */
 .estado-usuario {
   font-size: 11px;
-  color: #666;
+  color: #fafafa;
   line-height: 1.2;
 }
 

@@ -177,6 +177,7 @@
   right: 0;
   bottom: 0;
   background: rgba(0,0,0,0.5);
+  color: #212529;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -184,7 +185,8 @@
 }
 
 .modal-content {
-  background: white;
+  background: rgb(247, 247, 247);
+  color: #212529;
   border-radius: 12px;
   padding: 0;
   max-width: 500px;
@@ -198,7 +200,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 20px;
-  border-bottom: 1px solid #e9ecef;
+  border-bottom: 1px solid #14660c;
+  color: #212529;
 }
 
 .close-btn {
@@ -211,4 +214,6 @@
 
 .modal-body {
   padding: 20px;
+  
 }
+

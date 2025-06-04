@@ -180,7 +180,7 @@ export default function Navbar() {
               <div className="dropdown-divider"></div>
               <div
                 className="dropdown-item debug-info"
-                style={{ fontSize: "12px", color: "#666" }}
+                style={{ fontSize: "12px", color: "#ffffff" }}
               >
                 <div>Rol: {user.role}</div>
                 <div>Rutas disponibles: {rutas.length}</div>

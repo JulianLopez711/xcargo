@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../context/authContext";
 import "../../styles/supervisor/Pagos.css";
+import "../../styles/supervisor/cargando.css";
+import LogoXcargo from "../../../public/icons/Logo192.png";
 
 interface GuiaPendiente {
   tracking_number: string;
@@ -177,9 +179,13 @@ export default function PagosSupervisor() {
     otros: guias.filter(g => !g.estado.includes("302") && !g.estado.includes("301")).length
   };
 
-  if (loading) {
-    return <div className="loading">Cargando guías pendientes...</div>;
-  }
+ if (loading) {
+  return (
+    <div className="loading-container">
+      <img src={LogoXcargo} alt="Cargando dashboard" className="loading-logo" />
+    </div>
+  );
+}
 
   return (
     <div className="pagos-supervisor">

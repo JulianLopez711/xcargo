@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../context/authContext";
 import "../../styles/supervisor/Conductores.css";
+import "../../styles/supervisor/cargando.css";
+import LogoXcargo from "../../../public/icons/Logo192.png";
 
 interface Conductor {
   id: string;
@@ -129,9 +131,16 @@ export default function ConductoresSupervisor() {
     }
   };
 
-  if (loading) {
-    return <div className="loading">Cargando conductores...</div>;
-  }
+
+
+if (loading) {
+  return (
+    <div className="loading-container">
+      <img src={LogoXcargo} alt="Cargando dashboard" className="loading-logo" />
+    </div>
+  );
+}
+
 
   return (
     <div className="conductores-supervisor">

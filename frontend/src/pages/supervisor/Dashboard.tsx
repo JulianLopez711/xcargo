@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../context/authContext";
 import "../../styles/supervisor/Dashboard.css";
+import "../../styles/supervisor/cargando.css";
+import LogoXcargo from "../../../public/icons/Logo192.png";
 
 interface Carrier {
   id: number;
@@ -142,9 +144,16 @@ export default function DashboardSupervisor() {
     }
   };
 
-  if (loading) {
-    return <div className="loading">Cargando dashboard...</div>;
-  }
+
+
+if (loading) {
+  return (
+    <div className="loading-container">
+      <img src={LogoXcargo} alt="Cargando dashboard" className="loading-logo" />
+    </div>
+  );
+}
+
 
   return (
     <div className="supervisor-dashboard">

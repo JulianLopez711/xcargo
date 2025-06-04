@@ -1,0 +1,22 @@
+.loading-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0.5rem;
+  background: transparent;
+}
+
+
+.loading-logo {
+  width: 60px;
+  height: auto;
+  animation: spin 2s linear infinite;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.3));
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
