@@ -224,7 +224,6 @@ export default function PagosContabilidad() {
         throw new Error(errorData.detail || "Error desconocido");
       }
 
-      const result = await response.json();
       
       alert(`❌ Pago rechazado correctamente. Razón: ${novedad}`);
       
@@ -242,15 +241,6 @@ export default function PagosContabilidad() {
     }
   };
 
-  const getEstadoColor = (estado: string): string => {
-    const colores: { [key: string]: string } = {
-      'pagado': '#3b82f6',
-      'aprobado': '#22c55e',
-      'rechazado': '#ef4444',
-      'pendiente': '#f59e0b',
-    };
-    return colores[estado.toLowerCase()] || '#6b7280';
-  };
 
   const getEstadoTexto = (estado: string): string => {
     const textos: { [key: string]: string } = {

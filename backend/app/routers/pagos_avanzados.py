@@ -6,6 +6,7 @@ import json
 from datetime import datetime, date
 
 router = APIRouter(prefix="/pagos-avanzados", tags=["Pagos Avanzados"])
+client = bigquery.Client()
 
 class GuiaSeleccionada(BaseModel):
     tracking: str
@@ -20,7 +21,6 @@ class ValidacionPago(BaseModel):
 @router.post("/validar-pago")
 async def validar_pago_con_bonos(
     validacion: ValidacionPago,
-    client: bigquery.Client = Depends(get_bigquery_client)
 ) -> Dict[str, Any]:
     """
     Valida si el pago es posible con efectivo + bonos disponibles
@@ -128,7 +128,7 @@ async def validar_pago_con_bonos(
 @router.post("/procesar-pago-completo")
 async def procesar_pago_completo(
     datos_pago: Dict[str, Any],
-    client: bigquery.Client = Depends(get_bigquery_client)
+
 ) -> Dict[str, Any]:
     """
     Procesa el pago completo con manejo de bonos

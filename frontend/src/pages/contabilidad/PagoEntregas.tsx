@@ -213,8 +213,6 @@ export default function PagoEntregas() {
         );
       }
 
-      const resultado = await response.json();
-
       setEstado({
         paso: "completado" as PasoEstado,
         mensaje: `✅ Pago registrado exitosamente. Referencia: ${formulario.referencia}`,

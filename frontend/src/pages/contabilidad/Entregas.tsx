@@ -36,25 +36,6 @@ interface EstadisticasEntregas {
   clientes: Record<string, { cantidad: number; valor: number }>;
 }
 
-interface DashboardConciliacion {
-  estados_flujo: Array<{
-    estado_flujo: string;
-    cantidad: number;
-    valor_total: number;
-    dias_promedio_proceso: number;
-    casos_lentos: number;
-    clientes_afectados: number;
-  }>;
-  eficiencia: {
-    porcentaje_conciliado: number;
-    cuello_botella_cantidad: number;
-    dias_promedio_conciliacion: number;
-  };
-  alertas: {
-    total_casos_lentos: number;
-    porcentaje_casos_lentos: number;
-  };
-}
 
 interface ResumenLiquidacion {
   cliente: string;
@@ -114,7 +95,7 @@ export default function LiquidacionesClientes() {
   const [estadisticas, setEstadisticas] = useState<EstadisticasEntregas | null>(null);
   const [resumenClientes, setResumenClientes] = useState<ResumenLiquidacion[]>([]);
   const [dashboardConciliacion, setDashboardConciliacion] = useState<any>(null);
-  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [, setDashboardError] = useState<string | null>(null);
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [clienteFiltro, setClienteFiltro] = useState("");

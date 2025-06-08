@@ -1,18 +1,7 @@
-"""
-🔥 Enhanced OpenAI Extractor - Integrado con IA de Validación
-Mejora el extractor existente con capacidades de IA avanzadas
-
-Mejoras implementadas:
-- Múltiples engines de OCR (OpenAI + EasyOCR + Tesseract)
-- Validación en tiempo real
-- Auto-corrección de errores
-- Detección de calidad de imagen
-- Sugerencias contextuales
-"""
-
 import os
 import json
 import io
+import re
 from typing import Dict, Any, Optional, List, Tuple
 from dotenv import load_dotenv
 from openai import OpenAI

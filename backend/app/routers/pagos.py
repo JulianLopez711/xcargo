@@ -16,6 +16,8 @@ from pathlib import Path
 from app.dependencies import get_current_user
 from pydantic import BaseModel
 
+from backend.app.routers.guias import obtener_employee_id_usuario
+
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
