@@ -99,7 +99,6 @@
 
 .btn-ghost {
   background: none;
-  border: 1px solid #e9ecef;
   padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
@@ -193,6 +192,7 @@
 .estado-badge {
   display: inline-flex;
   align-items: center;
+  color: #3b82f6;
   padding: 4px 12px;
   border-radius: 20px;
   font-size: 12px;
@@ -212,6 +212,25 @@
   color: #991b1b;
   border: 1px solid #ef4444;
 }
+.pago-rechazado-alerta {
+  background-color: #ffe3e3;
+  border: 1px solid #f44336;
+  color: #b71c1c;
+  padding: 1rem;
+  margin-top: 1rem;
+  border-radius: 8px;
+}
+
+.btn-reintentar-pago {
+  margin-top: 0.5rem;
+  background-color: #f44336;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
 
 .estado-aprobado {
   background: #d1fae5;
@@ -226,7 +245,7 @@
 }
 
 .novedad-empty {
-  color: #9ca3af;
+  color: #3b82f6;
   opacity: 0.5;
 }
 
@@ -354,6 +373,161 @@
 .loading-spinner {
   font-size: 18px;
   color: #6c757d;
+}
+
+/* Contenedor principal de bonos mejorado */
+.bonos-info-enhanced {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 2px solid #22c55e;
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+  box-shadow: 0 8px 25px rgba(34, 197, 94, 0.15);
+  animation: slideInBonos 0.5s ease-out;
+}
+
+@keyframes slideInBonos {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bonos-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.bono-principal {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.bono-icon {
+  font-size: 2.5rem;
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-10px);
+  }
+  60% {
+    transform: translateY(-5px);
+  }
+}
+
+.bono-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.bono-label {
+  color: #166534;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.bono-valor {
+  color: #15803d;
+  font-size: 1.75rem;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.btn-ver-bonos {
+  background: #22c55e;
+  color: white;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.875rem;
+}
+
+.btn-ver-bonos:hover {
+  background: #16a34a;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+/* Panel de detalles de bonos */
+.bonos-detalle-panel {
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  margin-top: 1rem;
+  border: 1px solid #d1fae5;
+}
+
+.bonos-detalle-panel h4 {
+  margin: 0 0 1rem 0;
+  color: #166534;
+  font-size: 1.1rem;
+}
+
+.bono-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  transition: all 0.2s ease;
+}
+
+.bono-item:hover {
+  border-color: #22c55e;
+  background: #f9fafb;
+}
+
+.bono-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.bono-tipo {
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.25rem;
+  text-transform: capitalize;
+}
+
+.bono-descripcion {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.bono-valores {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.bono-disponible {
+  font-weight: 700;
+  color: #22c55e;
+  font-size: 1.1rem;
+}
+
+.bono-fecha {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin-top: 0.25rem;
 }
 
 /* Animaciones */

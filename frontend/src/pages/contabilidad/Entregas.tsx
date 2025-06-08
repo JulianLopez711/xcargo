@@ -113,7 +113,8 @@ export default function LiquidacionesClientes() {
   const [liquidaciones, setLiquidaciones] = useState<EntregaConsolidada[]>([]);
   const [estadisticas, setEstadisticas] = useState<EstadisticasEntregas | null>(null);
   const [resumenClientes, setResumenClientes] = useState<ResumenLiquidacion[]>([]);
-  const [dashboardConciliacion, setDashboardConciliacion] = useState<DashboardConciliacion | null>(null);
+  const [dashboardConciliacion, setDashboardConciliacion] = useState<any>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [clienteFiltro, setClienteFiltro] = useState("");
@@ -135,24 +136,19 @@ export default function LiquidacionesClientes() {
     }
   };
 
-  // ✅ FUNCIÓN PARA CARGAR DASHBOARD DE CONCILIACIÓN
+  // ✅ FUNCIÓN PARA CARGAR DASHBOARD DE CONCILIACIÓN (definida correctamente)
   const cargarDashboardConciliacion = async () => {
     try {
-      const res = await fetch("http://localhost:8000/entregas/dashboard-conciliacion");
-      if (!res.ok) {
-        throw new Error(`Error ${res.status}: ${res.statusText}`);
-      }
-      
-      const contentType = res.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("Respuesta no es JSON");
-      }
-      
+      const res = await fetch("http://192.168.0.38:8000/entregas/dashboard-conciliacion");
       const data = await res.json();
-      setDashboardConciliacion(data);
-    } catch (err: any) {
-      console.warn("Dashboard no disponible:", err.message);
-      // No mostrar error para dashboard opcional
+      if (Array.isArray(data) && data.length > 0) {
+        setDashboardConciliacion(data[0]);
+      } else {
+        setDashboardConciliacion(null);
+      }
+    } catch (err) {
+      setDashboardConciliacion(null);
+      setDashboardError("Error al cargar el dashboard");
     }
   };
 
@@ -168,7 +164,7 @@ export default function LiquidacionesClientes() {
       if (fechaHasta) params.append("hasta", fechaHasta);
       params.append("solo_conciliadas", soloConciliadas.toString());
 
-      const res = await fetch(`http://localhost:8000/entregas/entregas-consolidadas?${params.toString()}`);
+      const res = await fetch(`http://192.168.0.38:8000/entregas/entregas-consolidadas?${params.toString()}`);
       
       if (!res.ok) {
         throw new Error(`Error ${res.status}: ${res.statusText}`);
@@ -239,7 +235,7 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
       if (fechaHasta) params.append("hasta", fechaHasta);
       params.append("incluir_aproximadas", "true");
 
-      const res = await fetch(`http://localhost:8000/entregas/entregas-listas-liquidar?${params.toString()}`);
+      const res = await fetch(`http://192.168.0.38:8000/entregas/entregas-listas-liquidar?${params.toString()}`);
       
       if (!res.ok) {
         throw new Error(`Error ${res.status}: ${res.statusText}`);
@@ -289,7 +285,7 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
   // ✅ FUNCIÓN PARA CARGAR RESUMEN DE CLIENTES
   const cargarResumenClientes = async () => {
     try {
-      const res = await fetch("http://localhost:8000/entregas/resumen-liquidaciones");
+      const res = await fetch("http://192.168.0.38:8000/entregas/resumen-liquidaciones");
       if (!res.ok) {
         throw new Error(`Error ${res.status}: ${res.statusText}`);
       }
@@ -310,7 +306,7 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
   // ✅ FUNCIÓN PARA VALIDAR INTEGRIDAD ANTES DE LIQUIDAR
   const validarIntegridadCliente = async (cliente: string): Promise<boolean> => {
     try {
-      const res = await fetch(`http://localhost:8000/entregas/validar-integridad-liquidacion/${encodeURIComponent(cliente)}`);
+      const res = await fetch(`http://192.168.0.38:8000/entregas/validar-integridad-liquidacion/${encodeURIComponent(cliente)}`);
       if (!res.ok) {
         throw new Error(`Error ${res.status}`);
       }
@@ -573,7 +569,10 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
 
   // ✅ COMPONENTE DASHBOARD DE CONCILIACIÓN
   const DashboardConciliacionComponent = () => {
-    if (!dashboardConciliacion) return null;
+    const dashboardData = dashboardConciliacion;
+    if (!dashboardData || !dashboardData.porcentaje_conciliado) {
+      return <div>No hay datos de conciliación disponibles.</div>;
+    }
 
     return (
       <div className="dashboard-conciliacion" style={{
@@ -653,7 +652,14 @@ ${calidad.alertas_criticas > 0 ? `⚠️ ${calidad.alertas_criticas} alertas cr�
           gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
           gap: '1rem'
         }}>
-          {dashboardConciliacion.estados_flujo.map((estado) => (
+          {dashboardConciliacion.estados_flujo.map((estado: {
+            estado_flujo: string;
+            cantidad: number;
+            valor_total: number;
+            dias_promedio_proceso: number;
+            casos_lentos: number;
+            clientes_afectados: number;
+          }) => (
             <div key={estado.estado_flujo} style={{
               background: '#f8fafc',
               border: '1px solid #e2e8f0',

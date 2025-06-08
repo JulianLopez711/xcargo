@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query
+from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Depends
 from fastapi.responses import JSONResponse
 from google.cloud import bigquery
 from google.api_core import exceptions as gcp_exceptions
@@ -13,6 +13,8 @@ import logging
 import asyncio
 import concurrent.futures
 from pathlib import Path
+from app.dependencies import get_current_user
+from pydantic import BaseModel
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -80,7 +82,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
             f.write(content)
         
         # URL para acceso
-        comprobante_url = f"http://localhost:8000/static/{nombre_archivo}"
+        comprobante_url = f"http://192.168.0.38:8000/static/{nombre_archivo}"
         logger.info(f"Comprobante guardado: {nombre_archivo}")
         
         return comprobante_url
@@ -394,201 +396,176 @@ async def registrar_pago_conductor(
             detail="Error interno del servidor procesando el pago"
         )
 
-@router.post("/aprobar-pago")
-async def aprobar_pago(data: dict = Body(...)):
+def conciliar_pago_automaticamente(referencia: str, valor: float, entidad: str) -> bool:
+    client = get_bigquery_client()
+    query = """
+    SELECT COUNT(*) as coincidencias
+    FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+    WHERE referencia = @referencia
+      AND ABS(valor_banco - @valor) < 500
+      AND LOWER(cuenta) = LOWER(@entidad)
+    LIMIT 1
     """
-    Aprueba un pago y libera las guías asociadas
-    """
-    referencia_pago = data.get("referencia_pago")
-    modificado_por = data.get("modificado_por")
+    result = client.query(query, job_config=bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("referencia", "STRING", referencia),
+            bigquery.ScalarQueryParameter("valor", "FLOAT", valor),
+            bigquery.ScalarQueryParameter("entidad", "STRING", entidad),
+        ]
+    )).result()
+    row = list(result)[0]
+    return row["coincidencias"] > 0
 
-    if not referencia_pago or not modificado_por:
-        raise HTTPException(status_code=400, detail="Referencia de pago y usuario requeridos")
+class AprobacionPagoRequest(BaseModel):
+    referencia_pago: str
+    modificado_por: str
+
+@router.post("/aprobar-pago")
+def aprobar_pago(data: AprobacionPagoRequest):
+    referencia = data.referencia_pago
+    modificado_por = data.modificado_por
 
     client = get_bigquery_client()
 
-    try:
-        logger.info(f"Aprobando pago {referencia_pago} por {modificado_por}")
-
-        # PASO 1: Verificar que el pago existe y está en estado válido
-        verificacion = client.query("""
-            SELECT COUNT(*) as total, MAX(estado) as estado_actual
-            FROM `{project}.{dataset}.pagosconductor`
-            WHERE referencia_pago = @referencia
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES),
+    # 1. Consultar el pago
+    consulta_pago = client.query(
+        """
+        SELECT referencia_pago, valor, entidad, fecha
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE referencia_pago = @referencia
+        LIMIT 1
+        """,
         job_config=bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
+                bigquery.ScalarQueryParameter("referencia", "STRING", referencia)
             ]
-        )).result()
-
-        resultado = next(verificacion)
-        if resultado["total"] == 0:
-            raise HTTPException(status_code=404, detail="Pago no encontrado")
-
-        if resultado["estado_actual"] == "aprobado":
-            raise HTTPException(status_code=409, detail="El pago ya está aprobado")
-
-        if resultado["estado_actual"] == "rechazado":
-            raise HTTPException(status_code=409, detail="No se puede aprobar un pago rechazado")
-
-        # PASO 2: Actualizar estado del pago
-        update_pago = client.query("""
-            UPDATE `{project}.{dataset}.pagosconductor`
-            SET estado = 'aprobado',
-                modificado_por = @modificado_por,
-                modificado_en = CURRENT_TIMESTAMP()
-            WHERE referencia_pago = @referencia
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES),
-        job_config=bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("modificado_por", "STRING", modificado_por),
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
-            ]
-        )).result()
-
-        # PASO 3: Obtener trackings asociados
-        trackings_query = client.query("""
-            SELECT DISTINCT tracking
-            FROM `{project}.{dataset}.pagosconductor`
-            WHERE referencia_pago = @referencia
-              AND tracking IS NOT NULL
-              AND tracking != ''
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES),
-        job_config=bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
-            ]
-        )).result()
-
-        trackings = [row["tracking"] for row in trackings_query]
-
-        if not trackings:
-            logger.warning(f"No se encontraron trackings para {referencia_pago}")
-            return {"mensaje": "✅ Pago aprobado (sin guías asociadas)"}
-
-        # PASO 4: Actualizar guías a "liberado"
-        trackings_str = "', '".join(trackings)
-        update_guias = client.query(f"""
-            UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
-            SET Status_Big = 'liberado'
-            WHERE tracking_number IN ('{trackings_str}')
-        """).result()
-
-        logger.info(f"✅ Pago {referencia_pago} aprobado, {len(trackings)} guías liberadas")
-
-        return {
-            "mensaje": "✅ Pago aprobado y guías liberadas correctamente",
-            "trackings_liberados": trackings,
-            "total_guias": len(trackings)
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error aprobando pago {referencia_pago}: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail="Error interno del servidor"
         )
+    )
+    pago = list(consulta_pago.result())[0]
+
+    # 2. Marcar como aprobado
+    client.query(
+        """
+        UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+        SET estado = 'aprobado',
+            modificado_por = @modificado_por,
+            fecha_modificacion = CURRENT_TIMESTAMP()
+        WHERE referencia_pago = @referencia
+        """,
+        job_config=bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia", "STRING", referencia),
+                bigquery.ScalarQueryParameter("modificado_por", "STRING", modificado_por),
+            ]
+        )
+    ).result()
+
+    # 3. Conciliación automática
+    coincidencia = conciliar_pago_automaticamente(
+        referencia=pago.referencia_pago,
+        valor=pago.valor,
+        entidad=pago.entidad
+    )
+
+    if coincidencia:
+        # 3.1 Marcar como conciliado
+        client.query(
+            """
+            UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+            SET estado = 'conciliado'
+            WHERE referencia_pago = @referencia
+            """,
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[bigquery.ScalarQueryParameter("referencia", "STRING", referencia)]
+            )
+        ).result()
+
+        # 3.2 Insertar en resultados_conciliacion
+        client.query(
+            """
+            INSERT INTO `datos-clientes-441216.Conciliaciones.resultados_conciliacion`
+            (referencia_pago, valor, entidad, fecha_conciliacion, metodo, resultado)
+            VALUES (@referencia, @valor, @entidad, CURRENT_DATE(), 'automatica', 'match')
+            """,
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("referencia", "STRING", pago.referencia_pago),
+                    bigquery.ScalarQueryParameter("valor", "FLOAT", pago.valor),
+                    bigquery.ScalarQueryParameter("entidad", "STRING", pago.entidad),
+                ]
+            )
+        ).result()
+
+        # 3.3 Marcar guías como liquidadas
+        client.query(
+            """
+            UPDATE `datos-clientes-441216.Conciliaciones.guias_liquidacion`
+            SET estado_liquidacion = 'liquidado',
+                fecha_modificacion = CURRENT_TIMESTAMP()
+            WHERE pago_referencia = @referencia
+            """,
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[bigquery.ScalarQueryParameter("referencia", "STRING", referencia)]
+            )
+        ).result()
+
+    return {
+        "status": "aprobado",
+        "referencia": referencia,
+        "conciliado": coincidencia,
+        "mensaje": "Pago aprobado y procesado correctamente" + (" con conciliación automática." if coincidencia else ".")
+    }
+
+class RechazoPagoRequest(BaseModel):
+    referencia_pago: str
+    novedad: str
+    modificado_por: str
 
 @router.post("/rechazar-pago")
-async def rechazar_pago(data: dict = Body(...)):
-    """
-    Rechaza un pago con observaciones y revierte el estado de las guías
-    """
-    referencia_pago = data.get("referencia_pago")
-    novedad = data.get("novedad", "").strip()
-    modificado_por = data.get("modificado_por")
-
-    if not referencia_pago or not novedad or not modificado_por:
-        raise HTTPException(
-            status_code=400, 
-            detail="Referencia de pago, observaciones y usuario requeridos"
-        )
+def rechazar_pago(data: RechazoPagoRequest):
+    referencia = data.referencia_pago
+    novedad = data.novedad
+    modificado_por = data.modificado_por
 
     client = get_bigquery_client()
 
-    try:
-        logger.info(f"Rechazando pago {referencia_pago} por {modificado_por}")
-
-        # PASO 1: Verificar que el pago existe
-        verificacion = client.query("""
-            SELECT COUNT(*) as total, MAX(estado) as estado_actual
-            FROM `{project}.{dataset}.pagosconductor`
-            WHERE referencia_pago = @referencia
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES),
+    # 1. Actualizar estado del pago a rechazado
+    client.query(
+        """
+        UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+        SET estado = 'rechazado',
+            novedades = @novedad,
+            modificado_por = @modificado_por,
+            fecha_modificacion = CURRENT_TIMESTAMP()
+        WHERE referencia_pago = @referencia
+        """,
         job_config=bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
-            ]
-        )).result()
-
-        resultado = next(verificacion)
-        if resultado["total"] == 0:
-            raise HTTPException(status_code=404, detail="Pago no encontrado")
-
-        if resultado["estado_actual"] == "rechazado":
-            raise HTTPException(status_code=409, detail="El pago ya está rechazado")
-
-        # PASO 2: Marcar el pago como rechazado
-        update_pago = client.query("""
-            UPDATE `{project}.{dataset}.pagosconductor`
-            SET estado = 'rechazado',
-                novedades = @novedad,
-                modificado_por = @modificado_por,
-                modificado_en = CURRENT_TIMESTAMP()
-            WHERE referencia_pago = @referencia
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES),
-        job_config=bigquery.QueryJobConfig(
-            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia", "STRING", referencia),
                 bigquery.ScalarQueryParameter("novedad", "STRING", novedad),
-                bigquery.ScalarQueryParameter("modificado_por", "STRING", modificado_por),
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
+                bigquery.ScalarQueryParameter("modificado_por", "STRING", modificado_por)
             ]
-        )).result()
+        )
+    ).result()
 
-        # PASO 3: Obtener trackings y revertir estado
-        trackings_query = client.query("""
-            SELECT DISTINCT tracking
-            FROM `{project}.{dataset}.pagosconductor`
-            WHERE referencia_pago = @referencia
-              AND tracking IS NOT NULL
-              AND tracking != ''
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES),
+    # 2. Eliminar de guias_liquidacion por referencia
+    client.query(
+        """
+        DELETE FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`
+        WHERE pago_referencia = @referencia
+        """,
         job_config=bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
+                bigquery.ScalarQueryParameter("referencia", "STRING", referencia)
             ]
-        )).result()
-
-        trackings = [row["tracking"] for row in trackings_query]
-
-        if trackings:
-            trackings_str = "', '".join(trackings)
-            update_guias = client.query(f"""
-                UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
-                SET Status_Big = 'pendiente'
-                WHERE tracking_number IN ('{trackings_str}')
-            """).result()
-
-        logger.info(f"✅ Pago {referencia_pago} rechazado, {len(trackings)} guías revertidas")
-
-        return {
-            "mensaje": "❌ Pago rechazado correctamente",
-            "razon": novedad,
-            "trackings_revertidos": trackings,
-            "total_guias": len(trackings)
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error rechazando pago {referencia_pago}: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail="Error interno del servidor"
         )
+    ).result()
+
+    return {
+        "status": "rechazado",
+        "referencia": referencia,
+        "mensaje": "Pago rechazado y guías restauradas"
+    }
 
 @router.get("/historial")
 async def historial_pagos(
@@ -1059,3 +1036,258 @@ def test_upload_directory():
             "writable": False,
             "error": str(e)
         }
+
+@router.post("/aplicar-bonos")
+async def aplicar_bonos_conductor(
+    datos_bonos: Dict[str, Any],
+    client: bigquery.Client = Depends(get_bigquery_client),
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    🆕 NUEVO: Aplica bonos del conductor a guías específicas
+    """
+    try:
+        print(f"🎯 ===== APLICANDO BONOS =====")
+        print(f"📧 Usuario: {current_user.get('correo')}")
+        print(f"💰 Datos recibidos: {datos_bonos}")
+
+        user_email = current_user.get("correo") or current_user.get("sub")
+        if not user_email:
+            raise HTTPException(status_code=401, detail="Usuario no autenticado")
+
+        # Obtener employee_id del usuario
+        employee_id = obtener_employee_id_usuario(user_email, client)
+        if not employee_id:
+            raise HTTPException(status_code=404, detail="Conductor no encontrado")
+
+        bonos_utilizados = datos_bonos.get("bonos_utilizados", [])
+        total_bonos = datos_bonos.get("total_bonos", 0)
+        guias = datos_bonos.get("guias", [])
+
+        if not bonos_utilizados:
+            raise HTTPException(status_code=400, detail="No se especificaron bonos a utilizar")
+
+        # Verificar que los bonos pertenecen al conductor y están disponibles
+        bonos_ids = [bono["bono_id"] for bono in bonos_utilizados]
+        query_verificar = """
+        SELECT 
+            id,
+            saldo_disponible,
+            tipo_bono,
+            valor_bono
+        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        WHERE id IN UNNEST(@bonos_ids)
+            AND employee_id = @employee_id
+            AND estado_bono = 'activo'
+            AND saldo_disponible > 0
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("bonos_ids", "STRING", bonos_ids),
+                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id)
+            ]
+        )
+        
+        result = client.query(query_verificar, job_config=job_config).result()
+        bonos_validos = {row.id: row for row in result}
+        
+        # Verificar que todos los bonos son válidos
+        for bono_data in bonos_utilizados:
+            bono_id = bono_data["bono_id"]
+            valor_utilizado = bono_data["valor_utilizado"]
+            
+            if bono_id not in bonos_validos:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Bono {bono_id} no válido o no disponible"
+                )
+            
+            bono_db = bonos_validos[bono_id]
+            if valor_utilizado > bono_db.saldo_disponible:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Valor solicitado ({valor_utilizado}) mayor al saldo disponible ({bono_db.saldo_disponible}) para bono {bono_id}"
+                )
+
+        # Iniciar transacción para aplicar bonos
+        timestamp_now = datetime.now()
+        
+        # 1. Crear registro de uso de bonos
+        for bono_data in bonos_utilizados:
+            bono_id = bono_data["bono_id"]
+            valor_utilizado = bono_data["valor_utilizado"]
+            
+            # Registrar el uso del bono
+            query_uso = """
+            INSERT INTO `datos-clientes-441216.Conciliaciones.conductor_bonos_usos` (
+                id,
+                bono_id,
+                employee_id,
+                valor_utilizado,
+                fecha_uso,
+                referencia_pago,
+                guias_aplicadas,
+                estado_uso,
+                creado_en
+            ) VALUES (
+                @uso_id,
+                @bono_id,
+                @employee_id,
+                @valor_utilizado,
+                @fecha_uso,
+                @referencia_pago,
+                @guias_aplicadas,
+                'aplicado',
+                @creado_en
+            )
+            """
+            
+            uso_id = f"USO_BONO_{timestamp_now.strftime('%Y%m%d_%H%M%S')}_{bono_id}"
+            referencia_pago = f"PAGO_BONOS_{timestamp_now.strftime('%Y%m%d_%H%M%S')}"
+            
+            job_config_uso = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("uso_id", "STRING", uso_id),
+                    bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id),
+                    bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
+                    bigquery.ScalarQueryParameter("valor_utilizado", "FLOAT", float(valor_utilizado)),
+                    bigquery.ScalarQueryParameter("fecha_uso", "TIMESTAMP", timestamp_now),
+                    bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
+                    bigquery.ScalarQueryParameter("guias_aplicadas", "STRING", json.dumps(guias)),
+                    bigquery.ScalarQueryParameter("creado_en", "TIMESTAMP", timestamp_now)
+                ]
+            )
+            
+            client.query(query_uso, job_config=job_config_uso).result()
+            
+            # 2. Actualizar saldo del bono
+            query_actualizar = """
+            UPDATE `datos-clientes-441216.Conciliaciones.conductor_bonos`
+            SET 
+                saldo_disponible = saldo_disponible - @valor_utilizado,
+                estado_bono = CASE 
+                    WHEN saldo_disponible - @valor_utilizado <= 0 THEN 'agotado'
+                    ELSE estado_bono
+                END,
+                fecha_ultima_actualizacion = @timestamp_now
+            WHERE id = @bono_id
+                AND employee_id = @employee_id
+            """
+            
+            job_config_actualizar = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("valor_utilizado", "FLOAT", float(valor_utilizado)),
+                    bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id),
+                    bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
+                    bigquery.ScalarQueryParameter("timestamp_now", "TIMESTAMP", timestamp_now)
+                ]
+            )
+            
+            client.query(query_actualizar, job_config=job_config_actualizar).result()
+
+        # 3. Registrar pago con bonos en tabla de pagos
+        query_pago_bono = """
+        INSERT INTO `datos-clientes-441216.Conciliaciones.pagos_conductores` (
+            id,
+            correo_conductor,
+            employee_id,
+            valor_pago,
+            fecha_pago,
+            hora_pago,
+            tipo_pago,
+            entidad_pago,
+            referencia_pago,
+            guias_pagadas,
+            estado_pago,
+            fecha_registro,
+            metodo_pago,
+            observaciones
+        ) VALUES (
+            @pago_id,
+            @correo_conductor,
+            @employee_id,
+            @valor_pago,
+            @fecha_pago,
+            @hora_pago,
+            'bono',
+            'Sistema de Bonos XCargo',
+            @referencia_pago,
+            @guias_pagadas,
+            'aprobado',
+            @fecha_registro,
+            'bonos',
+            @observaciones
+        )
+        """
+        
+        pago_id = f"PAGO_BONO_{timestamp_now.strftime('%Y%m%d_%H%M%S')}_{employee_id}"
+        referencia_pago = f"BONOS_{timestamp_now.strftime('%Y%m%d_%H%M%S')}"
+        
+        job_config_pago = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("pago_id", "STRING", pago_id),
+                bigquery.ScalarQueryParameter("correo_conductor", "STRING", user_email),
+                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
+                bigquery.ScalarQueryParameter("valor_pago", "FLOAT", float(total_bonos)),
+                bigquery.ScalarQueryParameter("fecha_pago", "DATE", timestamp_now.date()),
+                bigquery.ScalarQueryParameter("hora_pago", "TIME", timestamp_now.time()),
+                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
+                bigquery.ScalarQueryParameter("guias_pagadas", "STRING", json.dumps(guias)),
+                bigquery.ScalarQueryParameter("fecha_registro", "TIMESTAMP", timestamp_now),
+                bigquery.ScalarQueryParameter("observaciones", "STRING", f"Pago con bonos - {len(bonos_utilizados)} bonos utilizados")
+            ]
+        )
+        
+        client.query(query_pago_bono, job_config=job_config_pago).result()
+
+        # 4. Actualizar estado de guías en liquidación (si aplica)
+        if guias:
+            for guia in guias:
+                if guia.get("liquidacion_id"):
+                    query_actualizar_guia = """
+                    UPDATE `datos-clientes-441216.Conciliaciones.guias_liquidacion`
+                    SET 
+                        estado_liquidacion = 'procesando',
+                        fecha_ultima_actualizacion = @timestamp_now,
+                        observaciones = CONCAT(
+                            COALESCE(observaciones, ''), 
+                            ' | Pago parcial con bonos: ', 
+                            CAST(@valor_bonos AS STRING)
+                        )
+                    WHERE id = @liquidacion_id
+                        AND employee_id = @employee_id
+                    """
+                    
+                    job_config_guia = bigquery.QueryJobConfig(
+                        query_parameters=[
+                            bigquery.ScalarQueryParameter("liquidacion_id", "STRING", guia["liquidacion_id"]),
+                            bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
+                            bigquery.ScalarQueryParameter("valor_bonos", "FLOAT", float(total_bonos)),
+                            bigquery.ScalarQueryParameter("timestamp_now", "TIMESTAMP", timestamp_now)
+                        ]
+                    )
+                    
+                    client.query(query_actualizar_guia, job_config=job_config_guia).result()
+
+        print(f"✅ Bonos aplicados exitosamente")
+        print(f"💰 Total aplicado: ${total_bonos}")
+        print(f"📋 Bonos utilizados: {len(bonos_utilizados)}")
+        
+        return {
+            "mensaje": "Bonos aplicados exitosamente",
+            "total_aplicado": total_bonos,
+            "bonos_utilizados": len(bonos_utilizados),
+            "referencia_pago": referencia_pago,
+            "pago_id": pago_id,
+            "guias_afectadas": len(guias),
+            "timestamp": timestamp_now.isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error aplicando bonos: {str(e)}")
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Error interno aplicando bonos: {str(e)}")

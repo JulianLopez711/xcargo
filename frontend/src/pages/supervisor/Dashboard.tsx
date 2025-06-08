@@ -67,8 +67,12 @@ export default function DashboardSupervisor() {
 
   const cargarDashboard = async () => {
     try {
-      const response = await fetch(`http://localhost:8000/supervisor/dashboard`, {
+      // Usa el token JWT para autenticar la petición
+      const token = user?.token || localStorage.getItem("token") || "";
+      const response = await fetch(`http://192.168.0.38:8000/supervisor/dashboard`, {
         headers: {
+          "Authorization": `Bearer ${token}`,
+          // Puedes mantener los headers personalizados si tu backend los requiere:
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "supervisor"
         }

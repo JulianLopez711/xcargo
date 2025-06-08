@@ -73,7 +73,7 @@ export default function CambiarClave() {
         console.log('⚠️ No hay código válido en localStorage, obteniendo del servidor...');
         
         try {
-          const debugResponse = await fetch("http://localhost:8000/auth/debug-codigos", {
+          const debugResponse = await fetch("http://192.168.0.38:8000/auth/debug-codigos", {
             method: 'GET',
             headers: { 
               'Content-Type': 'application/json'
@@ -125,7 +125,7 @@ export default function CambiarClave() {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
 
-      const res = await fetch("http://localhost:8000/auth/cambiar-clave", {
+      const res = await fetch("http://192.168.0.38:8000/auth/cambiar-clave", {
         method: "POST",
         headers: headers,
         body: JSON.stringify(requestBody),

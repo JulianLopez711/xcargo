@@ -41,7 +41,7 @@ export default function DashboardContabilidad() {
     setError("");
     
     try {
-      const response = await fetch("http://localhost:8000/contabilidad/resumen", {
+      const response = await fetch("http://192.168.0.38:8000/contabilidad/resumen", {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

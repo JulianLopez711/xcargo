@@ -24,7 +24,7 @@ export default function RecuperarClave() {
       const formData = new FormData();
       formData.append("correo", correo);
 
-      const res = await fetch("http://localhost:8000/auth/solicitar-codigo", {
+      const res = await fetch("http://192.168.0.38:8000/auth/solicitar-codigo", {
         method: "POST",
         body: formData,
       });

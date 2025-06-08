@@ -535,3 +535,70 @@ def test_datos_muestra(limite: int = Query(5, ge=1, le=20)) -> Dict[str, Any]:
             status_code=500,
             detail=f"Error en consulta de muestra: {str(e)}"
         )
+
+@router.get("/conciliacion-mensual")
+async def conciliacion_mensual(
+    mes: str = Query(..., description="Mes en formato YYYY-MM")
+) -> List[Dict[str, Any]]:
+    """
+    Devuelve el resumen diario de conciliación bancaria para un mes dado.
+    """
+    client = get_bigquery_client()
+    try:
+        # Parsear año y mes
+        try:
+            year, month = map(int, mes.split("-"))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Formato de mes inválido. Usa YYYY-MM")
+
+        # Determinar rango de fechas del mes
+        from calendar import monthrange
+        dias_mes = monthrange(year, month)[1]
+        fecha_inicio = f"{year}-{str(month).zfill(2)}-01"
+        fecha_fin = f"{year}-{str(month).zfill(2)}-{str(dias_mes).zfill(2)}"
+
+        # Consulta ajustada para tipos NUMERIC
+        query = f"""
+        SELECT
+            fecha_pago as fecha,
+            SUM(CAST(valor_soportes AS FLOAT64)) as soportes,
+            SUM(CAST(valor_banco AS FLOAT64)) as banco,
+            SUM(CAST(valor_soportes AS FLOAT64)) - SUM(CAST(valor_banco AS FLOAT64)) as diferencia,
+            COUNT(DISTINCT tracking_number) as guias,
+            COUNT(*) as movimientos,
+            CASE
+                WHEN SUM(CAST(valor_soportes AS FLOAT64)) = 0 THEN 0
+                ELSE ROUND(100 * (1 - ABS(SUM(CAST(valor_soportes AS FLOAT64)) - SUM(CAST(valor_banco AS FLOAT64))) / GREATEST(SUM(CAST(valor_soportes AS FLOAT64)), 1)), 1)
+            END as avance
+        FROM `datos-clientes-441216.Conciliaciones.conciliacion_diaria`
+        WHERE fecha_pago BETWEEN @fecha_inicio AND @fecha_fin
+        GROUP BY fecha_pago
+        ORDER BY fecha_pago
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio),
+                bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin),
+            ]
+        )
+
+        result = client.query(query, job_config=job_config).result()
+        dias = []
+        for row in result:
+            dias.append({
+                "fecha": str(row.fecha),
+                "soportes": int(row.soportes) if row.soportes else 0,
+                "banco": int(row.banco) if row.banco else 0,
+                "diferencia": int(row.diferencia) if row.diferencia else 0,
+                "guias": int(row.guias) if row.guias else 0,
+                "movimientos": int(row.movimientos) if row.movimientos else 0,
+                "avance": float(row.avance) if row.avance is not None else 0.0
+            })
+        return dias
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en conciliacion_mensual: {e}")
+        raise HTTPException(status_code=500, detail="Error interno al consultar conciliación mensual")

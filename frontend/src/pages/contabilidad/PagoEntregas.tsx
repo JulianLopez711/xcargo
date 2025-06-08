@@ -21,8 +21,10 @@ interface FormularioPago {
   comprobante: File | null;
 }
 
+type PasoEstado = "formulario" | "procesando" | "completado" | "error" | "confirmacion";
+
 interface EstadoProceso {
-  paso: "formulario" | "procesando" | "completado" | "error" | "confirmacion";
+  paso: PasoEstado;
   mensaje: string;
   progreso: number;
 }
@@ -46,12 +48,7 @@ export default function PagoEntregas() {
   });
 
   // Estados específicos para mejor type safety
-  type PasoEstado =
-    | "formulario"
-    | "procesando"
-    | "completado"
-    | "error"
-    | "confirmacion";
+  // (Eliminado: definición duplicada de PasoEstado)
 
   const [estado, setEstado] = useState<EstadoProceso>({
     paso: "formulario" as PasoEstado,
@@ -195,7 +192,7 @@ export default function PagoEntregas() {
 
       // Enviar al servidor
       const response = await fetch(
-        "http://localhost:8000/pagos/registrar-conductor",
+        "http://192.168.0.38:8000/pagos/registrar-conductor",
         {
           method: "POST",
           body: formData,
@@ -278,7 +275,7 @@ export default function PagoEntregas() {
       formData.append("comprobante", formulario.comprobante);
 
       const response = await fetch(
-        "http://localhost:8000/enviar-confirmacion-email/",
+        "http://192.168.0.38:8000/enviar-confirmacion-email/",
         {
           method: "POST",
           body: formData,

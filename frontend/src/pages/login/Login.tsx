@@ -26,22 +26,47 @@ const XCargoLogin: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch("http://localhost:8000/auth/login", {
+      const res = await fetch("http://192.168.0.38:8000/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ correo: email, password }),
       });
 
       const data = await res.json();
+      console.log("🎯 RESPUESTA COMPLETA DEL BACKEND:", data);
+      console.log("🔑 ¿Tiene token?", !!data.token);
+      console.log("🔑 ¿Tiene access_token?", !!data.access_token);
 
+      const backendToken = data.token || data.access_token;
+
+      let finalToken;
+      if (backendToken) {
+        console.log("✅ Usando token del backend");
+        finalToken = backendToken;
+      } else {
+        console.log("⚠️ Backend no devuelve token, creando sesión local");
+        // Crear un identificador único pero que el backend pueda validar
+        // O implementar autenticación sin JWT
+        finalToken = `session_${data.correo}_${Date.now()}`;
+      }
+
+      // Continuar con el login...
+      login({
+        email: data.correo,
+        role: data.rol,
+        token: finalToken,
+        // ... resto
+      });
 
       if (!res.ok) {
         throw new Error(data.detail || "Error al iniciar sesión");
       }
 
       // ✅ SOLUCIÓN: Crear un token temporal o usar algún identificador único
-      const userToken = data.token || data.access_token || `${data.correo}-${Date.now()}-${Math.random()}`;
-
+      const userToken =
+        data.token ||
+        data.access_token ||
+        `${data.correo}-${Date.now()}-${Math.random()}`;
 
       // ✅ SOLUCIÓN: Llamar login con todos los datos necesarios
       login({
@@ -53,7 +78,7 @@ const XCargoLogin: React.FC = () => {
         // Agregar datos adicionales que pueden ser útiles
         nombre: data.nombre,
         telefono: data.telefono,
-        id_usuario: data.id_usuario
+        id_usuario: data.id_usuario,
       });
 
       if (data.clave_defecto) {
@@ -64,7 +89,6 @@ const XCargoLogin: React.FC = () => {
 
       // Redirección directa usando la ruta del backend
       if (data.ruta_defecto) {
-
         navigate(data.ruta_defecto);
       } else {
         // Fallback si no hay ruta definida
@@ -76,7 +100,7 @@ const XCargoLogin: React.FC = () => {
           operador: "/operador/dashboard",
           supervisor: "/supervisor/dashboard",
         };
-        
+
         const rutaDestino = rutasPorRol[data.rol] || "/";
         navigate(rutaDestino);
       }

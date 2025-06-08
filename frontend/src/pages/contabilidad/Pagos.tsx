@@ -39,7 +39,7 @@ interface ApiError {
 
 export default function PagosContabilidad() {
   const [pagos, setPagos] = useState<Pago[]>([]);
-  const [cargando, setCargando] = useState(true);
+  const [, setCargando] = useState(true);
   const [filtroReferencia, setFiltroReferencia] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -56,7 +56,7 @@ export default function PagosContabilidad() {
     setCargando(true);
     
     try {
-      const response = await fetch("http://localhost:8000/pagos/pagos-conductor", {
+      const response = await fetch("http://192.168.0.38:8000/pagos/pagos-conductor", {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -144,7 +144,7 @@ export default function PagosContabilidad() {
 
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/pagos/detalles-pago/${referenciaPago}`);
+      const response = await fetch(`http://192.168.0.38:8000/pagos/detalles-pago/${referenciaPago}`);
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -170,7 +170,7 @@ export default function PagosContabilidad() {
     try {
       const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
       
-      const response = await fetch("http://localhost:8000/pagos/aprobar-pago", {
+      const response = await fetch("http://192.168.0.38:8000/pagos/aprobar-pago", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -209,7 +209,7 @@ export default function PagosContabilidad() {
     try {
       const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
       
-      const response = await fetch("http://localhost:8000/pagos/rechazar-pago", {
+      const response = await fetch("http://192.168.0.38:8000/pagos/rechazar-pago", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -3,8 +3,12 @@ from google.cloud import bigquery
 from datetime import datetime, date
 from typing import Optional, List
 from pydantic import BaseModel
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
 
 router = APIRouter(prefix="/entregas", tags=["Entregas"])
+client = bigquery.Client()
 
 # ✅ 1. ENDPOINT PRINCIPAL QUE EL FRONTEND NECESITA
 @router.get("/entregas-consolidadas")
@@ -316,112 +320,12 @@ def obtener_resumen_liquidaciones():
 # ✅ 3. ENDPOINT DASHBOARD CONCILIACIÓN
 @router.get("/dashboard-conciliacion")
 def obtener_dashboard_conciliacion():
+    query = """
+    SELECT * FROM `datos-clientes-441216.Conciliaciones.view_resumen_conciliacion`
     """
-    Dashboard de estado de conciliación
-    """
-    
-    client = bigquery.Client()
-    
-    try:
-        query = """
-        WITH estados_flujo AS (
-            SELECT 
-                CASE 
-                    WHEN pc.estado = 'pagado' AND bm.estado_conciliacion IS NULL THEN 'pagado_sin_conciliar'
-                    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL THEN 'aprobado_sin_conciliar'
-                    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion = 'conciliado_exacto' THEN 'listo_liquidar'
-                    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IN ('conciliado_aproximado', 'conciliado_manual') THEN 'conciliado_revision'
-                    ELSE 'otros'
-                END as estado_flujo,
-                COUNT(*) as cantidad,
-                SUM(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)) as valor_total,
-                AVG(DATE_DIFF(CURRENT_DATE(), pc.fecha_pago, DAY)) as dias_promedio_proceso,
-                COUNT(CASE WHEN DATE_DIFF(CURRENT_DATE(), pc.fecha_pago, DAY) > 7 THEN 1 END) as casos_lentos,
-                COUNT(DISTINCT pc.cliente) as clientes_afectados
-                
-            FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
-            
-            LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
-                ON bm.referencia_pago_asociada = pc.referencia_pago
-            
-            WHERE pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-            
-            GROUP BY estado_flujo
-        ),
-        
-        metricas_eficiencia AS (
-            SELECT 
-                COUNT(CASE WHEN bm.estado_conciliacion IS NOT NULL THEN 1 END) * 100.0 / COUNT(*) as porcentaje_conciliado,
-                COUNT(CASE WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL THEN 1 END) as cuello_botella_cantidad,
-                AVG(CASE WHEN bm.conciliado_en IS NOT NULL THEN DATE_DIFF(bm.conciliado_en, pc.fecha_pago, DAY) END) as dias_promedio_conciliacion
-                
-            FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
-            LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
-                ON bm.referencia_pago_asociada = pc.referencia_pago
-            WHERE pc.fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-        )
-        
-        SELECT 
-            -- Estados del flujo
-            (SELECT ARRAY_AGG(STRUCT(
-                estado_flujo,
-                cantidad,
-                valor_total,
-                dias_promedio_proceso,
-                casos_lentos,
-                clientes_afectados
-            )) FROM estados_flujo) as estados_flujo,
-            
-            -- Métricas de eficiencia
-            (SELECT AS STRUCT * FROM metricas_eficiencia) as eficiencia,
-            
-            -- Alertas
-            STRUCT(
-                (SELECT SUM(casos_lentos) FROM estados_flujo) as total_casos_lentos,
-                (SELECT SUM(casos_lentos) * 100.0 / SUM(cantidad) FROM estados_flujo) as porcentaje_casos_lentos
-            ) as alertas
-        """
-        
-        resultado = list(client.query(query).result())[0]
-        
-        # Procesar estados del flujo
-        estados_flujo = []
-        if resultado["estados_flujo"]:
-            for estado in resultado["estados_flujo"]:
-                estados_flujo.append({
-                    "estado_flujo": estado["estado_flujo"],
-                    "cantidad": int(estado["cantidad"]),
-                    "valor_total": float(estado["valor_total"]),
-                    "dias_promedio_proceso": float(estado["dias_promedio_proceso"]) if estado["dias_promedio_proceso"] else 0,
-                    "casos_lentos": int(estado["casos_lentos"]),
-                    "clientes_afectados": int(estado["clientes_afectados"])
-                })
-        
-        # Procesar eficiencia
-        eficiencia = {
-            "porcentaje_conciliado": float(resultado["eficiencia"]["porcentaje_conciliado"]) if resultado["eficiencia"]["porcentaje_conciliado"] else 0,
-            "cuello_botella_cantidad": int(resultado["eficiencia"]["cuello_botella_cantidad"]) if resultado["eficiencia"]["cuello_botella_cantidad"] else 0,
-            "dias_promedio_conciliacion": float(resultado["eficiencia"]["dias_promedio_conciliacion"]) if resultado["eficiencia"]["dias_promedio_conciliacion"] else 0
-        }
-        
-        # Procesar alertas
-        alertas = {
-            "total_casos_lentos": int(resultado["alertas"]["total_casos_lentos"]) if resultado["alertas"]["total_casos_lentos"] else 0,
-            "porcentaje_casos_lentos": float(resultado["alertas"]["porcentaje_casos_lentos"]) if resultado["alertas"]["porcentaje_casos_lentos"] else 0
-        }
-        
-        return {
-            "estados_flujo": estados_flujo,
-            "eficiencia": eficiencia,
-            "alertas": alertas,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error obteniendo dashboard: {str(e)}"
-        )
+    result = client.query(query).result()
+    return [dict(row.items()) for row in result]
+
 
 # ✅ 4. ENDPOINT VALIDAR INTEGRIDAD
 @router.get("/validar-integridad-liquidacion/{cliente}")
@@ -1178,3 +1082,30 @@ def verificar_asociaciones_exitosas():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+@router.get("/liquidacion/{cliente}")
+def obtener_liquidacion(cliente: str):
+    client = bigquery.Client()
+    query = """
+        SELECT
+          gl.tracking_number,
+          gl.cliente,
+          gl.valor_guia,
+          gl.fecha_pago,
+          gl.metodo_pago AS entidad,
+          gl.pago_referencia,
+          gl.estado_liquidacion,
+          gl.conductor_email,
+          pc.imagen AS comprobante
+        FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
+        LEFT JOIN `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+          ON gl.pago_referencia = pc.referencia_pago
+        WHERE gl.estado_liquidacion = 'liquidado'
+          AND LOWER(gl.cliente) = LOWER(@cliente)
+        ORDER BY gl.fecha_pago DESC
+    """
+    result = client.query(query, job_config=bigquery.QueryJobConfig(
+        query_parameters=[bigquery.ScalarQueryParameter("cliente", "STRING", cliente)]
+    )).result()
+
+    return [dict(row.items()) for row in result]

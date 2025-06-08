@@ -145,7 +145,9 @@ async def get_dashboard_supervisor(current_user = Depends(verificar_supervisor))
     """
     try:
         client = bigquery.Client()
-        carriers_info = obtener_carrier_info_supervisor(current_user["correo"], client)
+        # CAMBIO: Obtener correo correctamente desde el JWT
+        user_email = current_user.get("correo") or current_user.get("sub")
+        carriers_info = obtener_carrier_info_supervisor(user_email, client)
         
         if not carriers_info:
             return {
@@ -318,7 +320,9 @@ async def get_guias_pendientes_supervisor(
     """
     try:
         client = bigquery.Client()
-        carrier_ids = obtener_carrier_id_supervisor(current_user["correo"], client)
+        # CORRECCIÓN: Obtener correo correctamente desde el JWT
+        user_email = current_user.get("correo") or current_user.get("sub")
+        carrier_ids = obtener_carrier_id_supervisor(user_email, client)
         
         if not carrier_ids:
             return {"guias": [], "total": 0, "mensaje": "No hay carriers asignados"}
@@ -425,7 +429,9 @@ async def get_conductores_supervisor(current_user = Depends(verificar_supervisor
     """
     try:
         client = bigquery.Client()
-        carrier_ids = obtener_carrier_id_supervisor(current_user["correo"], client)
+        # CORRECCIÓN: Obtener correo correctamente desde el JWT
+        user_email = current_user.get("correo") or current_user.get("sub")
+        carrier_ids = obtener_carrier_id_supervisor(user_email, client)
         
         if not carrier_ids:
             return []

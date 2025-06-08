@@ -18,6 +18,8 @@ const meses = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ];
 
+const API_URL = "http://192.168.0.38:8000"; // Cambia aquí si tu backend está en localhost
+
 export default function CalendarioConciliacion() {
   const [datos, setDatos] = useState<DiaConciliacion[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,7 +37,20 @@ export default function CalendarioConciliacion() {
     setError(null);
     
     try {
-      const response = await fetch(`http://localhost:8000/contabilidad/conciliacion-mensual?mes=${mes}`);
+      const token = localStorage.getItem("token") || "";
+      const response = await fetch(
+        `${API_URL}/contabilidad/conciliacion-mensual?mes=${mes}`,
+        {
+          headers: token
+            ? {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+              }
+            : {
+                "Content-Type": "application/json"
+              }
+        }
+      );
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -44,7 +59,6 @@ export default function CalendarioConciliacion() {
       const data = await response.json();
       
       if (Array.isArray(data)) {
-        // Asignar estados basado en el avance y diferencias
         const datosConEstado = data.map((dia: DiaConciliacion) => ({
           ...dia,
           estado: determinarEstado(dia)
@@ -55,8 +69,12 @@ export default function CalendarioConciliacion() {
         setDatos([]);
       }
     } catch (err) {
-      console.error("Error al cargar datos del calendario:", err);
-      setError(err instanceof Error ? err.message : "Error desconocido");
+      // Mejora: mensaje claro si es error de red
+      if (err instanceof TypeError && err.message === "Failed to fetch") {
+        setError("No se pudo conectar con el servidor. Verifique su conexión de red o que el servidor esté disponible.");
+      } else {
+        setError(err instanceof Error ? err.message : "Error desconocido");
+      }
       setDatos([]);
     } finally {
       setIsLoading(false);
@@ -66,8 +84,8 @@ export default function CalendarioConciliacion() {
   // Determinar estado del día basado en avance y diferencias
   const determinarEstado = (dia: DiaConciliacion): 'pendiente' | 'en_proceso' | 'completado' | 'con_diferencias' => {
     if (dia.avance === 0) return 'pendiente';
-    if (dia.diferencia !== 0 && dia.avance >= 80) return 'con_diferencias';
-    if (dia.avance === 100) return 'completado';
+    if (Math.abs(dia.diferencia) > 500000 && dia.avance >= 50) return 'con_diferencias';
+    if (dia.avance === 100 && Math.abs(dia.diferencia) <= 10000) return 'completado';
     return 'en_proceso';
   };
 
@@ -118,12 +136,14 @@ export default function CalendarioConciliacion() {
 
   // Obtener estadísticas del mes
   const obtenerEstadisticas = () => {
-    const totalDias = datos.length;
+    const totalDias = datos.filter(d => d.movimientos > 0).length;
     const completados = datos.filter(d => d.estado === 'completado').length;
     const conDiferencias = datos.filter(d => d.estado === 'con_diferencias').length;
     const totalSoportes = datos.reduce((sum, d) => sum + d.soportes, 0);
     const totalBanco = datos.reduce((sum, d) => sum + d.banco, 0);
     const totalDiferencia = datos.reduce((sum, d) => sum + d.diferencia, 0);
+    const totalGuias = datos.reduce((sum, d) => sum + d.guias, 0);
+    const totalMovimientos = datos.reduce((sum, d) => sum + d.movimientos, 0);
 
     return {
       totalDias,
@@ -132,8 +152,15 @@ export default function CalendarioConciliacion() {
       totalSoportes,
       totalBanco,
       totalDiferencia,
+      totalGuias,
+      totalMovimientos,
       promedioAvance: totalDias > 0 ? datos.reduce((sum, d) => sum + d.avance, 0) / totalDias : 0
     };
+  };
+
+  // Formatear moneda
+  const formatearMoneda = (valor: number) => {
+    return `$${Math.abs(valor).toLocaleString('es-CO')}`;
   };
 
   const calendario = generarCalendario();
@@ -173,7 +200,48 @@ export default function CalendarioConciliacion() {
 
   return (
     <div className="calendario-container">
-      {/* Header con navegación y estadísticas */}
+      {/* Header estilo reporte con fondo azul */}
+      <div className="reporte-header">
+        <div className="reporte-titulo">
+          <h1>REPORTE CONCILIACIÓN BANCARIA CORTE {meses[mes - 1].toUpperCase()} {año}</h1>
+          <div className="saldo-info">
+            <div>SALDO DE GUÍAS POR PAGAR</div>
+            <div>{formatearMoneda(estadisticas.totalDiferencia)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Panel de estadísticas estilo reporte */}
+      <div className="estadisticas-reporte">
+        <div className="estadisticas-panel">
+          <div className="estadistica-item soportes">
+            <span className="estadistica-label">Valor Soportes</span>
+            <span className="estadistica-valor">{formatearMoneda(estadisticas.totalSoportes)}</span>
+          </div>
+          <div className="estadistica-item banco">
+            <span className="estadistica-label">Extracto Banco</span>
+            <span className="estadistica-valor">{formatearMoneda(estadisticas.totalBanco)}</span>
+          </div>
+          <div className="estadistica-item recaudo">
+            <span className="estadistica-label">Recaudo en Banco x Cruzar TN</span>
+            <span className="estadistica-valor">{estadisticas.totalGuias.toLocaleString()}</span>
+          </div>
+          <div className="estadistica-item guias">
+            <span className="estadistica-label">Cantidad Guías Pagadas</span>
+            <span className="estadistica-valor">{estadisticas.totalGuias.toLocaleString()}</span>
+          </div>
+          <div className="estadistica-item movimientos">
+            <span className="estadistica-label">Cantidad Mov. Bancarios</span>
+            <span className="estadistica-valor">{estadisticas.totalMovimientos.toLocaleString()}</span>
+          </div>
+          <div className="estadistica-item avance">
+            <span className="estadistica-label">Avance Promedio</span>
+            <span className="estadistica-valor">{estadisticas.promedioAvance.toFixed(1)}%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Header con navegación usando estilos existentes */}
       <div className="calendario-header">
         <div className="navegacion-mes">
           <button onClick={() => cambiarMes('anterior')} className="btn-navegacion">
@@ -185,28 +253,6 @@ export default function CalendarioConciliacion() {
           <button onClick={() => cambiarMes('siguiente')} className="btn-navegacion">
             ▶
           </button>
-        </div>
-
-        {/* Panel de estadísticas */}
-        <div className="estadisticas-panel">
-          <div className="estadistica-item">
-            <span className="estadistica-label">Días Completados</span>
-            <span className="estadistica-valor">{estadisticas.completados}/{estadisticas.totalDias}</span>
-          </div>
-          <div className="estadistica-item">
-            <span className="estadistica-label">Con Diferencias</span>
-            <span className="estadistica-valor alerta">{estadisticas.conDiferencias}</span>
-          </div>
-          <div className="estadistica-item">
-            <span className="estadistica-label">Avance Promedio</span>
-            <span className="estadistica-valor">{estadisticas.promedioAvance.toFixed(1)}%</span>
-          </div>
-          <div className="estadistica-item">
-            <span className="estadistica-label">Diferencia Total</span>
-            <span className={`estadistica-valor ${estadisticas.totalDiferencia !== 0 ? 'alerta' : 'exito'}`}>
-              ${estadisticas.totalDiferencia.toLocaleString()}
-            </span>
-          </div>
         </div>
       </div>
 
@@ -230,7 +276,7 @@ export default function CalendarioConciliacion() {
         </div>
       </div>
 
-      {/* Calendario */}
+      {/* Calendario con celdas mejoradas */}
       <div className="calendario-grid">
         {diasSemana.map((d) => (
           <div key={d} className="encabezado-dia">{d}</div>
@@ -245,17 +291,38 @@ export default function CalendarioConciliacion() {
           >
             {dia ? (
               <>
-                <div className="fecha">{dia.fecha.split("-")[2]}</div>
-                <div className="datos-resumen">
-                  <div className="dato-principal">
-                    <span className="diferencia-valor">
-                      {dia.diferencia === 0 ? '✓' : `$${Math.abs(dia.diferencia).toLocaleString()}`}
-                    </span>
+                <div className="dia-header">
+                  <div className="fecha">{dia.fecha.split("-")[2]}</div>
+                  {dia.avance === 100 && Math.abs(dia.diferencia) <= 10000 && (
+                    <span className="check-completado">✓</span>
+                  )}
+                </div>
+                
+                <div className="celda-informacion">
+                  <div className="info-soportes">
+                    SOP: {formatearMoneda(dia.soportes)}
                   </div>
+                  <div className="info-banco">
+                    BCO: {formatearMoneda(dia.banco)}
+                  </div>
+                  <div className={`info-diferencia ${dia.diferencia >= 0 ? 'positiva' : 'negativa'}`}>
+                    DIF: {formatearMoneda(dia.diferencia)}
+                  </div>
+                  <div className="info-meta">
+                    {dia.guias} guías | {dia.movimientos} mov
+                  </div>
+                </div>
+
+                <div className="datos-resumen">
                   <div className="barra-avance">
                     <div 
                       className="barra-progreso" 
-                      style={{ width: `${dia.avance}%` }}
+                      style={{ 
+                        width: `${dia.avance}%`,
+                        background: dia.estado === 'con_diferencias' ? 
+                          'linear-gradient(90deg, #dc2626, #b91c1c)' : 
+                          'linear-gradient(90deg, #10b981, #059669)'
+                      }}
                     ></div>
                   </div>
                   <div className="avance-texto">{dia.avance.toFixed(0)}%</div>
@@ -266,12 +333,12 @@ export default function CalendarioConciliacion() {
         ))}
       </div>
 
-      {/* Modal de detalles */}
+      {/* Modal de detalles usando estilos existentes */}
       {modalVisible && diaSeleccionado && (
         <div className="modal-overlay" onClick={() => setModalVisible(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Conciliación del {new Date(diaSeleccionado.fecha).toLocaleDateString('es-ES', {
+              <h3>Conciliación del {new Date(diaSeleccionado.fecha + 'T00:00:00').toLocaleDateString('es-ES', {
                 weekday: 'long',
                 year: 'numeric',
                 month: 'long',
@@ -283,26 +350,26 @@ export default function CalendarioConciliacion() {
             <div className="modal-body">
               <div className="detalle-grid">
                 <div className="detalle-item">
-                  <span className="detalle-label">Soportes</span>
-                  <span className="detalle-valor">${diaSeleccionado.soportes.toLocaleString()}</span>
+                  <span className="detalle-label">Valor Soportes</span>
+                  <span className="detalle-valor">{formatearMoneda(diaSeleccionado.soportes)}</span>
                 </div>
                 <div className="detalle-item">
-                  <span className="detalle-label">Banco</span>
-                  <span className="detalle-valor">${diaSeleccionado.banco.toLocaleString()}</span>
+                  <span className="detalle-label">Extracto Banco</span>
+                  <span className="detalle-valor">{formatearMoneda(diaSeleccionado.banco)}</span>
                 </div>
                 <div className="detalle-item">
                   <span className="detalle-label">Diferencia</span>
-                  <span className={`detalle-valor ${diaSeleccionado.diferencia === 0 ? 'exito' : 'alerta'}`}>
-                    ${diaSeleccionado.diferencia.toLocaleString()}
+                  <span className={`detalle-valor ${Math.abs(diaSeleccionado.diferencia) <= 10000 ? 'exito' : 'alerta'}`}>
+                    {formatearMoneda(diaSeleccionado.diferencia)}
                   </span>
                 </div>
                 <div className="detalle-item">
-                  <span className="detalle-label">Guías</span>
-                  <span className="detalle-valor">{diaSeleccionado.guias}</span>
+                  <span className="detalle-label">Cantidad Guías</span>
+                  <span className="detalle-valor">{diaSeleccionado.guias.toLocaleString()}</span>
                 </div>
                 <div className="detalle-item">
-                  <span className="detalle-label">Movimientos</span>
-                  <span className="detalle-valor">{diaSeleccionado.movimientos}</span>
+                  <span className="detalle-label">Movimientos Bancarios</span>
+                  <span className="detalle-valor">{diaSeleccionado.movimientos.toLocaleString()}</span>
                 </div>
                 <div className="detalle-item">
                   <span className="detalle-label">Avance</span>
@@ -318,6 +385,21 @@ export default function CalendarioConciliacion() {
                   {diaSeleccionado.estado === 'con_diferencias' && 'Con Diferencias'}
                 </span>
               </div>
+
+              {/* Información adicional basada en el estado */}
+              {diaSeleccionado.estado === 'con_diferencias' && (
+                <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#fee2e2', borderRadius: '8px', borderLeft: '4px solid #dc2626' }}>
+                  <strong>⚠️ Atención:</strong> Este día presenta diferencias significativas que requieren revisión.
+                  <br />
+                  <small>Diferencia: {formatearMoneda(diaSeleccionado.diferencia)} ({diaSeleccionado.diferencia >= 0 ? 'Favor empresa' : 'Favor banco'})</small>
+                </div>
+              )}
+
+              {diaSeleccionado.estado === 'completado' && (
+                <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#d1fae5', borderRadius: '8px', borderLeft: '4px solid #10b981' }}>
+                  <strong>✅ Conciliado:</strong> Este día está completamente conciliado.
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 from google.cloud import bigquery
 import os
 import json
+from app.dependencies import get_current_user
 
 router = APIRouter(prefix="/asistente", tags=["Asistente"])
 
@@ -188,6 +189,11 @@ def construir_prompt_sistema(nombre_usuario: str, rol: str, guias: List[GuiaInfo
         guias_texto += f" | ${total_entregado:,} ya entregadas"
         if guias_rechazadas:
             guias_texto += f" | {len(guias_rechazadas)} rechazadas"
+    else:
+        guias_texto = (
+            "Actualmente NO tienes guías pendientes de pago ni asignadas en el sistema.\n"
+            "Si esperabas ver guías aquí y no aparecen, por favor verifica con soporte técnico."
+        )
     
     contexto_pagina_texto = ""
     if contexto_pagina:
@@ -308,7 +314,13 @@ def generar_respuesta_fallback(pregunta: str, guias: List[GuiaInfo], estadistica
 • Emergencias: 24/7"""
     
     else:
-        return f"Entiendo tu consulta sobre '{pregunta}'. Actualmente tengo acceso limitado, pero puedo ayudarte con: consultar tus totales pendientes, proceso de subir comprobantes, selección de guías, y información de contacto. ¿Te interesa alguno de estos temas?"
+        if estadisticas.get('total_guias', 0) == 0:
+            return (
+                "Actualmente no tienes guías pendientes ni asignadas en el sistema.\n"
+                "Si esperabas ver guías y no aparecen, contacta a soporte técnico."
+            )
+        else:
+            return f"Entiendo tu consulta sobre '{pregunta}'. Actualmente tengo acceso limitado, pero puedo ayudarte con: consultar tus totales pendientes, proceso de subir comprobantes, selección de guías, y información de contacto. ¿Te interesa alguno de estos temas?"
 
 def generar_respuesta_contextual(pregunta: str, guias: List[GuiaInfo], estadisticas: Dict[str, Any]) -> str:
     """
@@ -341,40 +353,50 @@ def generar_respuesta_contextual(pregunta: str, guias: List[GuiaInfo], estadisti
 @router.post("/chat")
 async def responder_pregunta(
     mensaje: Mensaje,
-    bigquery_client: bigquery.Client = Depends(get_bigquery_client)
+    bigquery_client: bigquery.Client = Depends(get_bigquery_client),
+    current_user: dict = Depends(get_current_user)
 ):
     try:
-        # Obtener información real del usuario
-        nombre_usuario = mensaje.correo_usuario.split("@")[0].replace(".", " ").title()
-        rol = "conductor"  # En producción, extraer del JWT
-        
-        # Obtener guías reales del usuario
-        guias = obtener_guias_usuario_real(mensaje.correo_usuario, bigquery_client)
-        estadisticas = obtener_estadisticas_usuario(mensaje.correo_usuario, bigquery_client)
-        
-        print(f"🔍 Chat - Usuario: {mensaje.correo_usuario}")
+        # Obtener información real del usuario desde el JWT
+        rol = current_user.get("rol", "conductor")
+        correo_usuario = current_user.get("correo") or current_user.get("sub") or mensaje.correo_usuario
+        nombre_usuario = correo_usuario.split("@")[0].replace(".", " ").title()
+
+        # Solo permitir que el usuario consulte sus propias guías si es conductor
+        if rol == "conductor" and correo_usuario != mensaje.correo_usuario:
+            raise HTTPException(status_code=403, detail="No autorizado para consultar información de otros usuarios")
+
+        # Obtener guías reales del usuario según el rol
+        if rol == "conductor":
+            guias = obtener_guias_usuario_real(correo_usuario, bigquery_client)
+            estadisticas = obtener_estadisticas_usuario(correo_usuario, bigquery_client)
+        else:
+            # Para otros roles, podrías implementar lógica adicional aquí
+            guias = []
+            estadisticas = {}
+
+        print(f"🔍 Chat - Usuario: {correo_usuario} (rol: {rol})")
         print(f"📊 Guías encontradas: {len(guias)}")
         print(f"💰 Total pendiente: ${estadisticas.get('total_pendiente', 0):,}")
-        
+
         # Obtener contexto de página
         contexto_pagina = mensaje.contexto_adicional.get("pagina_actual") if mensaje.contexto_adicional else None
-        
-        # Construir prompt del sistema con datos reales
+
+        # Construir prompt del sistema con datos reales y rol
         prompt_sistema = construir_prompt_sistema(nombre_usuario, rol, guias, contexto_pagina)
-        
+
         # Generar contexto adicional específico
         contexto_adicional = generar_respuesta_contextual(mensaje.pregunta, guias, estadisticas)
-        
+
         # Preparar pregunta con contexto
         pregunta_con_contexto = contexto_adicional + mensaje.pregunta if contexto_adicional else mensaje.pregunta
-        
+
         # Verificar si OpenAI está disponible
         if not os.getenv("OPENAI_API_KEY"):
             print("⚠️ OpenAI API Key no configurada, usando respuesta de fallback")
             respuesta_texto = generar_respuesta_fallback(mensaje.pregunta, guias, estadisticas)
         else:
             try:
-                # Llamada a OpenAI (renombrado para evitar conflicto)
                 respuesta_llm = client.chat.completions.create(
                     model="gpt-4",
                     messages=[
@@ -386,28 +408,27 @@ async def responder_pregunta(
                     presence_penalty=0.1,
                     frequency_penalty=0.1
                 )
-
                 respuesta_texto = respuesta_llm.choices[0].message.content
-                
             except Exception as openai_error:
                 print(f"⚠️ Error con OpenAI: {openai_error}")
                 respuesta_texto = generar_respuesta_fallback(mensaje.pregunta, guias, estadisticas)
-        
+
         # Agregar información de contacto si es necesario
         if "soporte" in mensaje.pregunta.lower() or "contacto" in mensaje.pregunta.lower():
             respuesta_texto += "\n\n📞 **Contacto XCargo:**\n• Email: soporte@xcargo.co\n• WhatsApp: +57 300 123 4567\n• Horario: Lunes a Viernes 8AM-6PM\n• Emergencias: 24/7"
-        
+
         return {
             "respuesta": respuesta_texto,
             "contexto": estadisticas,
             "error": False
         }
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Error en asistente: {e}")
         import traceback
         traceback.print_exc()
-        
         return {
             "respuesta": "Lo siento, experimenté un problema técnico. Por favor, intenta nuevamente o contacta a soporte técnico (soporte@xcargo.co).",
             "error": True

@@ -10,6 +10,7 @@ import string
 import json
 import os
 from app.core.email_utils import enviar_codigo_verificacion
+import jwt
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +22,9 @@ TEMP_CODES_FILE = "temp_codes.json"
 # Variables globales para gestión de códigos
 codigo_temporal = {}
 codigo_expiracion = {}
+
+SECRET_KEY = "supersecreto"
+ALGORITHM = "HS256"
 
 def cargar_codigos_desde_archivo():
     """Carga códigos desde archivo al iniciar el servidor"""
@@ -185,6 +189,15 @@ def login(data: LoginRequest):
         ruta_defecto = "/"
 
     # 6. Respuesta unificada con datos completos
+
+    # Generar JWT
+    payload = {
+        "sub": datos_usuario["correo"],
+        "rol": cred["rol"],
+        "exp": datetime.utcnow() + timedelta(hours=12)
+    }
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
     return {
         "id_usuario": datos_usuario["id_usuario"],
         "nombre": datos_usuario["nombre"],
@@ -196,9 +209,9 @@ def login(data: LoginRequest):
         "permisos": permisos,
         "ruta_defecto": ruta_defecto,
         "tipo_usuario": datos_usuario.get("tipo_usuario", ""),
-        # Campos adicionales para conductores
         "carrier_id": datos_usuario.get("Carrier_id"),
-        "carrier_mail": datos_usuario.get("Carrier_Mail")
+        "carrier_mail": datos_usuario.get("Carrier_Mail"),
+        "token": token  # <-- Agrega esto
     }
 
 @router.post("/cambiar-clave")

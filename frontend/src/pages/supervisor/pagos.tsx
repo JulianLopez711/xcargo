@@ -60,8 +60,12 @@ export default function PagosSupervisor() {
         params.append('conductor', filtroConductor.trim());
       }
 
-      const response = await fetch(`http://localhost:8000/supervisor/guias-pendientes?${params}`, {
+      // Agregar token JWT en la cabecera Authorization
+      const token = user?.token || localStorage.getItem("token") || "";
+      const response = await fetch(`http://192.168.0.38:8000/supervisor/guias-pendientes?${params}`, {
         headers: {
+          "Authorization": `Bearer ${token}`,
+          // Puedes mantener los headers personalizados si el backend los requiere:
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "supervisor"
         }

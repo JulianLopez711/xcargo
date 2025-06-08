@@ -2,9 +2,16 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import "../../styles/conductor/FormularioPagoConductor.css";
 import LoadingSpinner from "../../components/LoadingSpinner";
+// Agregar import para el validador si existe
+import ValidadorPago from "../../components/ValidadorPago"; // Descomenta si tienes el componente
 
 // Tipos de datos
-type GuiaPago = { referencia: string; valor: number; tracking?: string };
+type GuiaPago = { 
+  referencia: string; 
+  valor: number; 
+  tracking?: string; 
+  liquidacion_id?: string; 
+};
 type DatosPago = {
   valor: string;
   fecha: string;
@@ -49,12 +56,16 @@ export default function RegistrarPago() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { guias, total }: { guias: GuiaPago[]; total: number; bono?: number } =
-    location.state || {
-      guias: [],
-      total: 0,
-      bono: 0,
-    };
+  // 2.2 - Modificar la obtención de datos del location.state
+  const { guias, total, bonos }: { 
+    guias: GuiaPago[]; 
+    total: number; 
+    bonos?: { disponible: number; detalles: any[] } 
+  } = location.state || {
+    guias: [],
+    total: 0,
+    bonos: { disponible: 0, detalles: [] }
+  };
 
   const [archivo, setArchivo] = useState<File | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -73,6 +84,9 @@ export default function RegistrarPago() {
     entidad: "",
     referencia: "",
   });
+
+  // Agregar validación en tiempo real
+  const [validacionPago, setValidacionPago] = useState<any>(null);
 
   // 🔥 NUEVA: Función para convertir fechas
   const convertirFechaAISO = (fechaTexto: string): string => {
@@ -192,19 +206,14 @@ export default function RegistrarPago() {
     
     if (!file) return;
 
-    console.log("📁 Archivo seleccionado:", {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      lastModified: new Date(file.lastModified)
-    });
+
 
     setAnalizando(true);
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const response = await fetch("http://localhost:8000/ocr/extraer", {
+      const response = await fetch("http://192.168.0.38:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -254,7 +263,6 @@ export default function RegistrarPago() {
             // Mostrar éxito solo si se extrajeron datos útiles
             const camposExtraidos = Object.values(datosLimpios).filter(v => v && v.trim()).length;
             if (camposExtraidos >= 3) {
-              console.log("✅ Datos extraídos exitosamente");
             }
           }
         }
@@ -329,28 +337,66 @@ export default function RegistrarPago() {
 
   // 🔧 FUNCIÓN CORREGIDA: registrarTodosLosPagos
   const registrarTodosLosPagos = async () => {
-    if (totalAcumulado < total) {
-      alert("El total acumulado no cubre el valor requerido para las guías.");
+    const totales = calcularTotalConBonos();
+
+    if (totales.faltante > 0) {
+      alert(`Faltan $${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
       return;
     }
 
     setCargando(true);
 
     try {
+      // Registrar bonos utilizados primero (si los hay)
+      if (usarBonos && bonosSeleccionados.length > 0) {
+        const bonosData = {
+          bonos_utilizados: bonosSeleccionados.map(bonoId => {
+            const bono = bonos?.detalles.find(b => b.id === bonoId);
+            return {
+              bono_id: bonoId,
+              valor_utilizado: bono?.saldo_disponible || 0
+            };
+          }),
+          total_bonos: montoBonosUsar,
+          guias: guias.map(g => ({
+            referencia: g.referencia,
+            tracking: g.tracking || g.referencia,
+            liquidacion_id: g.liquidacion_id
+          }))
+        };
+
+        const responseBonos = await fetch("http://192.168.0.38:8000/pagos/aplicar-bonos", {
+          method: "POST",
+          headers: {
+            'Authorization': `Bearer ${getToken()}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(bonosData)
+        });
+
+        if (!responseBonos.ok) {
+          const errorBonos = await responseBonos.json();
+          throw new Error(`Error aplicando bonos: ${errorBonos.detail}`);
+        }
+      }
+
+      // Luego registrar pagos en efectivo/transferencia (código existente)
       for (const p of pagosCargados) {
         const formData = new FormData();
         const usuario = JSON.parse(localStorage.getItem("user")!);
         const correo = usuario.email;
 
-        // Limpiar y validar las guías antes de enviarlas
         const guiasConCliente = guias.map((g) => {
           const guiaObj: any = {
             referencia: String(g.referencia).trim(),
             valor: Number(g.valor),
             cliente: "por_definir",
           };
-          
-          // Validar tracking - usar referencia si no hay tracking válido
+
+          if (g.liquidacion_id) {
+            guiaObj.liquidacion_id = g.liquidacion_id;
+          }
+
           if (g.tracking) {
             const trackingStr = String(g.tracking).trim();
             if (trackingStr && 
@@ -359,61 +405,34 @@ export default function RegistrarPago() {
                 trackingStr !== "") {
               guiaObj.tracking = trackingStr;
             } else {
-              guiaObj.tracking = g.referencia; // Usar referencia como fallback
+              guiaObj.tracking = g.referencia;
             }
           } else {
-            guiaObj.tracking = g.referencia; // Usar referencia como fallback
+            guiaObj.tracking = g.referencia;
           }
-          
+
           return guiaObj;
         });
 
-        // Expandir los logs para ver cada guía individualmente
-        guiasConCliente.forEach((guia, index) => {
-          console.log(`📦 Guía ${index + 1}:`, {
-            referencia: guia.referencia,
-            valor: guia.valor,
-            cliente: guia.cliente,
-            tracking: guia.tracking,
-            referencia_length: guia.referencia?.length,
-            tracking_length: guia.tracking?.length
-          });
-        });
-
         formData.append("correo", correo);
-        formData.append(
-          "valor_pago_str",
-          parseValorMonetario(p.datos.valor).toString()
-        );
+        formData.append("valor_pago_str", parseValorMonetario(p.datos.valor).toString());
         formData.append("fecha_pago", p.datos.fecha);
-        
-        // 🔧 CORREGIR: Solo una hora, no duplicada
         formData.append("hora_pago", normalizarHoraParaEnvio(p.datos.hora));
-        
         formData.append("tipo", p.datos.tipo);
         formData.append("entidad", p.datos.entidad);
         formData.append("referencia", p.datos.referencia);
         formData.append("guias", JSON.stringify(guiasConCliente));
         formData.append("comprobante", p.archivo);
 
-        console.log("📡 Enviando datos:", {
-          correo,
-          valor: parseValorMonetario(p.datos.valor),
-          fecha: p.datos.fecha,
-          hora: normalizarHoraParaEnvio(p.datos.hora), // 🔧 Usar función normalizada
-          tipo: p.datos.tipo,
-          entidad: p.datos.entidad,
-          referencia: p.datos.referencia,
-          guias: guiasConCliente
-        });
+        // Agregar información de bonos si se usaron
+        if (usarBonos && montoBonosUsar > 0) {
+          formData.append("bonos_aplicados", montoBonosUsar.toString());
+        }
 
-        const response = await fetch(
-          "http://localhost:8000/pagos/registrar-conductor",
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
+        const response = await fetch("http://192.168.0.38:8000/pagos/registrar-conductor", {
+          method: "POST",
+          body: formData,
+        });
 
         const result = await response.json();
         if (!response.ok) {
@@ -421,8 +440,10 @@ export default function RegistrarPago() {
         }
       }
 
-      alert("✅ Pagos registrados correctamente.");
+      alert("✅ Pagos registrados correctamente" + 
+            (usarBonos && montoBonosUsar > 0 ? ` (incluye $${montoBonosUsar.toLocaleString()} en bonos)` : "") + ".");
       navigate("/conductor/pagos");
+
     } catch (error: any) {
       console.error("Error registrando pagos:", error);
       alert("❌ Error: " + error.message);
@@ -437,6 +458,39 @@ export default function RegistrarPago() {
     if (score >= 70) return "#3b82f6"; // Azul
     if (score >= 50) return "#f59e0b"; // Amarillo
     return "#ef4444"; // Rojo
+  };
+
+  // 2.3 - Agregar estados para manejo de bonos
+  const [usarBonos, setUsarBonos] = useState(false);
+  const [montoBonosUsar, setMontoBonosUsar] = useState(0);
+  const [bonosSeleccionados, setBonosSeleccionados] = useState<string[]>([]);
+
+  // 2.4 - Función para calcular total después de aplicar bonos
+  const calcularTotalConBonos = () => {
+    const totalPagos = totalAcumulado;
+    const totalBonos = montoBonosUsar;
+    const totalFinal = totalPagos + totalBonos;
+    return {
+      totalPagos,
+      totalBonos,
+      totalFinal,
+      faltante: Math.max(0, total - totalFinal)
+    };
+  };
+
+  // 2.5 - Función para manejar selección de bonos
+  const toggleBono = (bonoId: string, valorBono: number) => {
+    setBonosSeleccionados(prev => {
+      let nuevosSeleccionados;
+      if (prev.includes(bonoId)) {
+        nuevosSeleccionados = prev.filter(id => id !== bonoId);
+        setMontoBonosUsar(prevMonto => prevMonto - valorBono);
+      } else {
+        nuevosSeleccionados = [...prev, bonoId];
+        setMontoBonosUsar(prevMonto => prevMonto + valorBono);
+      }
+      return nuevosSeleccionados;
+    });
   };
 
   return (
@@ -470,6 +524,58 @@ export default function RegistrarPago() {
           </div>
         </div>
       </div>
+
+      {/* 2.6 - Componente para mostrar y usar bonos */}
+      {bonos && bonos.disponible > 0 && (
+        <div className="seccion-bonos">
+          <h3>💰 Bonos Disponibles</h3>
+          <div className="bonos-disponibles-pago">
+            <div className="bonos-header-pago">
+              <span>Total bonos disponibles: ${bonos.disponible.toLocaleString()}</span>
+              <label className="usar-bonos-toggle">
+                <input
+                  type="checkbox"
+                  checked={usarBonos}
+                  onChange={(e) => {
+                    setUsarBonos(e.target.checked);
+                    if (!e.target.checked) {
+                      setBonosSeleccionados([]);
+                      setMontoBonosUsar(0);
+                    }
+                  }}
+                />
+                Usar bonos para este pago
+              </label>
+            </div>
+            {usarBonos && (
+              <div className="bonos-seleccion">
+                <h4>Selecciona los bonos a usar:</h4>
+                {bonos.detalles.map((bono: any) => (
+                  <div key={bono.id} className="bono-seleccionable">
+                    <label className="bono-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={bonosSeleccionados.includes(bono.id)}
+                        onChange={() => toggleBono(bono.id, bono.saldo_disponible)}
+                      />
+                      <div className="bono-info-seleccion">
+                        <span className="bono-tipo-sel">{bono.tipo}</span>
+                        <span className="bono-valor-sel">${bono.saldo_disponible.toLocaleString()}</span>
+                        <small className="bono-desc-sel">{bono.descripcion}</small>
+                      </div>
+                    </label>
+                  </div>
+                ))}
+                {bonosSeleccionados.length > 0 && (
+                  <div className="bonos-seleccionados-resumen">
+                    <strong>Bonos seleccionados: ${montoBonosUsar.toLocaleString()}</strong>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {pagosCargados.length > 0 && (
         <div className="pagos-cargados">
@@ -582,9 +688,6 @@ export default function RegistrarPago() {
             <p style={{ margin: "0.25rem 0", fontSize: "0.9rem" }}>
               <strong>Estado:</strong> {validacionIA.estado}
             </p>
-            <p style={{ margin: "0.25rem 0", fontSize: "0.9rem" }}>
-              <strong>Recomendación:</strong> {validacionIA.accion_recomendada}
-            </p>
             {validacionIA.errores_detectados && Array.isArray(validacionIA.errores_detectados) && validacionIA.errores_detectados.length > 0 && (
               <div style={{ marginTop: "0.5rem" }}>
                 <strong style={{ color: "#dc2626" }}>⚠️ Errores detectados:</strong>
@@ -667,17 +770,31 @@ export default function RegistrarPago() {
           ))}
         </div>
 
+        {/* Componente de validación */}
+        {guias.length > 0 && (
+          <ValidadorPago
+            guiasSeleccionadas={guias}
+            valorConsignado={parseValorMonetario(datosManuales.valor)}
+            onValidacionChange={setValidacionPago}
+          />
+        )}
+
+        {/* Mostrar botón solo si es válido */}
         <button
           type="button"
-          className="boton-secundario"
+          className="boton-registrar"
           onClick={agregarPago}
-          disabled={analizando}
+          disabled={!validacionPago?.valido || analizando}
         >
-          ➕ Agregar pago
+          {validacionPago?.valido ? '✅ Agregar pago válido' : '❌ Pago inválido'}
         </button>
       </form>
 
       {cargando && <LoadingSpinner logoSize="medium" />}
     </div>
   );
+}
+
+function getToken() {
+  throw new Error("Function not implemented.");
 }

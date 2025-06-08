@@ -19,7 +19,7 @@ export default function FormCambiarRol() {
 
     try {
       // ✅ CORRECCIÓN: Agregar headers
-      const res = await fetch("http://localhost:8000/admin/cambiar-rol", {
+      const res = await fetch("http://192.168.0.38:8000/admin/cambiar-rol", {
         method: "POST",
         headers: {
           "X-User-Email": user?.email || "",
