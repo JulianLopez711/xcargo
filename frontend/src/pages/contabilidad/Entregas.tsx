@@ -551,7 +551,7 @@ ${
 };
 
 // También actualiza getEstadoIcono:
-const getEstadoIcono = (estadoRaw: string, calidad?: string): string => {
+const getEstadoIcono = (estadoRaw: string): string => {
   const estado = estadoRaw?.toLowerCase();
 
   if (estado.includes("conciliado exacto")) return "✅";
@@ -1058,8 +1058,7 @@ const getEstadoIcono = (estadoRaw: string, calidad?: string): string => {
                         }}
                       >
                         {getEstadoIcono(
-                          entrega.estado_conciliacion,
-                          entrega.calidad_conciliacion
+                          entrega.estado_conciliacion
                         )}
                         <div
                           style={{ fontSize: "0.7rem", marginTop: "0.125rem" }}

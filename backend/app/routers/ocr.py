@@ -47,7 +47,7 @@ try:
     # Estrategia 2: Desde app.config (fallback)
     if not api_key:
         try:
-            from app.config import OPENAI_API_KEY
+            from app.core.config import OPENAI_API_KEY
             api_key = OPENAI_API_KEY
             if api_key:
                 print(f"✅ API key desde app.config: {api_key[:10]}...")
