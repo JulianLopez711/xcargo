@@ -226,11 +226,6 @@ def cambiar_clave(request_data: dict = Body(...)):
     client = bigquery.Client()
     
     try:
-        # Log para debugging
-        print(f"🔄 Datos recibidos: {
-            {k: '***' if 'clave' in k or 'password' in k else v 
-             for k, v in request_data.items()}
-        }")
         
         # DETECTAR TIPO DE SOLICITUD
         correo = request_data.get("correo", "").lower().strip()
