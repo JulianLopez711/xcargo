@@ -579,7 +579,7 @@ def crear_usuario_conductor_automatico(correo: str, client: bigquery.Client):
         conductor = dict(rows[0])
         
         # Crear credenciales automáticamente
-        hashed_password = hash_clave("123456")  # Clave por defecto
+        hashed_password = hash_clave("Xcargo123")  # Clave por defecto
         ahora = datetime.utcnow()
         
         query_insert = """

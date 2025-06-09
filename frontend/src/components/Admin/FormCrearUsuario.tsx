@@ -79,7 +79,7 @@ export default function FormCrearUsuario() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Error al crear usuario");
       
-      setMensaje(`${data.mensaje} - Clave por defecto: 123456`);
+      setMensaje(`${data.mensaje} - Clave por defecto: Xcargo123`);
       // Limpiar formulario
       setNombre("");
       setCorreo("");
@@ -229,7 +229,7 @@ export default function FormCrearUsuario() {
           <div className="info-card">
             <h4>📋 Información importante:</h4>
             <ul>
-              <li>• La clave por defecto será <strong>123456</strong></li>
+              <li>• La clave por defecto será <strong>Xcargo123</strong></li>
               <li>• El usuario deberá cambiar la clave en su primer acceso</li>
               <li>• Los permisos dependen del rol asignado</li>
               <li>• Para roles de Supervisor, asignar empresa/carrier</li>

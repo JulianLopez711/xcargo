@@ -63,7 +63,7 @@ async def crear_usuario(
     bq_client.query(query_usuarios, job_config=job_config).result()
 
     # Insertar en credenciales
-    hashed_password = hashear_clave("123456")
+    hashed_password = hashear_clave("Xcargo123")
     query_credenciales = f"""
         INSERT INTO `{PROJECT_ID}.{DATASET}.credenciales`
         (correo, hashed_password, rol, clave_defecto, creado_en, id_usuario)
@@ -79,7 +79,7 @@ async def crear_usuario(
         ]
     )
     bq_client.query(query_credenciales, job_config=job_config2).result()
-    return {"mensaje": "Usuario creado con clave por defecto (123456)"}
+    return {"mensaje": "Usuario creado con clave por defecto (Xcargo123)"}
 
 # Cambiar rol
 @router.post("/cambiar-rol")
@@ -133,7 +133,7 @@ async def restablecer_clave(
     correo: str = Form(...),
     user = Depends(verificar_admin)
 ):
-    nueva_hash = hashear_clave("123456")
+    nueva_hash = hashear_clave("Xcargo123")
     ahora = datetime.utcnow()
 
     query = f"""
@@ -149,7 +149,7 @@ async def restablecer_clave(
         ]
     )
     bq_client.query(query, job_config=job_config).result()
-    return {"mensaje": "Clave restablecida a valor por defecto (123456)"}
+    return {"mensaje": "Clave restablecida a valor por defecto (Xcargo123)"}
 
 @router.get("/permisos")
 async def listar_permisos(user = Depends(verificar_admin)):
