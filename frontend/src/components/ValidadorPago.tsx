@@ -1,7 +1,6 @@
-// Nuevo componente: ValidadorPago.tsx
+// ValidadorPago.tsx
 import { useState, useEffect } from "react";
 
-// Define los tipos necesarios
 interface GuiaSeleccionada {
     referencia: string;
     valor: number;
@@ -28,28 +27,22 @@ interface Props {
     onValidacionChange: (resultado: ValidacionResult) => void;
 }
 
-// Debes implementar estas funciones utilitarias según tu contexto de autenticación
 function getToken(): string {
-    // Implementa según tu sistema de auth
     return localStorage.getItem("token") || "";
 }
-function getUserEmployeeId(): number | null {
-    // Implementa según tu sistema de usuario
+
+function getUserId(): string | null {
     const user = localStorage.getItem("user");
     if (!user) return null;
     try {
         const parsed = JSON.parse(user);
-        return parsed.employee_id || null;
+        return parsed.id_usuario || null;
     } catch {
         return null;
     }
 }
 
-const ValidadorPago: React.FC<Props> = ({ 
-    guiasSeleccionadas, 
-    valorConsignado, 
-    onValidacionChange 
-}) => {
+const ValidadorPago: React.FC<Props> = ({ guiasSeleccionadas, valorConsignado, onValidacionChange }) => {
     const [validacion, setValidacion] = useState<ValidacionResult | null>(null);
     const [cargando, setCargando] = useState(false);
 
@@ -57,45 +50,57 @@ const ValidadorPago: React.FC<Props> = ({
         const validarPago = async () => {
             if (guiasSeleccionadas.length === 0 || valorConsignado <= 0) return;
 
+            const userId = getUserId();
+            if (!userId) {
+                console.error("❌ No se encontró id_usuario en localStorage");
+                return;
+            }
+
+            const payload = {
+                guias: guiasSeleccionadas.map((guia) => ({
+                    tracking: guia.tracking,
+                    valor: guia.valor,
+                    cliente: guia.empresa
+                })),
+                valor_consignado: valorConsignado,
+                employee_id: userId
+            };
+
+            console.log("📦 Enviando payload:", payload);
+
             setCargando(true);
             try {
-                const response = await fetch('/api/pagos-avanzados/validar-pago', {
-                    method: 'POST',
+                const res = await fetch("http://localhost:8000/pagos-avanzados/validar-pago", {
+                    method: "POST",
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${getToken()}`
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${getToken()}`
                     },
-                    body: JSON.stringify({
-                        guias: guiasSeleccionadas,
-                        valor_consignado: valorConsignado,
-                        employee_id: getUserEmployeeId()
-                    })
+                    body: JSON.stringify(payload)
                 });
 
-                const resultado = await response.json();
+                const resultado = await res.json();
                 setValidacion(resultado);
                 onValidacionChange(resultado);
 
             } catch (error) {
-                console.error('Error validando pago:', error);
+                console.error("Error validando pago:", error);
             } finally {
                 setCargando(false);
             }
         };
 
-        // Debounce para evitar muchas llamadas
         const timer = setTimeout(validarPago, 500);
         return () => clearTimeout(timer);
-
     }, [guiasSeleccionadas, valorConsignado, onValidacionChange]);
 
     if (cargando) return <div>Validando...</div>;
     if (!validacion) return null;
 
     return (
-        <div className={`validacion-resultado ${validacion.valido ? 'valido' : 'invalido'}`}>
+        <div className={`validacion-resultado ${validacion.valido ? "valido" : "invalido"}`}>
             <div className="validacion-icono">
-                {validacion.valido ? '✅' : '❌'}
+                {validacion.valido ? "✅" : "❌"}
             </div>
             <div className="validacion-mensaje">
                 {validacion.mensaje}

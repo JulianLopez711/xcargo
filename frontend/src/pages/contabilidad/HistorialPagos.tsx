@@ -71,7 +71,7 @@ export default function HistorialPagos() {
       params.append("limite", limite.toString());
 
       const response = await fetch(
-        `http://192.168.0.38:8000/pagos/historial?${params.toString()}`,
+        `http://localhost:8000/pagos/historial?${params.toString()}`,
         {
           method: 'GET',
           headers: {

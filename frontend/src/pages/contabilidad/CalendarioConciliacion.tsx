@@ -18,7 +18,7 @@ const meses = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ];
 
-const API_URL = "http://192.168.0.38:8000"; // Cambia aquí si tu backend está en localhost
+const API_URL = "http://localhost:8000"; // Cambia aquí si tu backend está en localhost
 
 export default function CalendarioConciliacion() {
   const [datos, setDatos] = useState<DiaConciliacion[]>([]);

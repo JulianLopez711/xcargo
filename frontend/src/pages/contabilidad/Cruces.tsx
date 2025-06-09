@@ -98,16 +98,42 @@ const Cruces: React.FC = () => {
 
   // ✅ FUNCIÓN CARGAR ESTADÍSTICAS IMPLEMENTADA
   const cargarEstadisticas = async () => {
-    try {
-      const res = await fetch("http://192.168.0.38:8000/conciliacion/resumen-conciliacion");
-      if (res.ok) {
-        const data: EstadisticasGenerales = await res.json();
-        setEstadisticasGenerales(data);
+  try {
+    const res = await fetch("http://localhost:8000/conciliacion/resumen-conciliacion");
+    if (!res.ok) throw new Error("Error al obtener estadísticas");
+
+    const data = await res.json();
+
+    const resumen: EstadisticasGenerales = {
+      resumen_por_estado: [
+        {
+          estado_conciliacion: "conciliado",
+          cantidad: data.resumen.reduce((acc: number, r: any) => acc + r.total_conciliados, 0),
+          valor_total: data.resumen.reduce((acc: number, r: any) => acc + r.total_valor, 0),
+          fecha_min: data.resumen[data.resumen.length - 1]?.fecha ?? "",
+          fecha_max: data.resumen[0]?.fecha ?? ""
+        },
+        {
+          estado_conciliacion: "pendiente",
+          cantidad: data.resumen.reduce((acc: number, r: any) => acc + r.total_pendientes, 0),
+          valor_total: 0, // Solo si lo deseas calcular también
+          fecha_min: data.resumen[data.resumen.length - 1]?.fecha ?? "",
+          fecha_max: data.resumen[0]?.fecha ?? ""
+        }
+      ],
+      totales: {
+        movimientos: data.resumen.reduce((acc: number, r: any) => acc + r.total_movimientos, 0),
+        valor: data.resumen.reduce((acc: number, r: any) => acc + r.total_valor, 0),
       }
-    } catch (err) {
-      console.error("Error cargando estadísticas:", err);
-    }
-  };
+    };
+
+    setEstadisticasGenerales(resumen);
+  } catch (err) {
+    console.error("Error cargando estadísticas:", err);
+  }
+};
+
+
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -145,7 +171,7 @@ const Cruces: React.FC = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
-      const res = await fetch("http://192.168.0.38:8000/conciliacion/cargar-banco-excel", {
+      const res = await fetch("http://localhost:8000/conciliacion/cargar-banco-excel", {
         method: "POST",
         body: formData,
         signal: controller.signal,
@@ -205,64 +231,72 @@ const Cruces: React.FC = () => {
   };
 
   // ✅ FUNCIÓN EJECUTAR CONCILIACIÓN CORREGIDA
-  const ejecutarConciliacion = async () => {
-    setProcesandoConciliacion(true);
-    setMensaje("");
+ const ejecutarConciliacion = async () => {
+  setProcesandoConciliacion(true);
+  setMensaje("");
 
-    try {
-      const res = await fetch("http://192.168.0.38:8000/conciliacion/conciliacion-automatica-mejorada");
-      
-      if (!res.ok) throw new Error("Error al ejecutar conciliación");
+  try {
+    const res = await fetch("http://localhost:8000/conciliacion/conciliacion-automatica-mejorada");
 
-      const data: ResumenConciliacionMejorado = await res.json();
-      
-      // ✅ CONVERTIR A FORMATO ESPERADO POR EL FRONTEND
-      const dataConvertida: ResumenConciliacion = {
-        resumen: {
-          total_movimientos_banco: data.resumen.total_movimientos_banco,
-          total_pagos_conductores: data.resumen.total_pagos_iniciales,
-          conciliado_exacto: data.resumen.conciliado_exacto,
-          conciliado_aproximado: data.resumen.conciliado_aproximado,
-          multiple_match: 0,        // ✅ El endpoint mejorado no usa estos
-          diferencia_valor: 0,      // ✅ estados, los pone en 0
-          diferencia_fecha: 0,      // ✅ para compatibilidad
-          sin_match: data.resumen.sin_match
-        },
-        resultados: data.resultados,
-        fecha_conciliacion: data.fecha_conciliacion
-      };
-      
-      setResultadoConciliacion(dataConvertida);
-      
-      // ✅ MENSAJE MEJORADO CON DATOS DEL ENDPOINT NUEVO
-      const { resumen } = data;
-      const totalConciliados = resumen.conciliado_exacto + resumen.conciliado_aproximado;
-      const porcentajeConciliado = resumen.total_movimientos_banco > 0 
-        ? Math.round((totalConciliados / resumen.total_movimientos_banco) * 100)
+    if (!res.ok) throw new Error("Error al ejecutar conciliación");
+
+    const data: ResumenConciliacionMejorado = await res.json();
+
+    if (!data.resumen) throw new Error("La respuesta no contiene resumen de conciliación");
+
+    // ✅ CONVERTIR A FORMATO ESPERADO POR EL FRONTEND
+    const resumen = data.resumen;
+
+    const dataConvertida: ResumenConciliacion = {
+      resumen: {
+        total_movimientos_banco: resumen.total_movimientos_banco ?? 0,
+        total_pagos_conductores: resumen.total_pagos_iniciales ?? 0,
+        conciliado_exacto: resumen.conciliado_exacto ?? 0,
+        conciliado_aproximado: resumen.conciliado_aproximado ?? 0,
+        multiple_match: 0,
+        diferencia_valor: 0,
+        diferencia_fecha: 0,
+        sin_match: resumen.sin_match ?? 0
+      },
+      resultados: data.resultados ?? [],
+      fecha_conciliacion: data.fecha_conciliacion ?? ""
+    };
+
+    setResultadoConciliacion(dataConvertida);
+
+    // ✅ MENSAJE MEJORADO CON DATOS DEL ENDPOINT NUEVO
+    const totalConciliados =
+      (resumen.conciliado_exacto ?? 0) + (resumen.conciliado_aproximado ?? 0);
+    const porcentajeConciliado =
+      (resumen.total_movimientos_banco ?? 0) > 0
+        ? Math.round(
+            (totalConciliados / resumen.total_movimientos_banco!) * 100
+          )
         : 0;
-      
-      setMensaje(
-        `✅ Conciliación completada. ` +
-        `Procesados: ${resumen.total_procesados} movimientos. ` +
+
+    setMensaje(
+      `✅ Conciliación completada. ` +
+        `Procesados: ${resumen.total_procesados ?? 0} movimientos. ` +
         `Conciliados: ${totalConciliados} (${porcentajeConciliado}%). ` +
-        `Referencias únicas usadas: ${resumen.referencias_unicas_utilizadas}.`
-      );
-      
-      cargarEstadisticas();
-    } catch (err: any) {
-      console.error("Error en conciliación:", err);
-      setMensaje("❌ Error ejecutando conciliación: " + err.message);
-    } finally {
-      setProcesandoConciliacion(false);
-    }
-  };
+        `Referencias únicas usadas: ${resumen.referencias_unicas_utilizadas ?? 0}.`
+    );
+
+    cargarEstadisticas();
+  } catch (err: any) {
+    console.error("Error en conciliación:", err);
+    setMensaje("❌ Error ejecutando conciliación: " + err.message);
+  } finally {
+    setProcesandoConciliacion(false);
+  }
+};
+
 
   // ✅ FUNCIÓN MARCAR CONCILIADO MANUAL IMPLEMENTADA
   const marcarConciliadoManual = async (idBanco: string, referenciaPago?: string) => {
     try {
       const observaciones = prompt("Observaciones (opcional):") || "Conciliado manualmente";
 
-      const res = await fetch("http://192.168.0.38:8000/conciliacion/marcar-conciliado-manual", {
+      const res = await fetch("http://localhost:8000/conciliacion/marcar-conciliado-manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -290,11 +324,11 @@ const Cruces: React.FC = () => {
   const validarDatos = async () => {
     try {
       setMensaje("🔍 Validando datos...");
-      const res = await fetch("http://192.168.0.38:8000/conciliacion/validar-datos-conciliacion");
+      const res = await fetch("http://localhost:8000/conciliacion/validar-datos-conciliacion");
       if (!res.ok) throw new Error("Error al validar datos");
       
       const data = await res.json();
-      console.log("🔍 Validación de datos:", data);
+
       
       const problemas = data.resultados.filter((r: any) => 
         !['movimientos_pendientes', 'pagos_disponibles_para_conciliar'].includes(r.problema) && r.cantidad > 0
@@ -317,11 +351,11 @@ const Cruces: React.FC = () => {
 
   const consultarEstadoReferencias = async () => {
     try {
-      const res = await fetch("http://192.168.0.38:8000/conciliacion/estado-referencias");
+      const res = await fetch("http://localhost:8000/conciliacion/estado-referencias");
       if (!res.ok) throw new Error("Error al consultar estado");
       
       const data = await res.json();
-      console.log("📊 Estado de referencias:", data);
+
       
       const resumen = data.resumen;
       alert(
@@ -379,13 +413,13 @@ const Cruces: React.FC = () => {
           <div className="estadisticas-grid">
             <div className="stat-card">
               <h4>Total Movimientos</h4>
-              <p>{estadisticasGenerales.totales.movimientos.toLocaleString()}</p>
+              <p>{estadisticasGenerales?.totales?.movimientos ?? 0}</p>
             </div>
             <div className="stat-card">
               <h4>Valor Total</h4>
-              <p>${estadisticasGenerales.totales.valor.toLocaleString()}</p>
+              <p>${estadisticasGenerales?.totales?.valor?.toLocaleString() ?? 0}</p>
             </div>
-            {estadisticasGenerales.resumen_por_estado.map((estado) => (
+            {estadisticasGenerales?.resumen_por_estado?.map((estado) => (
               <div key={estado.estado_conciliacion} className="stat-card">
                 <h4>{estado.estado_conciliacion.replace("_", " ").toUpperCase()}</h4>
                 <p>{estado.cantidad} mov.</p>
@@ -507,27 +541,27 @@ const Cruces: React.FC = () => {
           <div className="resumen-resultados">
             <div className="resumen-grid">
               <div className="resumen-item success">
-                <span className="numero">{resultadoConciliacion.resumen.conciliado_exacto}</span>
+                <span className="numero">{resultadoConciliacion?.resumen?.conciliado_exacto ?? 0}</span>
                 <span className="etiqueta">Exactos</span>
               </div>
               <div className="resumen-item info">
-                <span className="numero">{resultadoConciliacion.resumen.conciliado_aproximado}</span>
+                <span className="numero">{resultadoConciliacion?.resumen?.conciliado_aproximado ?? 0}</span>
                 <span className="etiqueta">Aproximados</span>
               </div>
               <div className="resumen-item warning">
-                <span className="numero">{resultadoConciliacion.resumen.multiple_match}</span>
+                <span className="numero">{resultadoConciliacion?.resumen?.multiple_match ?? 0}</span>
                 <span className="etiqueta">Múltiples</span>
               </div>
               <div className="resumen-item error">
-                <span className="numero">{resultadoConciliacion.resumen.diferencia_valor}</span>
+                <span className="numero">{resultadoConciliacion?.resumen?.diferencia_valor ?? 0}</span>
                 <span className="etiqueta">Dif. Valor</span>
               </div>
               <div className="resumen-item error">
-                <span className="numero">{resultadoConciliacion.resumen.diferencia_fecha}</span>
+                <span className="numero">{resultadoConciliacion?.resumen?.diferencia_fecha ?? 0}</span>
                 <span className="etiqueta">Dif. Fecha</span>
               </div>
               <div className="resumen-item neutral">
-                <span className="numero">{resultadoConciliacion.resumen.sin_match}</span>
+                <span className="numero">{resultadoConciliacion?.resumen?.sin_match ?? 0}</span>
                 <span className="etiqueta">Sin Match</span>
               </div>
             </div>

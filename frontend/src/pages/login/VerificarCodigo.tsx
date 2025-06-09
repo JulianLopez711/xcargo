@@ -75,7 +75,7 @@ export default function VerificarCodigo() {
     setMensaje("");
 
     try {
-      const res = await fetch("http://192.168.0.38:8000/auth/verificar-codigo", {
+      const res = await fetch("http://localhost:8000/auth/verificar-codigo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ correo, codigo: codigoCompleto }),
@@ -108,7 +108,7 @@ export default function VerificarCodigo() {
       const formData = new FormData();
       formData.append("correo", correo || "");
 
-      const res = await fetch("http://192.168.0.38:8000/auth/solicitar-codigo", {
+      const res = await fetch("http://localhost:8000/auth/solicitar-codigo", {
         method: "POST",
         body: formData,
       });

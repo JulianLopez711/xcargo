@@ -61,19 +61,17 @@ export default function CambiarClave() {
       let codigoFinal = null;
       const codigoStorage = localStorage.getItem("codigo_recuperacion");
       
-      console.log('🔍 DEBUG Frontend:');
-      console.log('   - Correo:', correo);
-      console.log('   - Código en storage:', codigoStorage);
+
 
       // Verificar si hay código válido en localStorage
       if (codigoStorage && codigoStorage !== 'null' && codigoStorage.trim() !== '') {
         codigoFinal = codigoStorage;
-        console.log('✅ Usando código del localStorage:', codigoFinal);
+
       } else {
-        console.log('⚠️ No hay código válido en localStorage, obteniendo del servidor...');
+
         
         try {
-          const debugResponse = await fetch("http://192.168.0.38:8000/auth/debug-codigos", {
+          const debugResponse = await fetch("http://localhost:8000/auth/debug-codigos", {
             method: 'GET',
             headers: { 
               'Content-Type': 'application/json'
@@ -85,11 +83,10 @@ export default function CambiarClave() {
           }
           
           const debugData = await debugResponse.json();
-          console.log('📋 Respuesta debug servidor:', debugData);
+
           
           if (debugData.codigos_activos && debugData.codigos_activos[correo] && debugData.codigos_activos[correo].codigo) {
             codigoFinal = debugData.codigos_activos[correo].codigo;
-            console.log('✅ Código obtenido del servidor:', codigoFinal);
           } else {
             throw new Error('No hay código activo en el servidor para este correo');
           }
@@ -108,11 +105,7 @@ export default function CambiarClave() {
         ...(codigoFinal && { codigo: codigoFinal }) // Solo incluir código si existe
       };
 
-      console.log('📤 Enviando datos:', {
-        correo,
-        nueva_clave: '[OCULTA]',
-        codigo: codigoFinal ? '[PRESENTE]' : '[AUSENTE]'
-      });
+
 
       // 🔧 SOLUCIÓN: Headers mejorados
       const headers: Record<string, string> = {
@@ -125,13 +118,13 @@ export default function CambiarClave() {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
 
-      const res = await fetch("http://192.168.0.38:8000/auth/cambiar-clave", {
+      const res = await fetch("http://localhost:8000/auth/cambiar-clave", {
         method: "POST",
         headers: headers,
         body: JSON.stringify(requestBody),
       });
 
-      console.log('📥 Status de respuesta:', res.status);
+
 
       // 🔧 SOLUCIÓN: Manejo robusto de respuesta
       let data;
@@ -144,7 +137,6 @@ export default function CambiarClave() {
         data = { detail: responseText || 'Respuesta inválida del servidor' };
       }
 
-      console.log('📥 Respuesta del servidor:', data);
 
       if (!res.ok) {
         const errorMessage = data.detail || data.mensaje || `Error ${res.status}: ${res.statusText}`;

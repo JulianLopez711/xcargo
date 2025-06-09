@@ -48,7 +48,7 @@ def obtener_entregas_consolidadas(
         # Filtro de conciliación
         filtro_conciliacion = ""
         if solo_conciliadas:
-            filtro_conciliacion = "AND bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')"
+            filtro_conciliacion = "AND bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual', 'conciliado')"
         
         query = f"""
         WITH entregas_procesadas AS (
@@ -78,29 +78,30 @@ def obtener_entregas_consolidadas(
                 
                 -- Estado final procesado
                 CASE 
-                    WHEN bm.estado_conciliacion = 'conciliado_exacto' THEN 'Conciliado Exacto'
-                    WHEN bm.estado_conciliacion = 'conciliado_aproximado' THEN 'Conciliado Aproximado'
-                    WHEN bm.estado_conciliacion = 'conciliado_manual' THEN 'Conciliado Manual'
-                    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL THEN 'Aprobado (Pendiente Conciliación)'
-                    WHEN pc.estado = 'pagado' THEN 'Pagado (Pendiente Aprobación)'
-                    ELSE 'Pendiente'
-                END as estado_conciliacion,
+    WHEN bm.estado_conciliacion = 'conciliado_exacto' THEN 'Conciliado Exacto'
+    WHEN bm.estado_conciliacion = 'conciliado_aproximado' THEN 'Conciliado Aproximado'
+    WHEN bm.estado_conciliacion = 'conciliado_manual' THEN 'Conciliado Manual'
+    WHEN bm.estado_conciliacion = 'conciliado' THEN 'Conciliado'  -- ⚠️ LÍNEA FALTANTE
+    WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL THEN 'Aprobado (Pendiente Conciliación)'
+    WHEN pc.estado = 'pagado' THEN 'Pagado (Pendiente Aprobación)'
+    ELSE 'Pendiente'
+END as estado_conciliacion,
                 
                 -- Calidad de conciliación
                 CASE 
-                    WHEN bm.estado_conciliacion = 'conciliado_exacto' AND bm.confianza_match >= 95 THEN 'Excelente'
-                    WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado') AND bm.confianza_match >= 80 THEN 'Buena'
-                    WHEN bm.estado_conciliacion IS NOT NULL THEN 'Regular'
-                    ELSE 'Sin Conciliar'
-                END as calidad_conciliacion,
+    WHEN bm.estado_conciliacion = 'conciliado_exacto' AND bm.confianza_match >= 95 THEN 'Excelente'
+    WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado') AND bm.confianza_match >= 80 THEN 'Buena'
+    WHEN bm.estado_conciliacion IS NOT NULL THEN 'Regular'
+    ELSE 'Sin Conciliar'
+END as calidad_conciliacion,
                 
                 -- Flags de validación
                 CASE 
-                    WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') 
-                         AND pc.estado = 'aprobado' 
-                    THEN TRUE
-                    ELSE FALSE
-                END as listo_para_liquidar,
+    WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual', 'conciliado') 
+         AND pc.estado = 'aprobado' 
+    THEN TRUE
+    ELSE FALSE
+END as listo_para_liquidar,
                 
                 CASE 
                     WHEN ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, pc.valor_total_consignacion, pc.valor, 0)) <= 1000 
@@ -491,7 +492,7 @@ def obtener_entregas_listas_liquidar(
     # Filtro de tipos de conciliación
     tipos_conciliacion = ["'conciliado_exacto'"]
     if incluir_aproximadas:
-        tipos_conciliacion.extend(["'conciliado_aproximado'", "'conciliado_manual'"])
+        tipos_conciliacion.extend(["'conciliado_aproximado'", "'conciliado_manual'", "'conciliado'"])
     
     tipos_str = ", ".join(tipos_conciliacion)
     
@@ -1109,3 +1110,117 @@ def obtener_liquidacion(cliente: str):
     )).result()
 
     return [dict(row.items()) for row in result]
+
+@router.get("/debug-entrega/{referencia}")
+def debug_entrega_especifica(referencia: str):
+    """
+    Debug específico para una entrega problemática
+    """
+    client = bigquery.Client()
+    
+    try:
+        query = """
+        SELECT 
+            -- Datos de pagosconductor
+            pc.referencia_pago,
+            pc.tracking,
+            pc.cliente,
+            pc.estado as estado_pago,
+            pc.valor_total_consignacion,
+            pc.fecha_pago,
+            pc.correo,
+            
+            -- Datos de banco_movimientos
+            bm.id as id_banco,
+            bm.estado_conciliacion as estado_conciliacion_raw,
+            bm.valor_banco,
+            bm.referencia_pago_asociada,
+            bm.confianza_match,
+            bm.conciliado_en,
+            
+            -- Campo calculado problemático
+            CASE 
+                WHEN bm.estado_conciliacion = 'conciliado_exacto' THEN 'Conciliado Exacto'
+                WHEN bm.estado_conciliacion = 'conciliado_aproximado' THEN 'Conciliado Aproximado'
+                WHEN bm.estado_conciliacion = 'conciliado_manual' THEN 'Conciliado Manual'
+                WHEN bm.estado_conciliacion = 'conciliado' THEN 'Conciliado'  -- ⚠️ Agregamos este caso
+                WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL THEN 'Aprobado (Pendiente Conciliación)'
+                WHEN pc.estado = 'pagado' THEN 'Pagado (Pendiente Aprobación)'
+                ELSE 'Pendiente'
+            END as estado_conciliacion_procesado,
+            
+            -- Validar JOIN
+            CASE 
+                WHEN bm.referencia_pago_asociada IS NULL THEN 'SIN_ASOCIAR'
+                WHEN bm.referencia_pago_asociada = pc.referencia_pago THEN 'ASOCIADO_OK'
+                ELSE 'ASOCIADO_DIFERENTE'
+            END as estado_asociacion
+            
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+        
+        LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+            ON bm.referencia_pago_asociada = pc.referencia_pago
+            
+        WHERE pc.referencia_pago = @referencia
+        OR pc.tracking = @referencia
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia", "STRING", referencia)
+            ]
+        )
+        
+        resultados = client.query(query, job_config=job_config).result()
+        
+        debug_info = []
+        for row in resultados:
+            debug_info.append(dict(row.items()))
+        
+        return {
+            "referencia_buscada": referencia,
+            "resultados_encontrados": len(debug_info),
+            "debug_info": debug_info,
+            "diagnostico": {
+                "tiene_asociacion": any(r["estado_asociacion"] == "ASOCIADO_OK" for r in debug_info),
+                "estado_conciliacion_detectado": debug_info[0]["estado_conciliacion_raw"] if debug_info else None,
+                "estado_procesado": debug_info[0]["estado_conciliacion_procesado"] if debug_info else None,
+                "problema_identificado": "Estado 'conciliado' no está mapeado en el CASE WHEN"
+            }
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.get("/debug-todos-estados")
+def debug_todos_los_estados():
+    """
+    Ver todos los estados únicos que existen en banco_movimientos
+    """
+    client = bigquery.Client()
+    
+    try:
+        query = """
+        SELECT 
+            estado_conciliacion,
+            COUNT(*) as cantidad,
+            COUNT(referencia_pago_asociada) as con_referencia,
+            
+            -- Ejemplos de referencias
+            STRING_AGG(referencia_pago_asociada, ', ' LIMIT 3) as ejemplos_referencias
+            
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        GROUP BY estado_conciliacion
+        ORDER BY cantidad DESC
+        """
+        
+        resultados = [dict(row.items()) for row in client.query(query).result()]
+        
+        return {
+            "estados_encontrados": resultados,
+            "recomendacion": "Actualizar el CASE WHEN en el endpoint principal para incluir todos estos estados"
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}

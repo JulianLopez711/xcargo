@@ -15,8 +15,7 @@ import concurrent.futures
 from pathlib import Path
 from app.dependencies import get_current_user
 from pydantic import BaseModel
-
-from backend.app.routers.guias import obtener_employee_id_usuario
+from .guias import obtener_employee_id_usuario
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -84,7 +83,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
             f.write(content)
         
         # URL para acceso
-        comprobante_url = f"http://192.168.0.38:8000/static/{nombre_archivo}"
+        comprobante_url = f"http://localhost:8000/static/{nombre_archivo}"
         logger.info(f"Comprobante guardado: {nombre_archivo}")
         
         return comprobante_url
@@ -403,7 +402,7 @@ def conciliar_pago_automaticamente(referencia: str, valor: float, entidad: str) 
     query = """
     SELECT COUNT(*) as coincidencias
     FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-    WHERE referencia = @referencia
+    WHERE referencia_pago_asociada = @referencia
       AND ABS(valor_banco - @valor) < 500
       AND LOWER(cuenta) = LOWER(@entidad)
     LIMIT 1
@@ -417,6 +416,7 @@ def conciliar_pago_automaticamente(referencia: str, valor: float, entidad: str) 
     )).result()
     row = list(result)[0]
     return row["coincidencias"] > 0
+
 
 class AprobacionPagoRequest(BaseModel):
     referencia_pago: str
@@ -451,7 +451,7 @@ def aprobar_pago(data: AprobacionPagoRequest):
         UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
         SET estado = 'aprobado',
             modificado_por = @modificado_por,
-            fecha_modificacion = CURRENT_TIMESTAMP()
+            modificado_en = CURRENT_TIMESTAMP()
         WHERE referencia_pago = @referencia
         """,
         job_config=bigquery.QueryJobConfig(

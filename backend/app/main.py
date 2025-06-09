@@ -1,14 +1,15 @@
 from fastapi import FastAPI
+import logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.routers import (
     guias, ocr, pagos, operador, asistente, 
     pagoCliente, contabilidad, auth, roles, 
-    conciliacion, cruces, entregas, admin,supervisor,master
+    conciliacion, cruces, entregas, admin,supervisor,master,pagos_avanzados
 )
 
 app = FastAPI()
-
+logging.basicConfig(level=logging.DEBUG)
 app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 
 app.add_middleware(
@@ -18,7 +19,7 @@ app.add_middleware(
         "https://192.168.0.38:5173",
         "https://gestion.x-cargo.co",
         "http://192.168.0.38:5173",
-        "http://192.168.56.1:5173"
+        "http://localhost:5173"
   
     ],
     allow_credentials=True,
@@ -45,4 +46,5 @@ app.include_router(cruces.router)         # /cruces
 app.include_router(entregas.router)       # /entregas
 app.include_router(asistente.router)      # /asistente
 app.include_router(supervisor.router)     # /supervisor
-app.include_router(master.router)         # /master
+app.include_router(master.router)     # /master
+app.include_router(pagos_avanzados.router)  # /pagos_avanzados

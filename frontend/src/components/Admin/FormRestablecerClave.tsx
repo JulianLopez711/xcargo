@@ -17,7 +17,7 @@ export default function FormRestablecerClave() {
 
     try {
       // ✅ CORRECCIÓN: Agregar headers
-      const res = await fetch("http://192.168.0.38:8000/admin/restablecer-clave", {
+      const res = await fetch("http://localhost:8000/admin/restablecer-clave", {
         method: "POST",
         headers: {
           "X-User-Email": user?.email || "",

@@ -79,7 +79,7 @@ export default function ChatBotBubble() {
       
       // CORREGIDO: URL con barra faltante
       const res = await fetch(
-        `http://192.168.0.38:8000/asistente/estado-usuario/${encodeURIComponent(correoUsuario)}`
+        `http://localhost:8000/asistente/estado-usuario/${encodeURIComponent(correoUsuario)}`
       );
       
       if (!res.ok) {
@@ -132,7 +132,7 @@ export default function ChatBotBubble() {
     try {
       // Agregar token JWT en la cabecera Authorization
       const token = usuarioActual.token || localStorage.getItem("token") || "";
-      const res = await fetch("http://192.168.0.38:8000/asistente/chat", {
+      const res = await fetch("http://localhost:8000/asistente/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

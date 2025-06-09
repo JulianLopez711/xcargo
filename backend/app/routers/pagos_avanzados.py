@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import json
 from datetime import datetime, date
 
-router = APIRouter(prefix="/pagos-avanzados", tags=["Pagos Avanzados"])
+router = APIRouter(prefix="/pagos-avanzados")
 client = bigquery.Client()
 
 class GuiaSeleccionada(BaseModel):
@@ -14,9 +14,10 @@ class GuiaSeleccionada(BaseModel):
     cliente: str
 
 class ValidacionPago(BaseModel):
-    guias: List[GuiaSeleccionada]
+    guias: List[GuiaSeleccionada]  # ✅ Aquí usamos objetos
     valor_consignado: float
     employee_id: int
+
 
 @router.post("/validar-pago")
 async def validar_pago_con_bonos(
@@ -123,6 +124,9 @@ async def validar_pago_con_bonos(
                 }
         
     except Exception as e:
+        import traceback
+        print("🔥 ERROR EN VALIDAR PAGO:", e)
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/procesar-pago-completo")
