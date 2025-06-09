@@ -213,7 +213,7 @@ export default function RegistrarPago() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("http://localhost:8000/ocr/extraer", {
+      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -365,7 +365,7 @@ export default function RegistrarPago() {
           }))
         };
 
-        const responseBonos = await fetch("http://localhost:8000/pagos/aplicar-bonos", {
+        const responseBonos = await fetch("https://api.x-cargo.co/pagos/aplicar-bonos", {
           method: "POST",
           headers: {
             'Authorization': `Bearer ${getToken()}`,
@@ -429,7 +429,7 @@ export default function RegistrarPago() {
           formData.append("bonos_aplicados", montoBonosUsar.toString());
         }
 
-        const response = await fetch("http://localhost:8000/pagos/registrar-conductor", {
+        const response = await fetch("https://api.x-cargo.co/pagos/registrar-conductor", {
           method: "POST",
           body: formData,
         });

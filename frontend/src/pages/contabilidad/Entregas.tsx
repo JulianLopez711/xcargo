@@ -128,7 +128,7 @@ export default function LiquidacionesClientes() {
   const cargarDashboardConciliacion = async () => {
     try {
       const res = await fetch(
-        "http://localhost:8000/entregas/dashboard-conciliacion"
+        "https://api.x-cargo.co/entregas/dashboard-conciliacion"
       );
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
@@ -155,7 +155,7 @@ export default function LiquidacionesClientes() {
       params.append("solo_conciliadas", soloConciliadas.toString());
 
       const res = await fetch(
-        `http://localhost:8000/entregas/entregas-consolidadas?${params.toString()}`
+        `https://api.x-cargo.co/entregas/entregas-consolidadas?${params.toString()}`
       );
 
       if (!res.ok) {
@@ -244,7 +244,7 @@ ${
       params.append("incluir_aproximadas", "true");
 
       const res = await fetch(
-        `http://localhost:8000/entregas/entregas-listas-liquidar?${params.toString()}`
+        `https://api.x-cargo.co/entregas/entregas-listas-liquidar?${params.toString()}`
       );
 
       if (!res.ok) {
@@ -307,7 +307,7 @@ ${
   const cargarResumenClientes = async () => {
     try {
       const res = await fetch(
-        "http://localhost:8000/entregas/resumen-liquidaciones"
+        "https://api.x-cargo.co/entregas/resumen-liquidaciones"
       );
       if (!res.ok) {
         throw new Error(`Error ${res.status}: ${res.statusText}`);
@@ -332,7 +332,7 @@ ${
   ): Promise<boolean> => {
     try {
       const res = await fetch(
-        `http://localhost:8000/entregas/validar-integridad-liquidacion/${encodeURIComponent(
+        `https://api.x-cargo.co/entregas/validar-integridad-liquidacion/${encodeURIComponent(
           cliente
         )}`
       );

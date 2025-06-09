@@ -15,10 +15,10 @@ app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://192.168.0.38:5173",
+        "https://api.x-cargo.co",
         "https://192.168.0.38:5173",
         "https://gestion.x-cargo.co",
-        "http://192.168.0.38:5173",
+        "https://api.x-cargo.co",
         "http://localhost:5173"
   
     ],

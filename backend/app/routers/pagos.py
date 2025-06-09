@@ -83,7 +83,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
             f.write(content)
         
         # URL para acceso
-        comprobante_url = f"http://localhost:8000/static/{nombre_archivo}"
+        comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
         logger.info(f"Comprobante guardado: {nombre_archivo}")
         
         return comprobante_url

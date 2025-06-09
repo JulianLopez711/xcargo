@@ -24,7 +24,7 @@ export default function FormCrearUsuario() {
     const cargarRoles = async () => {
       try {
         // ✅ CORRECCIÓN: Usar headers correctos
-        const response = await fetch("http://localhost:8000/admin/roles-con-permisos", {
+        const response = await fetch("https://api.x-cargo.co/admin/roles-con-permisos", {
           headers: {
             "X-User-Email": user?.email || "",
             "X-User-Role": user?.role || "admin"
@@ -67,7 +67,7 @@ export default function FormCrearUsuario() {
 
     try {
       // ✅ CORRECCIÓN: Agregar headers de autenticación
-      const res = await fetch("http://localhost:8000/admin/crear-usuario", {
+      const res = await fetch("https://api.x-cargo.co/admin/crear-usuario", {
         method: "POST",
         headers: {
           "X-User-Email": user?.email || "",

@@ -72,7 +72,7 @@ export default function RoleManagement() {
 
   const cargarRoles = async () => {
     try {
-      const response = await fetch("http://localhost:8000/admin/roles-con-permisos", {
+      const response = await fetch("https://api.x-cargo.co/admin/roles-con-permisos", {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
@@ -94,7 +94,7 @@ export default function RoleManagement() {
 
   const cargarPermisos = async () => {
     try {
-      const response = await fetch("http://localhost:8000/admin/permisos", {
+      const response = await fetch("https://api.x-cargo.co/admin/permisos", {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
@@ -140,7 +140,7 @@ export default function RoleManagement() {
       const formData = new FormData();
       permisosIds.forEach(id => formData.append('permisos_ids', id));
 
-      const response = await fetch(`http://localhost:8000/admin/rol/${idRol}/permisos`, {
+      const response = await fetch(`https://api.x-cargo.co/admin/rol/${idRol}/permisos`, {
         method: "POST",
         headers: {
           "X-User-Email": user?.email || "",
@@ -194,7 +194,7 @@ export default function RoleManagement() {
       formDataRol.append("nombre_rol", nuevoRol.nombre_rol);
       formDataRol.append("descripcion", nuevoRol.descripcion);
 
-      const responseRol = await fetch("http://localhost:8000/admin/crear-rol", {
+      const responseRol = await fetch("https://api.x-cargo.co/admin/crear-rol", {
         method: "POST",
         headers: {
           "X-User-Email": user?.email || "",
@@ -210,7 +210,7 @@ export default function RoleManagement() {
         const formDataRuta = new FormData();
         formDataRuta.append("ruta_defecto", nuevoRol.ruta_defecto);
 
-        await fetch(`http://localhost:8000/admin/rol/${nuevoRol.id_rol}/ruta-defecto`, {
+        await fetch(`https://api.x-cargo.co/admin/rol/${nuevoRol.id_rol}/ruta-defecto`, {
           method: "POST",
           headers: {
             "X-User-Email": user?.email || "",
@@ -262,7 +262,7 @@ export default function RoleManagement() {
       formData.append("modulo", nuevoPermiso.modulo);
       formData.append("ruta", nuevoPermiso.ruta);
 
-      const response = await fetch("http://localhost:8000/admin/crear-permiso", {
+      const response = await fetch("https://api.x-cargo.co/admin/crear-permiso", {
         method: "POST",
         headers: {
           "X-User-Email": user?.email || "",
