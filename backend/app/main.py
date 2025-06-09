@@ -19,8 +19,9 @@ app.add_middleware(
         "https://192.168.0.38:5173",
         "https://gestion.x-cargo.co",
         "http://192.168.0.38:5173",
-        "http://localhost:5173"
-  
+        "http://localhost:8080",
+        "http://localhost:5173",  # <-- Agrega este para permitir peticiones desde Vite
+        "http://localhost:8000"   # <-- Permite peticiones directas al backend
     ],
     allow_credentials=True,
     allow_methods=["*"],

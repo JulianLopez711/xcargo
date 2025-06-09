@@ -2,8 +2,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import "../../styles/conductor/FormularioPagoConductor.css";
 import LoadingSpinner from "../../components/LoadingSpinner";
-// Agregar import para el validador si existe
-import ValidadorPago from "../../components/ValidadorPago"; // Descomenta si tienes el componente
+import ValidadorPago from "../../components/ValidadorPago";
 
 // Tipos de datos
 type GuiaPago = { 
@@ -12,6 +11,7 @@ type GuiaPago = {
   tracking?: string; 
   liquidacion_id?: string; 
 };
+
 type DatosPago = {
   valor: string;
   fecha: string;
@@ -26,7 +26,6 @@ type PagoCompleto = {
   archivo: File;
 };
 
-// 🔥 NUEVO: Tipo para respuesta del OCR mejorado
 type OCRResponse = {
   datos_extraidos?: {
     valor?: string;
@@ -56,7 +55,6 @@ export default function RegistrarPago() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // 2.2 - Modificar la obtención de datos del location.state
   const { guias, total, bonos }: { 
     guias: GuiaPago[]; 
     total: number; 
@@ -71,8 +69,6 @@ export default function RegistrarPago() {
   const [cargando, setCargando] = useState(false);
   const [analizando, setAnalizando] = useState(false);
   const [pagosCargados, setPagosCargados] = useState<PagoCompleto[]>([]);
-  
-  // 🔥 NUEVO: Estado para mostrar información de validación IA
   const [validacionIA, setValidacionIA] = useState<any>(null);
   const [calidadOCR, setCalidadOCR] = useState<number>(0);
   
@@ -85,32 +81,54 @@ export default function RegistrarPago() {
     referencia: "",
   });
 
-  // Agregar validación en tiempo real
   const [validacionPago, setValidacionPago] = useState<any>(null);
 
-  // 🔥 NUEVA: Función para convertir fechas
+  // Estados para manejo de bonos
+  const [usarBonos, setUsarBonos] = useState(false);
+  const [montoBonosUsar, setMontoBonosUsar] = useState(0);
+  const [bonosSeleccionados, setBonosSeleccionados] = useState<string[]>([]);
+
+  // 🔥 FUNCIÓN CORREGIDA: Calcular total con bonos incluidos
+  const calcularTotalConBonos = () => {
+    const totalPagosEfectivo = pagosCargados.reduce((sum, p) => {
+      const val = parseValorMonetario(p.datos.valor);
+      return sum + (isNaN(val) ? 0 : val);
+    }, 0);
+    
+    const totalBonos = usarBonos ? montoBonosUsar : 0;
+    const totalCubierto = totalPagosEfectivo + totalBonos;
+    const faltante = Math.max(0, total - totalCubierto);
+    
+    return {
+      totalPagosEfectivo,
+      totalBonos,
+      totalCubierto,
+      faltante,
+      excedente: Math.max(0, totalCubierto - total)
+    };
+  };
+
+  const totales = calcularTotalConBonos();
+
+  // Funciones auxiliares
   const convertirFechaAISO = (fechaTexto: string): string => {
     if (!fechaTexto) return "";
     
     try {
-      // Si ya está en formato ISO (YYYY-MM-DD), devolverla tal como está
       if (/^\d{4}-\d{2}-\d{2}$/.test(fechaTexto)) {
         return fechaTexto;
       }
       
-      // Formato DD/MM/YYYY
       if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(fechaTexto)) {
         const [dia, mes, año] = fechaTexto.split('/');
         return `${año}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
       }
       
-      // Formato DD-MM-YYYY
       if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(fechaTexto)) {
         const [dia, mes, año] = fechaTexto.split('-');
         return `${año}-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
       }
       
-      // Intentar parsear otras variantes
       const fecha = new Date(fechaTexto);
       if (!isNaN(fecha.getTime())) {
         return fecha.toISOString().split('T')[0];
@@ -124,22 +142,18 @@ export default function RegistrarPago() {
     }
   };
 
-  // 🔥 NUEVA: Función para normalizar hora
   const normalizarHora = (horaTexto: string): string => {
     if (!horaTexto) return "";
     
     try {
-      // Si ya está en formato HH:MM, agregamos segundos si falta
       if (/^\d{1,2}:\d{2}$/.test(horaTexto)) {
-        return horaTexto; // El input type="time" espera HH:MM
+        return horaTexto;
       }
       
-      // Si tiene segundos, removerlos para el input
       if (/^\d{1,2}:\d{2}:\d{2}$/.test(horaTexto)) {
         return horaTexto.slice(0, 5);
       }
       
-      // Si tiene formato AM/PM, convertir a 24h
       const ampmMatch = horaTexto.match(/(\d{1,2}):(\d{2})\s*(AM|PM|A\.M\.|P\.M\.)/i);
       if (ampmMatch) {
         let [, horas, minutos, periodo] = ampmMatch;
@@ -162,26 +176,22 @@ export default function RegistrarPago() {
   };
 
   const normalizarHoraParaEnvio = (hora: string): string => {
-  if (!hora) return "00:00:00";  // ✅ Agregar segundos
-  
-  // Si ya tiene formato HH:MM:SS, devolverla tal como está
-  if (/^\d{2}:\d{2}:\d{2}$/.test(hora)) {
-    return hora;
-  }
-  
-  // Si tiene formato HH:MM, agregar segundos
-  if (/^\d{2}:\d{2}$/.test(hora)) {
-    return `${hora}:00`;  // ✅ Agregar :00
-  }
-  
-  // Si tiene un solo dígito en horas, agregar cero y segundos
-  if (/^\d{1}:\d{2}$/.test(hora)) {
-    return `0${hora}:00`;  // ✅ Agregar 0 al inicio y :00 al final
-  }
-  
-  // Fallback
-  return `${hora.slice(0, 5)}:00`;  // ✅ Asegurar formato HH:MM:SS
-};
+    if (!hora) return "00:00:00";
+    
+    if (/^\d{2}:\d{2}:\d{2}$/.test(hora)) {
+      return hora;
+    }
+    
+    if (/^\d{2}:\d{2}$/.test(hora)) {
+      return `${hora}:00`;
+    }
+    
+    if (/^\d{1}:\d{2}$/.test(hora)) {
+      return `0${hora}:00`;
+    }
+    
+    return `${hora.slice(0, 5)}:00`;
+  };
 
   function parseValorMonetario(valor: string): number {
     const limpio = valor
@@ -192,12 +202,6 @@ export default function RegistrarPago() {
     return isNaN(num) ? 0 : num;
   }
 
-  const totalAcumulado = pagosCargados.reduce((sum, p) => {
-    const val = parseValorMonetario(p.datos.valor);
-    return sum + (isNaN(val) ? 0 : val);
-  }, 0);
-
-  // 🔥 CORREGIDO: Handle file change con manejo seguro de errores
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     setArchivo(file);
@@ -206,14 +210,12 @@ export default function RegistrarPago() {
     
     if (!file) return;
 
-
-
     setAnalizando(true);
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const response = await fetch("http://localhost:8000/ocr/extraer", {
+      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -225,7 +227,6 @@ export default function RegistrarPago() {
 
       const result: OCRResponse = await response.json();
 
-      // 🔥 NUEVO: Manejar la nueva estructura de respuesta
       if (result.error) {
         alert(`❌ Error en OCR: ${result.mensaje || 'Error desconocido'}`);
         return;
@@ -234,7 +235,6 @@ export default function RegistrarPago() {
       const data = result.datos_extraidos;
       
       if (data && Object.keys(data).length > 0) {
-        // 🔥 CORREGIDO: Mapear campos con conversión segura
         const datosLimpios = {
           valor: data.valor || "",
           fecha: convertirFechaAISO(data.fecha || ""),
@@ -246,35 +246,27 @@ export default function RegistrarPago() {
 
         setDatosManuales(datosLimpios);
 
-        // 🔥 CORREGIDO: Validación IA con verificación segura
         if (result.validacion_ia) {
           setValidacionIA(result.validacion_ia);
           
           const { score_confianza, errores_detectados } = result.validacion_ia;
           
-          // 🔥 FIX: Verificación segura del array
           if (errores_detectados && Array.isArray(errores_detectados) && errores_detectados.length > 0) {
             console.warn("⚠️ Errores detectados:", errores_detectados);
             alert(`⚠️ OCR completado con advertencias:\n${errores_detectados.join('\n')}\n\nPor favor verifica los datos extraídos.`);
           } else if (score_confianza < 70) {
             console.warn(`⚠️ Confianza baja: ${score_confianza}%`);
             alert(`⚠️ Confianza baja (${score_confianza}%). Por favor verifica los datos.`);
-          } else {
-            // Mostrar éxito solo si se extrajeron datos útiles
-            const camposExtraidos = Object.values(datosLimpios).filter(v => v && v.trim()).length;
-            if (camposExtraidos >= 3) {
-            }
           }
         }
 
-        // Calidad de imagen
         if (result.estadisticas?.calidad_imagen) {
           setCalidadOCR(result.estadisticas.calidad_imagen);
         }
 
       } else {
         console.warn("⚠️ No se extrajeron datos válidos del comprobante");
-        alert("⚠️ No se pudieron extraer datos del comprobante.\n\nPosibles causas:\n- Imagen poco clara\n- Formato no reconocido\n- Texto no legible\n\nPuedes ingresar los datos manualmente.");
+        alert("⚠️ No se pudieron extraer datos del comprobante.\n\nPuedes ingresar los datos manualmente.");
       }
 
     } catch (err: any) {
@@ -309,9 +301,7 @@ export default function RegistrarPago() {
     );
 
     if (duplicado) {
-      alert(
-        "Este comprobante ya fue cargado (referencia o fecha/hora duplicada)."
-      );
+      alert("Este comprobante ya fue cargado (referencia o fecha/hora duplicada).");
       return;
     }
 
@@ -335,20 +325,73 @@ export default function RegistrarPago() {
     );
   };
 
-  // 🔧 FUNCIÓN CORREGIDA: registrarTodosLosPagos
+  // 🔥 FUNCIÓN COMPLETAMENTE CORREGIDA: Registrar pagos con bonos integrados
   const registrarTodosLosPagos = async () => {
     const totales = calcularTotalConBonos();
+    if (totales.faltante <= 0) {
+     alert("✅ El total ya fue cubierto. No necesitas aplicar bonos.");
+    return; // Detiene proceso si el pago ya está completo
+}
 
     if (totales.faltante > 0) {
-      alert(`Faltan $${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
-      return;
+      // PASO 3: Confirmar uso de bonos al final
+      if (usarBonos && bonosSeleccionados.length > 0) {
+        const usar = confirm(`Faltan $${totales.faltante.toLocaleString()}. ¿Deseas aplicar tus bonos disponibles?`);
+        if (usar) {
+          // APLICAR BONOS AQUÍ
+          const bonosData = {
+            bonos_utilizados: bonosSeleccionados.map(bonoId => {
+              const bono = bonos?.detalles.find(b => b.id === bonoId);
+              return {
+                bono_id: bonoId,
+                valor_utilizado: bono?.saldo_disponible || 0
+              };
+            }),
+            total_bonos: montoBonosUsar,
+            guias: guias.map(g => ({
+              referencia: g.referencia,
+              tracking: g.tracking || g.referencia,
+              liquidacion_id: g.liquidacion_id
+            }))
+          };
+
+          const responseBonos = await fetch("https://api.x-cargo.co/pagos/aplicar-bonos", {
+            method: "POST",
+            headers: {
+              'Authorization': `Bearer ${getToken()}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(bonosData)
+          });
+
+          if (!responseBonos.ok) {
+            const errorBonos = await responseBonos.json();
+            throw new Error(`Error aplicando bonos: ${errorBonos.detail}`);
+          }
+
+          const resultBonos = await responseBonos.json();
+          console.log("✅ Bonos aplicados exitosamente:", resultBonos.referencia_pago);
+          // Opcional: podrías actualizar el estado aquí si es necesario
+        } else {
+          // Si el usuario no quiere aplicar bonos, cancelar el proceso
+          return;
+        }
+      } else {
+        alert(`Faltan ${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
+        return;
+      }
     }
 
     setCargando(true);
 
     try {
-      // Registrar bonos utilizados primero (si los hay)
+      // ESTRATEGIA SIMPLIFICADA: Un solo endpoint para manejar todo
+
+      // PASO 1: Aplicar bonos primero (si se seleccionaron)
+      let referenciaBonos = null;
       if (usarBonos && bonosSeleccionados.length > 0) {
+        console.log("🎯 Aplicando bonos...");
+        
         const bonosData = {
           bonos_utilizados: bonosSeleccionados.map(bonoId => {
             const bono = bonos?.detalles.find(b => b.id === bonoId);
@@ -365,7 +408,7 @@ export default function RegistrarPago() {
           }))
         };
 
-        const responseBonos = await fetch("http://localhost:8000/pagos/aplicar-bonos", {
+        const responseBonos = await fetch("https://api.x-cargo.co/pagos/aplicar-bonos", {
           method: "POST",
           headers: {
             'Authorization': `Bearer ${getToken()}`,
@@ -378,27 +421,33 @@ export default function RegistrarPago() {
           const errorBonos = await responseBonos.json();
           throw new Error(`Error aplicando bonos: ${errorBonos.detail}`);
         }
+
+        const resultBonos = await responseBonos.json();
+        referenciaBonos = resultBonos.referencia_pago;
+        console.log("✅ Bonos aplicados exitosamente:", referenciaBonos);
       }
 
-      // Luego registrar pagos en efectivo/transferencia (código existente)
-      for (const p of pagosCargados) {
-        const formData = new FormData();
-        const usuario = JSON.parse(localStorage.getItem("user")!);
-        const correo = usuario.email;
+      // PASO 2: Registrar pagos en efectivo/transferencia (si los hay)
+      if (pagosCargados.length > 0) {
+        console.log("💳 Registrando pagos en efectivo/transferencia...");
+        
+        for (const p of pagosCargados) {
+          const formData = new FormData();
+          const usuario = JSON.parse(localStorage.getItem("user")!);
+          const correo = usuario.email;
 
-        const guiasConCliente = guias.map((g) => {
-          const guiaObj: any = {
-            referencia: String(g.referencia).trim(),
-            valor: Number(g.valor),
-            cliente: "por_definir",
-          };
+          const guiasConCliente = guias.map((g) => {
+            const guiaObj: any = {
+              referencia: String(g.referencia).trim(),
+              valor: Number(g.valor),
+              cliente: "por_definir",
+            };
 
-          if (g.liquidacion_id) {
-            guiaObj.liquidacion_id = g.liquidacion_id;
-          }
+            if (g.liquidacion_id) {
+              guiaObj.liquidacion_id = g.liquidacion_id;
+            }
 
-          if (g.tracking) {
-            const trackingStr = String(g.tracking).trim();
+            const trackingStr = g.tracking ? String(g.tracking).trim() : "";
             if (trackingStr && 
                 trackingStr.toLowerCase() !== "null" && 
                 trackingStr.toLowerCase() !== "undefined" &&
@@ -407,78 +456,82 @@ export default function RegistrarPago() {
             } else {
               guiaObj.tracking = g.referencia;
             }
-          } else {
-            guiaObj.tracking = g.referencia;
+
+            return guiaObj;
+          });
+
+          formData.append("correo", correo);
+          formData.append("valor_pago_str", parseValorMonetario(p.datos.valor).toString());
+          formData.append("fecha_pago", p.datos.fecha);
+          formData.append("hora_pago", normalizarHoraParaEnvio(p.datos.hora));
+          formData.append("tipo", p.datos.tipo);
+          formData.append("entidad", p.datos.entidad);
+          formData.append("referencia", p.datos.referencia);
+          formData.append("guias", JSON.stringify(guiasConCliente));
+          formData.append("comprobante", p.archivo);
+
+          // 🔥 NUEVO: Agregar información de bonos aplicados
+          if (referenciaBonos && montoBonosUsar > 0) {
+            formData.append("bonos_aplicados", montoBonosUsar.toString());
+            formData.append("referencia_bonos", referenciaBonos);
           }
 
-          return guiaObj;
-        });
+          // 🔥 USAR ENDPOINT MEJORADO que maneja pagos híbridos
+          const endpoint = (referenciaBonos && montoBonosUsar > 0) 
+            ? "https://api.x-cargo.co/pagos/registrar-conductor-con-bonos"
+            : "https://api.x-cargo.co/pagos/registrar-conductor";
 
-        formData.append("correo", correo);
-        formData.append("valor_pago_str", parseValorMonetario(p.datos.valor).toString());
-        formData.append("fecha_pago", p.datos.fecha);
-        formData.append("hora_pago", normalizarHoraParaEnvio(p.datos.hora));
-        formData.append("tipo", p.datos.tipo);
-        formData.append("entidad", p.datos.entidad);
-        formData.append("referencia", p.datos.referencia);
-        formData.append("guias", JSON.stringify(guiasConCliente));
-        formData.append("comprobante", p.archivo);
+          const response = await fetch(endpoint, {
+            method: "POST",
+            body: formData,
+          });
 
-        // Agregar información de bonos si se usaron
-        if (usarBonos && montoBonosUsar > 0) {
-          formData.append("bonos_aplicados", montoBonosUsar.toString());
-        }
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(result.detail || "Error al registrar pago");
+          }
 
-        const response = await fetch("http://localhost:8000/pagos/registrar-conductor", {
-          method: "POST",
-          body: formData,
-        });
-
-        const result = await response.json();
-        if (!response.ok) {
-          throw new Error(result.detail || "Error al registrar pago");
+          console.log("✅ Pago registrado:", result);
         }
       }
 
-      alert("✅ Pagos registrados correctamente" + 
-            (usarBonos && montoBonosUsar > 0 ? ` (incluye $${montoBonosUsar.toLocaleString()} en bonos)` : "") + ".");
+      // PASO 3: Manejo especial para solo bonos (sin comprobantes)
+      if (pagosCargados.length === 0 && usarBonos && montoBonosUsar > 0) {
+        console.log("🎯 Solo bonos aplicados - registro completado");
+        // Los bonos ya fueron aplicados en el PASO 1, no necesitamos hacer nada más
+      }
+
+      // PASO 4: Mensaje de éxito personalizado
+      const mensajeExito = (() => {
+        if (pagosCargados.length > 0 && usarBonos && montoBonosUsar > 0) {
+          return `✅ Pago híbrido registrado: ${pagosCargados.length} comprobante(s) por ${totales.totalPagosEfectivo.toLocaleString()} + bonos por ${montoBonosUsar.toLocaleString()}.`;
+        } else if (pagosCargados.length > 0) {
+          return `✅ ${pagosCargados.length} pago(s) en efectivo registrado(s) por ${totales.totalPagosEfectivo.toLocaleString()}.`;
+        } else if (usarBonos && montoBonosUsar > 0) {
+          return `✅ Pago con bonos registrado: ${montoBonosUsar.toLocaleString()}.`;
+        } else {
+          return "✅ Procesamiento completado.";
+        }
+      })();
+
+      alert(mensajeExito);
       navigate("/conductor/pagos");
 
     } catch (error: any) {
-      console.error("Error registrando pagos:", error);
-      alert("❌ Error: " + error.message);
+      console.error("❌ Error registrando pagos:", error);
+      alert(`❌ Error: ${error.message}`);
     } finally {
       setCargando(false);
     }
   };
 
-  // 🔥 NUEVO: Función para obtener el color del indicador de confianza
   const getConfianzaColor = (score: number) => {
-    if (score >= 85) return "#22c55e"; // Verde
-    if (score >= 70) return "#3b82f6"; // Azul
-    if (score >= 50) return "#f59e0b"; // Amarillo
-    return "#ef4444"; // Rojo
+    if (score >= 85) return "#22c55e";
+    if (score >= 70) return "#3b82f6";
+    if (score >= 50) return "#f59e0b";
+    return "#ef4444";
   };
 
-  // 2.3 - Agregar estados para manejo de bonos
-  const [usarBonos, setUsarBonos] = useState(false);
-  const [montoBonosUsar, setMontoBonosUsar] = useState(0);
-  const [bonosSeleccionados, setBonosSeleccionados] = useState<string[]>([]);
-
-  // 2.4 - Función para calcular total después de aplicar bonos
-  const calcularTotalConBonos = () => {
-    const totalPagos = totalAcumulado;
-    const totalBonos = montoBonosUsar;
-    const totalFinal = totalPagos + totalBonos;
-    return {
-      totalPagos,
-      totalBonos,
-      totalFinal,
-      faltante: Math.max(0, total - totalFinal)
-    };
-  };
-
-  // 2.5 - Función para manejar selección de bonos
   const toggleBono = (bonoId: string, valorBono: number) => {
     setBonosSeleccionados(prev => {
       let nuevosSeleccionados;
@@ -517,15 +570,61 @@ export default function RegistrarPago() {
             ))}
           </tbody>
         </table>
+        
+        {/* 🔥 NUEVO: Resumen mejorado con cálculo en tiempo real */}
         <div className="resumen-pago">
           <div className="linea">
             <span>Total guías:</span>
             <strong>${total.toLocaleString()}</strong>
           </div>
+          
+          {/* Mostrar desglose del pago */}
+          {(pagosCargados.length > 0 || usarBonos) && (
+            <div className="desglose-pago" style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "#f8fafc", borderRadius: "8px" }}>
+              <h4 style={{ margin: "0 0 0.5rem 0", color: "#1f2937" }}>Desglose del pago:</h4>
+              
+              {pagosCargados.length > 0 && (
+                <div className="linea-desglose">
+                  <span>Pagos en efectivo/transferencia:</span>
+                  <span>${totales.totalPagosEfectivo.toLocaleString()}</span>
+                </div>
+              )}
+              
+              {usarBonos && totales.totalBonos > 0 && (
+                <div className="linea-desglose">
+                  <span>Bonos aplicados:</span>
+                  <span>${totales.totalBonos.toLocaleString()}</span>
+                </div>
+              )}
+              
+              <hr style={{ margin: "0.5rem 0", border: "1px solid #e5e7eb" }} />
+              
+              <div className="linea-desglose" style={{ fontWeight: "bold" }}>
+                <span>Total cubierto:</span>
+                <span>${totales.totalCubierto.toLocaleString()}</span>
+              </div>
+              
+              {totales.faltante > 0 ? (
+                <div className="linea-desglose" style={{ color: "#dc2626" }}>
+                  <span>Faltante:</span>
+                  <span>${totales.faltante.toLocaleString()}</span>
+                </div>
+              ) : totales.excedente > 0 ? (
+                <div className="linea-desglose" style={{ color: "#059669" }}>
+                  <span>Excedente:</span>
+                  <span>${totales.excedente.toLocaleString()}</span>
+                </div>
+              ) : (
+                <div className="linea-desglose" style={{ color: "#059669" }}>
+                  <span>✅ Pago completo</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* 2.6 - Componente para mostrar y usar bonos */}
+      {/* Sección de bonos */}
       {bonos && bonos.disponible > 0 && (
         <div className="seccion-bonos">
           <h3>💰 Bonos Disponibles</h3>
@@ -547,6 +646,7 @@ export default function RegistrarPago() {
                 Usar bonos para este pago
               </label>
             </div>
+            
             {usarBonos && (
               <div className="bonos-seleccion">
                 <h4>Selecciona los bonos a usar:</h4>
@@ -566,6 +666,7 @@ export default function RegistrarPago() {
                     </label>
                   </div>
                 ))}
+                
                 {bonosSeleccionados.length > 0 && (
                   <div className="bonos-seleccionados-resumen">
                     <strong>Bonos seleccionados: ${montoBonosUsar.toLocaleString()}</strong>
@@ -577,6 +678,7 @@ export default function RegistrarPago() {
         </div>
       )}
 
+      {/* Lista de pagos cargados */}
       {pagosCargados.length > 0 && (
         <div className="pagos-cargados">
           <h3>Pagos cargados</h3>
@@ -595,10 +697,7 @@ export default function RegistrarPago() {
             <tbody>
               {pagosCargados.map((p, idx) => (
                 <tr key={idx}>
-                  <td>
-                    $
-                    {parseValorMonetario(p.datos.valor).toLocaleString("es-CO")}
-                  </td>
+                  <td>${parseValorMonetario(p.datos.valor).toLocaleString("es-CO")}</td>
                   <td>{p.datos.fecha}</td>
                   <td>{p.datos.hora}</td>
                   <td>{p.datos.entidad}</td>
@@ -621,36 +720,33 @@ export default function RegistrarPago() {
               ))}
             </tbody>
           </table>
-
-          <div className="resumen-acumulado">
-            <p>
-              <strong>Total acumulado:</strong> $
-              {totalAcumulado.toLocaleString("es-CO")}
-            </p>
-            {totalAcumulado < total ? (
-              <p style={{ color: "crimson" }}>
-                Faltan ${(total - totalAcumulado).toLocaleString("es-CO")}
-              </p>
-            ) : (
-              <p style={{ color: "green" }}>
-                ✅ Listo. Excedente: $
-                {(totalAcumulado - total).toLocaleString("es-CO")}
-              </p>
-            )}
-          </div>
-
-          {totalAcumulado >= total && (
-            <button
-              className="boton-registrar"
-              onClick={registrarTodosLosPagos}
-              disabled={cargando}
-            >
-              ✅ Registrar todos los pagos
-            </button>
-          )}
         </div>
       )}
 
+      {/* 🔥 BOTÓN MEJORADO: Mostrar cuando sea válido procesar */}
+      {(totales.totalCubierto >= total) && (pagosCargados.length > 0 || (usarBonos && montoBonosUsar > 0)) && (
+        <div style={{ margin: "2rem 0", textAlign: "center" }}>
+          <button
+            className="boton-registrar"
+            onClick={registrarTodosLosPagos}
+            disabled={cargando}
+            style={{
+              backgroundColor: "#059669",
+              color: "white",
+              padding: "1rem 2rem",
+              fontSize: "1.1rem",
+              border: "none",
+              borderRadius: "8px",
+              cursor: cargando ? "not-allowed" : "pointer",
+              opacity: cargando ? 0.6 : 1
+            }}
+          >
+            {cargando ? "Procesando..." : `✅ Registrar pago completo ($${totales.totalCubierto.toLocaleString()})`}
+          </button>
+        </div>
+      )}
+
+      {/* Formulario para agregar nuevos pagos */}
       <form className="formulario-pago" onSubmit={(e) => e.preventDefault()}>
         <div className="input-group">
           <label>Comprobante de pago</label>
@@ -663,9 +759,7 @@ export default function RegistrarPago() {
         </div>
 
         {analizando && (
-          <div
-            style={{ margin: "1rem 0", color: "#2e7d32", fontWeight: "bold" }}
-          >
+          <div style={{ margin: "1rem 0", color: "#2e7d32", fontWeight: "bold" }}>
             <LoadingSpinner logoSize="small" />
             <span style={{ marginLeft: "0.5rem" }}>
               🤖 Analizando comprobante con IA...
@@ -673,7 +767,7 @@ export default function RegistrarPago() {
           </div>
         )}
 
-        {/* 🔥 NUEVO: Mostrar información de validación IA */}
+        {/* Información de validación IA */}
         {validacionIA && (
           <div className="validacion-ia" style={{
             margin: "1rem 0",
@@ -711,7 +805,7 @@ export default function RegistrarPago() {
           </div>
         )}
 
-        {/* 🔥 NUEVO: Mostrar calidad de imagen */}
+        {/* Mostrar calidad de imagen */}
         {calidadOCR > 0 && (
           <div style={{ 
             margin: "0.5rem 0", 
@@ -779,12 +873,16 @@ export default function RegistrarPago() {
           />
         )}
 
-        {/* Mostrar botón solo si es válido */}
+        {/* Botón para agregar pago individual */}
         <button
           type="button"
           className="boton-registrar"
           onClick={agregarPago}
           disabled={!validacionPago?.valido || analizando}
+          style={{
+            backgroundColor: validacionPago?.valido ? "#3b82f6" : "#6b7280",
+            opacity: validacionPago?.valido && !analizando ? 1 : 0.6
+          }}
         >
           {validacionPago?.valido ? '✅ Agregar pago válido' : '❌ Pago inválido'}
         </button>
@@ -795,6 +893,7 @@ export default function RegistrarPago() {
   );
 }
 
-function getToken() {
-  throw new Error("Function not implemented.");
+// Función placeholder - implementar según tu lógica de autenticación
+function getToken(): string {
+  return localStorage.getItem("token") || "";
 }

@@ -102,7 +102,7 @@ def hash_clave(plain_password: str) -> str:
 @router.post("/login")
 def login(data: LoginRequest):
     client = bigquery.Client()
-    
+
     # 1. Verificar credenciales
     query_cred = """
         SELECT correo, hashed_password, rol, clave_defecto, id_usuario, empresa_carrier
@@ -118,13 +118,36 @@ def login(data: LoginRequest):
     result = client.query(query_cred, job_config=job_config).result()
     rows = list(result)
 
-    # Si no existe en credenciales pero es conductor, crear automáticamente
+    # Si no existe en credenciales, intentar crear automáticamente desde usuarios_big o usuarios
     if not rows and "@" in data.correo:
-        print(f"🔄 Usuario {data.correo} no encontrado en credenciales, verificando si es conductor...")
-        if crear_usuario_conductor_automatico(data.correo, client):
-            # Intentar nuevamente después de crear las credenciales
-            result = client.query(query_cred, job_config=job_config).result()
-            rows = list(result)
+        print(f"🔄 Usuario {data.correo} no encontrado en credenciales. Verificando origen...")
+
+        # Buscar en usuarios_big
+        query_big = """
+            SELECT correo FROM `datos-clientes-441216.Conciliaciones.usuarios_big`
+            WHERE correo = @correo LIMIT 1
+        """
+        result_big = client.query(query_big, job_config=job_config).result()
+        if list(result_big):
+            print(f"✅ Usuario encontrado en usuarios_big. Creando credencial automática...")
+            crear_usuario_conductor_automatico(data.correo, client, origen="big")
+        else:
+            # Buscar en usuarios
+            query_usuarios = """
+                SELECT correo FROM `datos-clientes-441216.Conciliaciones.usuarios`
+                WHERE correo = @correo LIMIT 1
+            """
+            result_usuarios = client.query(query_usuarios, job_config=job_config).result()
+            if list(result_usuarios):
+                print(f"✅ Usuario encontrado en usuarios. Creando credencial automática...")
+                crear_usuario_conductor_automatico(data.correo, client, origen="interno")
+            else:
+                print(f"❌ Usuario no encontrado en ninguna fuente")
+                raise HTTPException(status_code=401, detail="Usuario no encontrado")
+
+        # Reintentar búsqueda en credenciales
+        result = client.query(query_cred, job_config=job_config).result()
+        rows = list(result)
 
     if not rows:
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
@@ -135,9 +158,7 @@ def login(data: LoginRequest):
 
     # 2. Obtener datos completos del usuario
     datos_usuario = obtener_datos_usuario_completos(data.correo, cred["rol"], client)
-    
     if not datos_usuario:
-        # Fallback: usar datos básicos de credenciales
         datos_usuario = {
             "id_usuario": cred.get("id_usuario", ""),
             "nombre": data.correo.split("@")[0].title(),
@@ -148,7 +169,7 @@ def login(data: LoginRequest):
         }
         print(f"⚠️ Usando datos de fallback para {data.correo}")
 
-    # 3. Obtener permisos del usuario
+    # 3. Obtener permisos
     query_permisos = """
         SELECT p.id_permiso, p.nombre, p.modulo, p.ruta
         FROM `datos-clientes-441216.Conciliaciones.rol_permisos` rp
@@ -157,14 +178,12 @@ def login(data: LoginRequest):
         WHERE rp.id_rol = @rol
     """
     job_config_permisos = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("rol", "STRING", cred["rol"])
-        ]
+        query_parameters=[bigquery.ScalarQueryParameter("rol", "STRING", cred["rol"])]
     )
     permisos_result = client.query(query_permisos, job_config=job_config_permisos).result()
     permisos = [{"id": row["id_permiso"], "nombre": row["nombre"], "modulo": row["modulo"], "ruta": row["ruta"]} for row in permisos_result]
 
-    # 4. Obtener ruta por defecto del rol
+    # 4. Obtener ruta por defecto
     query_ruta = """
         SELECT ruta_defecto
         FROM `datos-clientes-441216.Conciliaciones.roles`
@@ -172,25 +191,17 @@ def login(data: LoginRequest):
         LIMIT 1
     """
     job_config_ruta = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("rol", "STRING", cred["rol"])
-        ]
+        query_parameters=[bigquery.ScalarQueryParameter("rol", "STRING", cred["rol"])]
     )
     ruta_result = client.query(query_ruta, job_config=job_config_ruta).result()
     ruta_rows = list(ruta_result)
-    
-    # 5. Determinar ruta de redirección
-    ruta_defecto = None
-    if ruta_rows and ruta_rows[0]["ruta_defecto"]:
-        ruta_defecto = ruta_rows[0]["ruta_defecto"]
-    elif permisos:
-        ruta_defecto = permisos[0]["ruta"]
-    else:
-        ruta_defecto = "/"
 
-    # 6. Respuesta unificada con datos completos
+    ruta_defecto = (
+        ruta_rows[0]["ruta_defecto"] if ruta_rows and ruta_rows[0]["ruta_defecto"]
+        else (permisos[0]["ruta"] if permisos else "/")
+    )
 
-    # Generar JWT
+    # 5. Generar JWT y retornar
     payload = {
         "sub": datos_usuario["correo"],
         "rol": cred["rol"],
@@ -211,8 +222,9 @@ def login(data: LoginRequest):
         "tipo_usuario": datos_usuario.get("tipo_usuario", ""),
         "carrier_id": datos_usuario.get("Carrier_id"),
         "carrier_mail": datos_usuario.get("Carrier_Mail"),
-        "token": token  # <-- Agrega esto
+        "token": token
     }
+
 
 @router.post("/cambiar-clave")
 def cambiar_clave(request_data: dict = Body(...)):

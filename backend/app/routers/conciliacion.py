@@ -640,39 +640,34 @@ def conciliar_pago_automaticamente(
     id_banco = result[0]["id"]
 
     # ✅ Actualizar las dos tablas
-    update_banco = """
-UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
-SET 
-    estado_conciliacion = 'conciliado',
-    referencia_pago_asociada = @referencia_pago,
-    confianza_match = 100,
-    conciliado_en = CURRENT_TIMESTAMP(),
-    conciliado_por = 'auto'
-WHERE id = @id_banco
-"""
+    # Tabla de pagos y movimientos
+    tabla_pagos = "datos-clientes-441216.Conciliaciones.pagosconductor"
+    tabla_banco = "datos-clientes-441216.Conciliaciones.banco_movimientos"
 
+    # Actualizar movimiento bancario
+    query_update_banco = f"""
+    UPDATE `{tabla_banco}`
+    SET estado_conciliacion = 'conciliado',
+        id_pago = @id_pago
+    WHERE id = @id_banco
+    """
 
-    update_pago = """
-    UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
-    SET 
-        conciliado = TRUE,
-        id_banco_asociado = @id_banco,
-        fecha_conciliacion = CURRENT_DATE(),
-        estado_conciliacion = 'conciliado',
-        confianza_conciliacion = 100
+    # Actualizar pago registrado
+    query_update_pago = f"""
+    UPDATE `{tabla_pagos}`
+    SET estado_conciliacion = 'conciliado_automatico'
     WHERE id_string = @id_pago
     """
 
-    job_config_updates = bigquery.QueryJobConfig(
-    query_parameters=[
-        bigquery.ScalarQueryParameter("id_banco", "STRING", id_banco),
-        bigquery.ScalarQueryParameter("id_pago", "STRING", id_pago),
-        bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
-    ]
-)
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("id_banco", "STRING", id_banco),
+            bigquery.ScalarQueryParameter("id_pago", "STRING", id_pago),
+        ]
+    )
 
-    client.query(update_banco, job_config=job_config_updates).result()
-    client.query(update_pago, job_config=job_config_updates).result()
+    client.query(query_update_banco, job_config=job_config).result()
+    client.query(query_update_pago, job_config=job_config).result()
 
     print(f"✅ Conciliado correctamente: {id_pago} → {id_banco}")
     return id_banco

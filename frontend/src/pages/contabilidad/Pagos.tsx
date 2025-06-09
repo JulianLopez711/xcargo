@@ -2,12 +2,17 @@ import { useEffect, useState } from "react";
 import { saveAs } from "file-saver";
 import "../../styles/contabilidad/Pagos.css";
 
+// Utilidad para obtener el token desde localStorage
+function getToken(): string {
+  return localStorage.getItem("token") || "";
+}
+
 interface Pago {
   referencia_pago: string;
   valor: number;
   fecha: string;
   entidad: string;
-  estado: string;
+  estado_conciliacion: string; // antes: estado
   tipo: string;
   imagen: string;
   novedades?: string;
@@ -17,6 +22,7 @@ interface Pago {
   fecha_creacion?: string;
   fecha_modificacion?: string;
 }
+
 
 interface DetalleTracking {
   tracking: string;
@@ -32,14 +38,10 @@ interface DetalleTracking {
   comprobante: string;
 }
 
-interface ApiError {
-  message: string;
-  status?: number;
-}
 
 export default function PagosContabilidad() {
   const [pagos, setPagos] = useState<Pago[]>([]);
-  const [, setCargando] = useState(true);
+  const [] = useState(true);
   const [filtroReferencia, setFiltroReferencia] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -52,49 +54,30 @@ export default function PagosContabilidad() {
   const [modalDetallesVisible, setModalDetallesVisible] = useState(false);
   const [procesando, setProcesando] = useState<string | null>(null);
 
+  // Mover obtenerPagos fuera de useEffect para que esté disponible en todo el componente
   const obtenerPagos = async () => {
-    setCargando(true);
-    
     try {
-      const response = await fetch("http://localhost:8000/pagos/pagos-conductor", {
-        method: 'GET',
+      // Usa el backend real (FastAPI) en el puerto 8000
+      const response = await fetch("http://localhost:8000/pagos/pendientes-contabilidad", {
         headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: AbortSignal.timeout(30000)
+          Authorization: `Bearer ${getToken()}`
+        }
       });
 
-      if (!response.ok) {
-        throw new ApiError(`Error ${response.status}: ${response.statusText}`, response.status);
-      }
+      if (!response.ok) throw new Error("Error al obtener pagos");
 
-      const data = await response.json();
-
-      if (!Array.isArray(data)) {
-        console.error("Respuesta inesperada:", data);
-        throw new ApiError("Formato de respuesta inválido del servidor");
+      // Intenta parsear como JSON y maneja errores de HTML
+      const text = await response.text();
+      try {
+        const data = JSON.parse(text);
+        setPagos(data); // O la variable que uses para guardar la lista
+      } catch (err) {
+        // Si la respuesta no es JSON, probablemente es un error HTML
+        console.error("❌ Respuesta inesperada (no es JSON):", text);
+        throw new Error("Respuesta inesperada del servidor. Verifica el backend.");
       }
-
-      setPagos(data);
-    } catch (err: unknown) {
-      console.error("Error cargando pagos:", err);
-      
-      let mensajeError = "Error desconocido";
-      
-      if (err instanceof TypeError && err.message.includes('fetch')) {
-        mensajeError = "No se pudo conectar al servidor";
-      } else if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          mensajeError = "La consulta tardó demasiado tiempo";
-        } else {
-          mensajeError = err.message;
-        }
-      }
-      
-      alert(`Error al cargar pagos: ${mensajeError}`);
-      setPagos([]);
-    } finally {
-      setCargando(false);
+    } catch (error) {
+      console.error("❌ Error cargando pagos pendientes:", error);
     }
   };
 
@@ -102,13 +85,15 @@ export default function PagosContabilidad() {
     obtenerPagos();
   }, []);
 
+
   const pagosFiltrados = pagos.filter((p) => {
     const cumpleReferencia = p.referencia_pago
       .toLowerCase()
       .includes(filtroReferencia.toLowerCase());
     const cumpleDesde = !fechaDesde || p.fecha >= fechaDesde;
     const cumpleHasta = !fechaHasta || p.fecha <= fechaHasta;
-    const cumpleEstado = !filtroEstado || p.estado === filtroEstado;
+    const cumpleEstado = !filtroEstado || p.estado_conciliacion === filtroEstado;
+
     
     return cumpleReferencia && cumpleDesde && cumpleHasta && cumpleEstado;
   });
@@ -122,7 +107,7 @@ export default function PagosContabilidad() {
     const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Fecha_Creacion\n";
     const filas = pagosFiltrados
       .map((p, idx) =>
-        `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${p.estado}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${p.fecha_creacion || ''}"`
+        `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${p.estado_conciliacion}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${p.fecha_creacion || ''}"`
       )
       .join("\n");
 
@@ -242,15 +227,17 @@ export default function PagosContabilidad() {
   };
 
 
-  const getEstadoTexto = (estado: string): string => {
-    const textos: { [key: string]: string } = {
-      'pagado': '💳 Pagado',
-      'aprobado': '✅ Aprobado',
-      'rechazado': '❌ Rechazado',
-      'pendiente': '⏳ Pendiente',
-    };
-    return textos[estado.toLowerCase()] || estado;
+const getEstadoTexto = (estado: string | undefined): string => {
+  if (!estado) return "⏳ Sin estado";
+  const textos: { [key: string]: string } = {
+    'pendiente_conciliacion': '⏳ Pendiente conciliación',
+    'conciliado_manual': '🔎 Conciliado manual',
+    'conciliado_automatico': '🤖 Conciliado automático',
+    'rechazado': '❌ Rechazado',
   };
+  return textos[estado.toLowerCase()] || estado;
+};
+
 
   const limpiarFiltros = () => {
     setFiltroReferencia("");
@@ -259,7 +246,7 @@ export default function PagosContabilidad() {
     setFiltroEstado("");
   };
 
-  const estadosUnicos = Array.from(new Set(pagos.map(p => p.estado))).sort();
+  const estadosUnicos = Array.from(new Set(pagos.map(p => p.estado_conciliacion))).sort();
 
   return (
     <div className="pagos-page">
@@ -279,8 +266,10 @@ export default function PagosContabilidad() {
           Estado:
           <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
             <option value="">Todos</option>
-            {estadosUnicos.map(estado => (
-              <option key={estado} value={estado}>{getEstadoTexto(estado)}</option>
+            {estadosUnicos.map((estado, idx) => (
+              <option key={estado || idx} value={estado}>
+                {getEstadoTexto(estado)}
+              </option>
             ))}
           </select>
         </label>
@@ -338,14 +327,13 @@ export default function PagosContabilidad() {
                   <td>{p.fecha}</td>
                   <td>{p.entidad}</td>
                   <td>{p.tipo}</td>
-                  <td
-                    style={{
-                      color: p.estado === "rechazado" ? "crimson" : 
-                             p.estado === "aprobado" ? "green" : undefined,
-                    }}
-                  >
-                    {p.estado}
-                  </td>
+                  <td style={{
+  color: p.estado_conciliacion === "rechazado" ? "crimson" :
+         p.estado_conciliacion === "conciliado_manual" ? "green" : undefined
+}}>
+  {getEstadoTexto(p.estado_conciliacion)}
+</td>
+
                   <td>
                     <button
                       onClick={() => verImagen(p.imagen)}
@@ -376,9 +364,9 @@ export default function PagosContabilidad() {
                     <button
                       onClick={() => aprobarPago(p.referencia_pago)}
                       className="boton-aprobar"
-                      disabled={p.estado === "aprobado"}
+                      disabled={p.estado_conciliacion === "aprobado"}
                     >
-                      {p.estado === "aprobado" ? "Aprobado" : "Aprobar"}
+                      {p.estado_conciliacion === "aprobado" ? "Aprobado" : "Aprobar"}
                     </button>
                     <button
                       onClick={() => {
@@ -386,7 +374,8 @@ export default function PagosContabilidad() {
                         setModalVisible(true);
                       }}
                       className="boton-rechazar"
-                      disabled={p.estado === "rechazado"}
+                      disabled={p.estado_conciliacion === "rechazado" || p.estado_conciliacion?.startsWith("conciliado")}
+
                     >
                       Rechazar
                     </button>
@@ -576,13 +565,3 @@ export default function PagosContabilidad() {
 }
 
 
-// Clase de error personalizada
-class ApiError extends Error {
-  status?: number;
-  
-  constructor(message: string, status?: number) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-  }
-}
