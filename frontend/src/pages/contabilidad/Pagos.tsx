@@ -57,13 +57,8 @@ export default function PagosContabilidad() {
   // Mover obtenerPagos fuera de useEffect para que esté disponible en todo el componente
   const obtenerPagos = async () => {
     try {
-<<<<<<< HEAD
-      const response = await fetch("https://api.x-cargo.co/pagos/pagos-conductor", {
-        method: 'GET',
-=======
       // Usa el backend real (FastAPI) en el puerto 8000
       const response = await fetch("https://api.x-cargo.co/pagos/pendientes-contabilidad", {
->>>>>>> Pruebas
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
