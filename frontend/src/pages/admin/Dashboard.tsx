@@ -120,18 +120,6 @@ export default function DashboardAdmin() {
     cargarDashboardMaster();
   }, []);
 
-<<<<<<< HEAD
-  const cargarDashboardMaster = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(`https://api.x-cargo.co/master/dashboard`, {
-        headers: {
-          "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"
-        }
-      });
-=======
->>>>>>> Pruebas
 
 const cargarDashboardMaster = async () => {
   try {

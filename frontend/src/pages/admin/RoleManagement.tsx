@@ -159,44 +159,10 @@ export default function RoleManagement() {
 
   // Inicialización única cuando el componente se monta
   useEffect(() => {
-<<<<<<< HEAD
-    cargarRoles();
-    cargarPermisos();
-  }, []);
-
-  const cargarRoles = async () => {
-    try {
-      const response = await fetch("https://api.x-cargo.co/admin/roles-con-permisos", {
-        headers: {
-          "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      setRoles(Array.isArray(data) ? data : []); // ← VALIDAR QUE SEA ARRAY
-    } catch (error) {
-      console.error("Error cargando roles:", error);
-      mostrarMensaje("Error al cargar roles", "error");
-      setRoles([]); // ← FALLBACK A ARRAY VACÍO
-=======
     if (!user || inicializado || loadingRef.current) {
       return;
->>>>>>> Pruebas
     }
 
-<<<<<<< HEAD
-  const cargarPermisos = async () => {
-    try {
-      const response = await fetch("https://api.x-cargo.co/admin/permisos", {
-        headers: {
-          "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
-=======
     console.log("🚀 Inicializando RoleManagement para usuario:", user.email);
     
     const inicializarDatos = async () => {
@@ -210,7 +176,6 @@ export default function RoleManagement() {
         await cargarRoles();
         if (mountedRef.current) {
           await cargarPermisos();
->>>>>>> Pruebas
         }
       } catch (error) {
         console.error("❌ Error en inicialización:", error);
@@ -231,7 +196,7 @@ export default function RoleManagement() {
     };
   }, [user, inicializado]); // Removido cargarRoles y cargarPermisos de las dependencias
 
-  const mostrarMensaje = (texto: string, tipo: "success" | "error" = "success") => {
+  const mostrarMensaje = (texto: string, _tipo: "success" | "error" = "success") => {
     setMessage(texto);
     setTimeout(() => setMessage(""), 3000);
   };
@@ -261,12 +226,9 @@ export default function RoleManagement() {
       const formData = new FormData();
       permisosIds.forEach(id => formData.append('permisos_ids', id));
 
-<<<<<<< HEAD
-=======
       const headers = getHeaders();
       // No agregar Content-Type para FormData
 
->>>>>>> Pruebas
       const response = await fetch(`https://api.x-cargo.co/admin/rol/${idRol}/permisos`, {
         method: "POST",
         headers,
@@ -326,11 +288,8 @@ export default function RoleManagement() {
       formDataRol.append("descripcion", nuevoRol.descripcion);
       formDataRol.append("ruta_defecto", nuevoRol.ruta_defecto);
 
-<<<<<<< HEAD
-=======
       const headers = getHeaders();
 
->>>>>>> Pruebas
       const responseRol = await fetch("https://api.x-cargo.co/admin/crear-rol", {
         method: "POST",
         headers,
@@ -344,11 +303,7 @@ export default function RoleManagement() {
         const formDataPermisos = new FormData();
         nuevoRol.permisos_seleccionados.forEach(id => formDataPermisos.append('permisos_ids', id));
 
-<<<<<<< HEAD
-        await fetch(`https://api.x-cargo.co/admin/rol/${nuevoRol.id_rol}/ruta-defecto`, {
-=======
         await fetch(`https://api.x-cargo.co/admin/rol/${nuevoRol.id_rol}/permisos`, {
->>>>>>> Pruebas
           method: "POST",
           headers,
           body: formDataPermisos
@@ -397,11 +352,8 @@ export default function RoleManagement() {
       formData.append("modulo", nuevoPermiso.modulo);
       formData.append("ruta", nuevoPermiso.ruta);
 
-<<<<<<< HEAD
-=======
       const headers = getHeaders();
 
->>>>>>> Pruebas
       const response = await fetch("https://api.x-cargo.co/admin/crear-permiso", {
         method: "POST",
         headers,

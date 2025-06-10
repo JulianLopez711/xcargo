@@ -682,36 +682,6 @@ def crear_usuario_conductor_automatico(correo: str, client: bigquery.Client, ori
             print(f"❌ Origen desconocido: {origen}")
             return False
             
-<<<<<<< HEAD
-        conductor = dict(rows[0])
-        
-        # Crear credenciales automáticamente
-        hashed_password = hash_clave("Xcargo123")  # Clave por defecto
-        ahora = datetime.utcnow()
-        
-        query_insert = """
-            INSERT INTO `datos-clientes-441216.Conciliaciones.credenciales`
-            (correo, hashed_password, rol, clave_defecto, creado_en, id_usuario, empresa_carrier)
-            VALUES (@correo, @hashed, 'conductor', TRUE, @creado_en, @id_usuario, @empresa)
-        """
-        
-        job_config_insert = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("correo", "STRING", correo),
-                bigquery.ScalarQueryParameter("hashed", "STRING", hashed_password),
-                bigquery.ScalarQueryParameter("creado_en", "TIMESTAMP", ahora),
-                bigquery.ScalarQueryParameter("id_usuario", "STRING", str(conductor["Employee_id"])),
-                bigquery.ScalarQueryParameter("empresa", "STRING", conductor.get("Carrier_Name", ""))
-            ]
-        )
-        
-        client.query(query_insert, job_config=job_config_insert).result()
-        
-        print(f"✅ Credenciales creadas automáticamente para conductor: {conductor['Employee_Name']}")
-        return True
-        
-=======
->>>>>>> Pruebas
     except Exception as e:
         print(f"❌ Error creando usuario automático: {e}")
         import traceback

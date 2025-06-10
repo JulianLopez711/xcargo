@@ -1,7 +1,7 @@
 // src/components/common/LoadingAutoInjector.tsx
 import { useEffect } from 'react';
-import Lottie from 'lottie-react';
-import animationData from '../assets/animations/Animation-1749523266862.json';
+import lottie from 'lottie-web';
+import animationData from '../../assets/animations/Animation - 1749523266862.json';
 
 const LoadingAutoInjector = () => {
   useEffect(() => {
@@ -31,7 +31,7 @@ const LoadingAutoInjector = () => {
         
         // Crear la animación Lottie
         try {
-          const lottieInstance = Lottie.loadAnimation({
+          const lottieInstance = lottie.loadAnimation({
             container: lottieContainer,
             renderer: 'svg',
             loop: true,

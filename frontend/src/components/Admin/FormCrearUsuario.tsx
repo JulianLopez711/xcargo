@@ -33,33 +33,6 @@ export default function FormCrearUsuario() {
   });
 
   useEffect(() => {
-<<<<<<< HEAD
-    const cargarRoles = async () => {
-      try {
-        // ✅ CORRECCIÓN: Usar headers correctos
-        const response = await fetch("https://api.x-cargo.co/admin/roles-con-permisos", {
-          headers: {
-            "X-User-Email": user?.email || "",
-            "X-User-Role": user?.role || "admin"
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-
-          setRoles(Array.isArray(data) ? data : []); // ← VALIDAR ARRAY
-        } else {
-          console.error("❌ Error cargando roles:", response.status);
-          setRoles([]); // ← FALLBACK
-        }
-      } catch (error) {
-        console.error("❌ Error en fetch de roles:", error);
-        setRoles([]); // ← FALLBACK
-      }
-    };
-
-=======
->>>>>>> Pruebas
     cargarRoles();
   }, []);
 
@@ -167,23 +140,12 @@ export default function FormCrearUsuario() {
     setLoading(true);
 
     try {
-<<<<<<< HEAD
-      // ✅ CORRECCIÓN: Agregar headers de autenticación
-      const res = await fetch("https://api.x-cargo.co/admin/crear-usuario", {
-        method: "POST",
-        headers: {
-          "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"
-        },
-        body: formData,
-=======
       console.log("📤 Enviando datos de usuario:", {
         nombre: usuario.nombre,
         correo: usuario.correo,
         telefono: usuario.telefono,
         rol: usuario.rol,
         empresa_carrier: usuario.empresa_carrier
->>>>>>> Pruebas
       });
 
       const formData = new FormData();
@@ -196,17 +158,6 @@ export default function FormCrearUsuario() {
       // Construir headers de autenticación igual que en cargarRoles
       const headers: Record<string, string> = {};
       
-<<<<<<< HEAD
-      setMensaje(`${data.mensaje} - Clave por defecto: Xcargo123`);
-      // Limpiar formulario
-      setNombre("");
-      setCorreo("");
-      setTelefono("");
-      setRol("");
-      setEmpresaCarrier("");
-    } catch (err: any) {
-      setError(err.message);
-=======
       // Método 1: Token JWT (si existe)
       if (user?.token) {
         headers["Authorization"] = `Bearer ${user.token}`;
@@ -255,7 +206,6 @@ export default function FormCrearUsuario() {
         `❌ Error al crear usuario: ${error instanceof Error ? error.message : "Error desconocido"}`,
         "error"
       );
->>>>>>> Pruebas
     } finally {
       setLoading(false);
     }
@@ -471,21 +421,6 @@ export default function FormCrearUsuario() {
             )}
           </button>
         </div>
-<<<<<<< HEAD
-
-        <div className="form-info">
-          <div className="info-card">
-            <h4>📋 Información importante:</h4>
-            <ul>
-              <li>• La clave por defecto será <strong>Xcargo123</strong></li>
-              <li>• El usuario deberá cambiar la clave en su primer acceso</li>
-              <li>• Los permisos dependen del rol asignado</li>
-              <li>• Para roles de Supervisor, asignar empresa/carrier</li>
-            </ul>
-          </div>
-        </div>
-=======
->>>>>>> Pruebas
       </form>
 
       <div className="form-info">
