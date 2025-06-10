@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useAuth } from "../../context/authContext"; // ← AGREGAR ESTA LÍNEA
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useAuth } from "../../context/authContext";
 import "../../styles/admin/RoleManagement.css";
 
 interface Permiso {
@@ -39,12 +39,17 @@ interface NuevoPermiso {
 }
 
 export default function RoleManagement() {
-  const { user } = useAuth(); // ← AGREGAR ESTA LÍNEA
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("gestionar");
   const [roles, setRoles] = useState<Rol[]>([]);
   const [permisos, setPermisos] = useState<Permiso[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [inicializado, setInicializado] = useState(false);
+
+  // Control para evitar llamadas múltiples
+  const mountedRef = useRef(true);
+  const loadingRef = useRef(false);
 
   // Estados para crear rol
   const [nuevoRol, setNuevoRol] = useState<NuevoRol>({
@@ -64,8 +69,97 @@ export default function RoleManagement() {
     ruta: ""
   });
 
-  // Cargar datos iniciales
+  // Headers comunes para todas las peticiones
+  const getHeaders = useCallback(() => {
+    if (!user) {
+      console.warn("⚠️ Usuario no disponible para headers");
+      return {};
+    }
+
+    const headers: Record<string, string> = {};
+
+    if (user.token) {
+      headers["Authorization"] = `Bearer ${user.token}`;
+    }
+    if (user.email) {
+      headers["X-User-Email"] = user.email;
+    }
+    if (user.role) {
+      headers["X-User-Role"] = user.role;
+    }
+
+    return headers;
+  }, [user]);
+
+  // Función helper para hacer peticiones sin AbortController
+  const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
+    const headers = getHeaders();
+    
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...headers,
+        ...options.headers,
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
+    }
+
+    return response.json();
+  }, [getHeaders]);
+
+  const cargarRoles = useCallback(async () => {
+    if (!user || loadingRef.current || !mountedRef.current) {
+      console.log("🔄 Evitando carga de roles - usuario:", !!user, "loading:", loadingRef.current, "mounted:", mountedRef.current);
+      return;
+    }
+
+    try {
+      console.log("📋 Cargando roles...");
+      const data = await fetchWithAuth("https://api.x-cargo.co/admin/roles-con-permisos");
+      
+      if (mountedRef.current) {
+        setRoles(Array.isArray(data) ? data : []);
+        console.log("✅ Roles cargados:", data?.length || 0);
+      }
+    } catch (error) {
+      console.error("❌ Error cargando roles:", error);
+      if (mountedRef.current) {
+        mostrarMensaje("Error al cargar roles", "error");
+        setRoles([]);
+      }
+    }
+  }, [user, fetchWithAuth]);
+
+  const cargarPermisos = useCallback(async () => {
+    if (!user || loadingRef.current || !mountedRef.current) {
+      console.log("🔄 Evitando carga de permisos - usuario:", !!user, "loading:", loadingRef.current, "mounted:", mountedRef.current);
+      return;
+    }
+
+    try {
+      console.log("🔑 Cargando permisos...");
+      const data = await fetchWithAuth("https://api.x-cargo.co/admin/permisos");
+      
+      if (mountedRef.current) {
+        setPermisos(Array.isArray(data) ? data : []);
+        console.log("✅ Permisos cargados:", data?.length || 0);
+      }
+    } catch (error) {
+      console.error("❌ Error cargando permisos:", error);
+      if (mountedRef.current) {
+        mostrarMensaje("Error al cargar permisos", "error");
+        setPermisos([]);
+      }
+    }
+  }, [user, fetchWithAuth]);
+
+  // Inicialización única cuando el componente se monta
   useEffect(() => {
+<<<<<<< HEAD
     cargarRoles();
     cargarPermisos();
   }, []);
@@ -89,32 +183,55 @@ export default function RoleManagement() {
       console.error("Error cargando roles:", error);
       mostrarMensaje("Error al cargar roles", "error");
       setRoles([]); // ← FALLBACK A ARRAY VACÍO
+=======
+    if (!user || inicializado || loadingRef.current) {
+      return;
+>>>>>>> Pruebas
     }
-  };
 
+<<<<<<< HEAD
   const cargarPermisos = async () => {
     try {
       const response = await fetch("https://api.x-cargo.co/admin/permisos", {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
+=======
+    console.log("🚀 Inicializando RoleManagement para usuario:", user.email);
+    
+    const inicializarDatos = async () => {
+      if (loadingRef.current) return;
+      
+      loadingRef.current = true;
+      setLoading(true);
+      
+      try {
+        // Cargar datos secuencialmente para evitar conflictos
+        await cargarRoles();
+        if (mountedRef.current) {
+          await cargarPermisos();
+>>>>>>> Pruebas
         }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      } catch (error) {
+        console.error("❌ Error en inicialización:", error);
+      } finally {
+        if (mountedRef.current) {
+          setLoading(false);
+          setInicializado(true);
+        }
+        loadingRef.current = false;
       }
-      
-      const data = await response.json();
-      setPermisos(Array.isArray(data) ? data : []); // ← VALIDAR QUE SEA ARRAY
-    } catch (error) {
-      console.error("Error cargando permisos:", error);
-      mostrarMensaje("Error al cargar permisos", "error");
-      setPermisos([]); // ← FALLBACK A ARRAY VACÍO
-    }
-  };
+    };
 
-  const mostrarMensaje = (texto: string, _tipo: "success" | "error" = "success") => {
+    inicializarDatos();
+
+    // Cleanup al desmontar
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [user, inicializado]); // Removido cargarRoles y cargarPermisos de las dependencias
+
+  const mostrarMensaje = (texto: string, tipo: "success" | "error" = "success") => {
     setMessage(texto);
     setTimeout(() => setMessage(""), 3000);
   };
@@ -135,17 +252,24 @@ export default function RoleManagement() {
 
   // Actualizar permisos de un rol
   const actualizarPermisosRol = async (idRol: string, permisosIds: string[]) => {
+    if (loadingRef.current) return;
+    
+    loadingRef.current = true;
     setLoading(true);
+    
     try {
       const formData = new FormData();
       permisosIds.forEach(id => formData.append('permisos_ids', id));
 
+<<<<<<< HEAD
+=======
+      const headers = getHeaders();
+      // No agregar Content-Type para FormData
+
+>>>>>>> Pruebas
       const response = await fetch(`https://api.x-cargo.co/admin/rol/${idRol}/permisos`, {
         method: "POST",
-        headers: {
-          "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
-        },
+        headers,
         body: formData
       });
 
@@ -160,11 +284,14 @@ export default function RoleManagement() {
       mostrarMensaje("Error al actualizar permisos", "error");
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
   // Toggle permiso de un rol
   const togglePermisoRol = async (rol: Rol, permisoId: string) => {
+    if (loadingRef.current) return;
+    
     const permisosActuales = rol.permisos?.map(p => p.id_permiso) || [];
     let nuevosPermisos: string[];
 
@@ -181,51 +308,54 @@ export default function RoleManagement() {
 
   // Crear nuevo rol
   const crearRol = async () => {
-    if (!nuevoRol.id_rol || !nuevoRol.nombre_rol) {
-      mostrarMensaje("Completa los campos requeridos", "error");
+    if (!nuevoRol.id_rol || !nuevoRol.nombre_rol || loadingRef.current) {
+      if (!nuevoRol.id_rol || !nuevoRol.nombre_rol) {
+        mostrarMensaje("Completa los campos requeridos", "error");
+      }
       return;
     }
 
+    loadingRef.current = true;
     setLoading(true);
+    
     try {
       // 1. Crear el rol
       const formDataRol = new FormData();
       formDataRol.append("id_rol", nuevoRol.id_rol);
       formDataRol.append("nombre_rol", nuevoRol.nombre_rol);
       formDataRol.append("descripcion", nuevoRol.descripcion);
+      formDataRol.append("ruta_defecto", nuevoRol.ruta_defecto);
 
+<<<<<<< HEAD
+=======
+      const headers = getHeaders();
+
+>>>>>>> Pruebas
       const responseRol = await fetch("https://api.x-cargo.co/admin/crear-rol", {
         method: "POST",
-        headers: {
-          "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
-        },
+        headers,
         body: formDataRol
       });
 
       if (!responseRol.ok) throw new Error("Error creando rol");
 
-      // 2. Asignar ruta por defecto si se especificó
-      if (nuevoRol.ruta_defecto) {
-        const formDataRuta = new FormData();
-        formDataRuta.append("ruta_defecto", nuevoRol.ruta_defecto);
+      // 2. Asignar permisos si se seleccionaron
+      if (nuevoRol.permisos_seleccionados.length > 0) {
+        const formDataPermisos = new FormData();
+        nuevoRol.permisos_seleccionados.forEach(id => formDataPermisos.append('permisos_ids', id));
 
+<<<<<<< HEAD
         await fetch(`https://api.x-cargo.co/admin/rol/${nuevoRol.id_rol}/ruta-defecto`, {
+=======
+        await fetch(`https://api.x-cargo.co/admin/rol/${nuevoRol.id_rol}/permisos`, {
+>>>>>>> Pruebas
           method: "POST",
-          headers: {
-            "X-User-Email": user?.email || "",
-            "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
-          },
-          body: formDataRuta
+          headers,
+          body: formDataPermisos
         });
       }
 
-      // 3. Asignar permisos si se seleccionaron
-      if (nuevoRol.permisos_seleccionados.length > 0) {
-        await actualizarPermisosRol(nuevoRol.id_rol, nuevoRol.permisos_seleccionados);
-      }
-
-      // 4. Resetear formulario y actualizar lista
+      // 3. Resetear formulario y actualizar lista
       setNuevoRol({
         id_rol: "",
         nombre_rol: "",
@@ -243,17 +373,22 @@ export default function RoleManagement() {
       mostrarMensaje("Error al crear rol", "error");
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
   // Crear nuevo permiso
   const crearPermiso = async () => {
-    if (!nuevoPermiso.id_permiso || !nuevoPermiso.nombre || !nuevoPermiso.modulo) {
-      mostrarMensaje("Completa los campos requeridos", "error");
+    if (!nuevoPermiso.id_permiso || !nuevoPermiso.nombre || !nuevoPermiso.modulo || loadingRef.current) {
+      if (!nuevoPermiso.id_permiso || !nuevoPermiso.nombre || !nuevoPermiso.modulo) {
+        mostrarMensaje("Completa los campos requeridos", "error");
+      }
       return;
     }
 
+    loadingRef.current = true;
     setLoading(true);
+    
     try {
       const formData = new FormData();
       formData.append("id_permiso", nuevoPermiso.id_permiso);
@@ -262,12 +397,14 @@ export default function RoleManagement() {
       formData.append("modulo", nuevoPermiso.modulo);
       formData.append("ruta", nuevoPermiso.ruta);
 
+<<<<<<< HEAD
+=======
+      const headers = getHeaders();
+
+>>>>>>> Pruebas
       const response = await fetch("https://api.x-cargo.co/admin/crear-permiso", {
         method: "POST",
-        headers: {
-          "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"  // ← AGREGAR HEADERS
-        },
+        headers,
         body: formData
       });
 
@@ -289,6 +426,7 @@ export default function RoleManagement() {
       mostrarMensaje("Error al crear permiso", "error");
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
@@ -308,11 +446,54 @@ export default function RoleManagement() {
     }
   };
 
+  const refrescarDatos = () => {
+    if (loadingRef.current) return;
+    
+    console.log("🔄 Refrescando datos de roles y permisos");
+    setInicializado(false);
+    setRoles([]);
+    setPermisos([]);
+    setMessage("");
+    
+    // Trigger re-initialization
+    setTimeout(() => {
+      if (mountedRef.current) {
+        setInicializado(false);
+      }
+    }, 100);
+  };
+
+  // Mostrar loading si no hay usuario
+  if (!user) {
+    return (
+      <div className="role-management">
+        <div className="loading-container">
+          <div className="loading-spinner"></div>
+          <p>Cargando información del usuario...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="role-management">
       <div className="header">
-        <h1>🔐 Sistema de Permisos</h1>
-        <p>Configura roles y permisos para tu equipo XCargo</p>
+        <div className="header-content">
+          <div className="header-info">
+            <h1>🔐 Sistema de Permisos</h1>
+            <p>Configura roles y permisos para tu equipo XCargo</p>
+          </div>
+          <div className="header-actions">
+            <button 
+              className="btn-refresh"
+              onClick={refrescarDatos}
+              disabled={loading}
+              title="Refrescar datos"
+            >
+              🔄 Actualizar
+            </button>
+          </div>
+        </div>
       </div>
 
       {message && (
@@ -326,19 +507,19 @@ export default function RoleManagement() {
           className={`tab ${activeTab === "gestionar" ? "active" : ""}`}
           onClick={() => setActiveTab("gestionar")}
         >
-          Gestionar Roles
+          📋 Gestionar Roles
         </button>
         <button 
           className={`tab ${activeTab === "crear-rol" ? "active" : ""}`}
           onClick={() => setActiveTab("crear-rol")}
         >
-          Crear Nuevo Rol
+          ➕ Crear Nuevo Rol
         </button>
         <button 
           className={`tab ${activeTab === "crear-permiso" ? "active" : ""}`}
           onClick={() => setActiveTab("crear-permiso")}
         >
-          Crear Permiso
+          🔑 Crear Permiso
         </button>
       </div>
 
@@ -346,57 +527,76 @@ export default function RoleManagement() {
         {/* GESTIONAR ROLES */}
         {activeTab === "gestionar" && (
           <div className="section">
-            {roles.length > 0 ? (
+            {loading && !inicializado ? (
+              <div className="loading-container">
+                <div className="loading-spinner"></div>
+                <p>Cargando roles y permisos...</p>
+              </div>
+            ) : roles.length > 0 ? (
               roles.map((rol) => (
                 <div key={rol.id_rol} className="role-card">
                   <div className="role-header">
                     <div className="role-info">
-                      <h3>{rol.nombre_rol}</h3>
+                      <h3>🎭 {rol.nombre_rol}</h3>
                       <p>{rol.descripcion}</p>
                       {rol.ruta_defecto && (
-                        <small>Ruta por defecto: {rol.ruta_defecto}</small>
+                        <small>🛣️ Ruta por defecto: {rol.ruta_defecto}</small>
                       )}
                     </div>
                     <div className="role-stats">
                       <span className="stat">
-                        {rol.permisos?.length || 0} permisos
+                        🔑 {rol.permisos?.length || 0} permisos
                       </span>
                     </div>
                   </div>
 
                   <div className="permissions-grid">
-                    {Object.entries(permisosPorModulo).map(([modulo, permisosModulo]) => (
-                      <div key={modulo} className="module-section">
-                        <div className="module-header">
-                          <h4>{modulo}</h4>
-                        </div>
-                        <div className="permissions-list">
-                          {permisosModulo.map((permiso) => (
-                            <div key={permiso.id_permiso} className="permission-item">
-                              <div className="permission-info">
-                                <div className="permission-name">{permiso.nombre}</div>
-                                <div className="permission-desc">{permiso.descripcion}</div>
+                    {Object.keys(permisosPorModulo).length > 0 ? (
+                      Object.entries(permisosPorModulo).map(([modulo, permisosModulo]) => (
+                        <div key={modulo} className="module-section">
+                          <div className="module-header">
+                            <h4>📂 {modulo}</h4>
+                          </div>
+                          <div className="permissions-list">
+                            {permisosModulo.map((permiso) => (
+                              <div key={permiso.id_permiso} className="permission-item">
+                                <div className="permission-info">
+                                  <div className="permission-name">{permiso.nombre}</div>
+                                  <div className="permission-desc">{permiso.descripcion}</div>
+                                </div>
+                                <label className="toggle-switch">
+                                  <input
+                                    type="checkbox"
+                                    checked={rolTienePermiso(rol, permiso.id_permiso)}
+                                    onChange={() => togglePermisoRol(rol, permiso.id_permiso)}
+                                    disabled={loading}
+                                  />
+                                  <span className="slider"></span>
+                                </label>
                               </div>
-                              <label className="toggle-switch">
-                                <input
-                                  type="checkbox"
-                                  checked={rolTienePermiso(rol, permiso.id_permiso)}
-                                  onChange={() => togglePermisoRol(rol, permiso.id_permiso)}
-                                  disabled={loading}
-                                />
-                                <span className="slider"></span>
-                              </label>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
+                      ))
+                    ) : (
+                      <div className="empty-permissions">
+                        <p>No hay permisos disponibles. Crea algunos permisos primero.</p>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               ))
             ) : (
               <div className="empty-state">
-                <p>No hay roles configurados. Crea uno nuevo para empezar.</p>
+                <div className="empty-icon">🎭</div>
+                <h3>No hay roles configurados</h3>
+                <p>Crea un nuevo rol para empezar a configurar permisos.</p>
+                <button 
+                  className="btn-primary"
+                  onClick={() => setActiveTab("crear-rol")}
+                >
+                  ➕ Crear Primer Rol
+                </button>
               </div>
             )}
           </div>
@@ -408,7 +608,7 @@ export default function RoleManagement() {
             <div className="create-form">
               <div className="form-grid">
                 <div className="form-section">
-                  <h3>Información del Rol</h3>
+                  <h3>📝 Información del Rol</h3>
                   
                   <div className="form-group">
                     <label>ID del Rol *</label>
@@ -417,7 +617,9 @@ export default function RoleManagement() {
                       value={nuevoRol.id_rol}
                       onChange={(e) => setNuevoRol({...nuevoRol, id_rol: e.target.value})}
                       placeholder="ej: supervisor_entregas"
+                      disabled={loading}
                     />
+                    <small>Use solo letras minúsculas, números y guiones bajos</small>
                   </div>
 
                   <div className="form-group">
@@ -427,6 +629,7 @@ export default function RoleManagement() {
                       value={nuevoRol.nombre_rol}
                       onChange={(e) => setNuevoRol({...nuevoRol, nombre_rol: e.target.value})}
                       placeholder="ej: Supervisor de Entregas"
+                      disabled={loading}
                     />
                   </div>
 
@@ -435,7 +638,8 @@ export default function RoleManagement() {
                     <textarea
                       value={nuevoRol.descripcion}
                       onChange={(e) => setNuevoRol({...nuevoRol, descripcion: e.target.value})}
-                      placeholder="Describe las responsabilidades..."
+                      placeholder="Describe las responsabilidades de este rol..."
+                      disabled={loading}
                     />
                   </div>
 
@@ -446,26 +650,28 @@ export default function RoleManagement() {
                       value={nuevoRol.ruta_defecto}
                       onChange={(e) => setNuevoRol({...nuevoRol, ruta_defecto: e.target.value})}
                       placeholder="ej: /supervisor/dashboard"
+                      disabled={loading}
                     />
+                    <small>Página a la que será redirigido el usuario al iniciar sesión</small>
                   </div>
 
                   <button 
                     className="btn-primary"
                     onClick={crearRol}
-                    disabled={loading}
+                    disabled={loading || !nuevoRol.id_rol || !nuevoRol.nombre_rol}
                   >
                     {loading ? "Creando..." : "✨ Crear Rol"}
                   </button>
                 </div>
 
                 <div className="form-section">
-                  <h3>Seleccionar Permisos</h3>
+                  <h3>🔑 Seleccionar Permisos</h3>
                   
                   {Object.keys(permisosPorModulo).length > 0 ? (
                     Object.entries(permisosPorModulo).map(([modulo, permisosModulo]) => (
                       <div key={modulo} className="module-section">
                         <div className="module-header">
-                          <h4>{modulo}</h4>
+                          <h4>📂 {modulo}</h4>
                         </div>
                         <div className="permissions-list">
                           {permisosModulo.map((permiso) => (
@@ -479,6 +685,7 @@ export default function RoleManagement() {
                                   type="checkbox"
                                   checked={nuevoRol.permisos_seleccionados.includes(permiso.id_permiso)}
                                   onChange={() => togglePermisoNuevoRol(permiso.id_permiso)}
+                                  disabled={loading}
                                 />
                                 <span className="slider"></span>
                               </label>
@@ -488,16 +695,23 @@ export default function RoleManagement() {
                       </div>
                     ))
                   ) : (
-                    <p>Cargando permisos...</p>
+                    <div className="empty-permissions">
+                      <p>📥 Cargando permisos...</p>
+                      <small>Si no aparecen permisos, créalos primero en la pestaña "Crear Permiso"</small>
+                    </div>
                   )}
 
                   {/* Vista previa */}
                   <div className="preview">
                     <h4>👀 Vista Previa</h4>
                     <div className="preview-content">
-                      <strong>{nuevoRol.nombre_rol || "Nombre del rol"}</strong>
+                      <strong>🎭 {nuevoRol.nombre_rol || "Nombre del rol"}</strong>
                       <p>{nuevoRol.descripcion || "Descripción del rol"}</p>
+                      {nuevoRol.ruta_defecto && (
+                        <small>🛣️ Ruta: {nuevoRol.ruta_defecto}</small>
+                      )}
                       <div className="preview-permissions">
+                        <strong>Permisos seleccionados ({nuevoRol.permisos_seleccionados.length}):</strong>
                         {nuevoRol.permisos_seleccionados.map(permisoId => {
                           const permiso = permisos.find(p => p.id_permiso === permisoId);
                           return permiso ? (
@@ -519,7 +733,7 @@ export default function RoleManagement() {
         {activeTab === "crear-permiso" && (
           <div className="section">
             <div className="create-form">
-              <h3>Crear Nuevo Permiso</h3>
+              <h3>🔑 Crear Nuevo Permiso</h3>
               
               <div className="form-group">
                 <label>ID del Permiso *</label>
@@ -528,7 +742,9 @@ export default function RoleManagement() {
                   value={nuevoPermiso.id_permiso}
                   onChange={(e) => setNuevoPermiso({...nuevoPermiso, id_permiso: e.target.value})}
                   placeholder="ej: ver_reportes_ventas"
+                  disabled={loading}
                 />
+                <small>Use solo letras minúsculas, números y guiones bajos</small>
               </div>
 
               <div className="form-group">
@@ -538,6 +754,7 @@ export default function RoleManagement() {
                   value={nuevoPermiso.nombre}
                   onChange={(e) => setNuevoPermiso({...nuevoPermiso, nombre: e.target.value})}
                   placeholder="ej: Ver Reportes de Ventas"
+                  disabled={loading}
                 />
               </div>
 
@@ -548,6 +765,7 @@ export default function RoleManagement() {
                   value={nuevoPermiso.descripcion}
                   onChange={(e) => setNuevoPermiso({...nuevoPermiso, descripcion: e.target.value})}
                   placeholder="ej: Acceder a los reportes de ventas mensuales"
+                  disabled={loading}
                 />
               </div>
 
@@ -556,15 +774,16 @@ export default function RoleManagement() {
                 <select
                   value={nuevoPermiso.modulo}
                   onChange={(e) => setNuevoPermiso({...nuevoPermiso, modulo: e.target.value})}
+                  disabled={loading}
                 >
                   <option value="">Seleccionar módulo</option>
-                  <option value="admin">Administración</option>
-                  <option value="contabilidad">Contabilidad</option>
-                  <option value="operador">Operaciones</option>
-                  <option value="conductor">Conductores</option>
-                  <option value="ventas">Ventas</option>
-                  <option value="reportes">Reportes</option>
-                  <option value="master">Master</option>
+                  <option value="admin">📱 Administración</option>
+                  <option value="contabilidad">💰 Contabilidad</option>
+                  <option value="operador">📦 Operaciones</option>
+                  <option value="conductor">🚛 Conductores</option>
+                  <option value="ventas">💼 Ventas</option>
+                  <option value="reportes">📊 Reportes</option>
+                  <option value="master">🔧 Master</option>
                 </select>
               </div>
 
@@ -575,19 +794,60 @@ export default function RoleManagement() {
                   value={nuevoPermiso.ruta}
                   onChange={(e) => setNuevoPermiso({...nuevoPermiso, ruta: e.target.value})}
                   placeholder="ej: /reportes/ventas"
+                  disabled={loading}
                 />
+                <small>Ruta específica donde aplica este permiso</small>
               </div>
 
               <button 
                 className="btn-primary"
                 onClick={crearPermiso}
-                disabled={loading}
+                disabled={loading || !nuevoPermiso.id_permiso || !nuevoPermiso.nombre || !nuevoPermiso.modulo}
               >
                 {loading ? "Creando..." : "✨ Crear Permiso"}
               </button>
+
+              {/* Lista de permisos existentes */}
+              {permisos.length > 0 && (
+                <div className="existing-permissions">
+                  <h4>📋 Permisos Existentes</h4>
+                  <div className="permissions-summary">
+                    {Object.entries(permisosPorModulo).map(([modulo, permisosModulo]) => (
+                      <div key={modulo} className="module-summary">
+                        <strong>📂 {modulo} ({permisosModulo.length})</strong>
+                        <div className="permissions-tags">
+                          {permisosModulo.map(permiso => (
+                            <span key={permiso.id_permiso} className="permission-tag small">
+                              {permiso.nombre}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
+      </div>
+
+      {/* Footer con información del estado */}
+      <div className="footer-info">
+        <div className="status-indicators">
+          <div className="status-item">
+            <strong>🎭 Roles:</strong> {roles.length}
+          </div>
+          <div className="status-item">
+            <strong>🔑 Permisos:</strong> {permisos.length}
+          </div>
+          <div className="status-item">
+            <strong>👤 Usuario:</strong> {user?.email} ({user?.role})
+          </div>
+          <div className="status-item">
+            <strong>🔗 Estado:</strong> {inicializado ? "✅ Conectado" : "⏳ Inicializando"}
+          </div>
+        </div>
       </div>
     </div>
   );

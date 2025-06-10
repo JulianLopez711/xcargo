@@ -80,8 +80,16 @@ const ValidadorPago: React.FC<Props> = ({ guiasSeleccionadas, valorConsignado, o
                 });
 
                 const resultado = await res.json();
-                setValidacion(resultado);
-                onValidacionChange(resultado);
+                const resultadoForzado = {
+                    ...resultado,
+                    valido: valorConsignado > 0,
+                    mensaje: valorConsignado > 0
+                        ? "Pago parcial aceptado (se acumulará con otros comprobantes)"
+                        : resultado.mensaje
+                };
+
+                setValidacion(resultadoForzado);
+                onValidacionChange(resultadoForzado);
 
             } catch (error) {
                 console.error("Error validando pago:", error);

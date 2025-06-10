@@ -1,54 +1,63 @@
-// src/components/LoadingSpinner.tsx
-import "../styles/LoadingSpinner.css";
-import logoX from "../assets/LogoX.png";
+// src/components/common/LoadingSpinner.tsx
+import React from 'react';
+import Lottie from 'lottie-react';
+import animationData from '../assets/animations/Animation - 1749523266862.json';
+import '../styles/LoadingSpinner.css';
 
 interface LoadingSpinnerProps {
   message?: string;
-  showLogo?: boolean;
-  logoSrc?: string;
-  logoSize?: 'small' | 'medium' | 'large' | number; // ✅ Nuevo prop para tamaño
+  size?: 'small' | 'medium' | 'large' | 'fullscreen';
+  overlay?: boolean;
+  transparent?: boolean;
 }
 
-export default function LoadingSpinner({ 
-  message = "Cargando...", 
-  showLogo = true,
-  logoSrc = logoX,
-  logoSize = 'medium' // ✅ Tamaño por defecto
-}: LoadingSpinnerProps) {
-  
-  // ✅ Función para obtener el tamaño del logo
-  const getLogoStyle = () => {
-    if (typeof logoSize === 'number') {
-      return { width: `${logoSize}px`, height: `${logoSize}px` };
+const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
+  message = "Cargando...",
+  size = 'medium',
+  overlay = false,
+  transparent = false
+}) => {
+  const getSizeClass = () => {
+    switch (size) {
+      case 'small': return 'loading-small';
+      case 'medium': return 'loading-medium';
+      case 'large': return 'loading-large';
+      case 'fullscreen': return 'loading-fullscreen';
+      default: return 'loading-medium';
     }
-    
-    const sizes = {
-      small: { width: '30px', height: '30px' },
-      medium: { width: '50px', height: '50px' },
-      large: { width: '80px', height: '80px' }
-    };
-    
-    return sizes[logoSize];
   };
 
+  const containerClass = `
+    loading-spinner-container 
+    ${getSizeClass()} 
+    ${overlay ? 'loading-overlay' : ''} 
+    ${transparent ? 'loading-transparent' : ''}
+  `.trim();
+
   return (
-    <div className="spinner-container">
-      <div className="spinner-wrapper">
-        <div className="spinner" />
-        {showLogo && (
-          <img 
-            src={logoSrc} 
-            alt="X-Cargo Logo" 
-            className="spinner-logo"
-            style={{
-              ...getLogoStyle(),
-              objectFit: 'contain',
-              marginTop: '10px'
-            }}
+    <div className={containerClass}>
+      <div className="loading-content">
+        <div className="lottie-animation">
+          <Lottie 
+            animationData={animationData}
+            loop={true}
+            autoplay={true}
+            style={{ width: '100%', height: '100%' }}
           />
+        </div>
+        {message && (
+          <div className="loading-message">
+            <span className="loading-text">{message}</span>
+            <div className="loading-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          </div>
         )}
       </div>
-      <p className="spinner-text">{message}</p>
     </div>
   );
-}
+};
+
+export default LoadingSpinner;
