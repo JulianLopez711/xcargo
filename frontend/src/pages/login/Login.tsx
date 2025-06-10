@@ -29,7 +29,7 @@ const XCargoLogin: React.FC = () => {
       const res = await fetch("https://api.x-cargo.co/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ correo: email, password }),
+        body: JSON.stringify({ correo: email.toLowerCase().trim(), password }),
       });
 
       const data = await res.json();
@@ -43,14 +43,6 @@ const XCargoLogin: React.FC = () => {
       } else {
         finalToken = `session_${data.correo}_${Date.now()}`;
       }
-
-      // Continuar con el login...
-      login({
-        email: data.correo,
-        role: data.rol,
-        token: finalToken,
-        // ... resto
-      });
 
       if (!res.ok) {
         throw new Error(data.detail || "Error al iniciar sesión");
