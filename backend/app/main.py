@@ -18,16 +18,10 @@ app.add_middleware(
         "https://api.x-cargo.co",
         "https://192.168.0.38:5173",
         "https://gestion.x-cargo.co",
-<<<<<<< HEAD
-        "https://api.x-cargo.co",
-        "http://localhost:5173"
-  
-=======
         "http://192.168.0.38:5173",
         "http://localhost:8080",
         "http://localhost:5173",  # <-- Agrega este para permitir peticiones desde Vite
         "https://api.x-cargo.co"   # <-- Permite peticiones directas al backend
->>>>>>> Pruebas
     ],
     allow_credentials=True,
     allow_methods=["*"],
