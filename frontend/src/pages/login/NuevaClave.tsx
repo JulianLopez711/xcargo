@@ -14,9 +14,7 @@ export default function CambiarClave() {
   const [fortaleza, setFortaleza] = useState(0);
   const navigate = useNavigate();
   const { user } = useAuth();
-
   const correo = localStorage.getItem("correo_recuperacion") || user?.email || "";
-  const codigo = localStorage.getItem("codigo_recuperacion");
 
   // Validar fortaleza de contraseña
   useEffect(() => {
