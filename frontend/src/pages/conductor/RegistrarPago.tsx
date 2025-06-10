@@ -491,18 +491,7 @@ export default function RegistrarPago() {
             throw new Error(result.detail || "Error al registrar pago");
           }
 
-<<<<<<< HEAD
-        const response = await fetch("https://api.x-cargo.co/pagos/registrar-conductor", {
-          method: "POST",
-          body: formData,
-        });
-
-        const result = await response.json();
-        if (!response.ok) {
-          throw new Error(result.detail || "Error al registrar pago");
-=======
           console.log("✅ Pago registrado:", result);
->>>>>>> Pruebas
         }
       }
 
@@ -771,7 +760,7 @@ export default function RegistrarPago() {
 
         {analizando && (
           <div style={{ margin: "1rem 0", color: "#2e7d32", fontWeight: "bold" }}>
-            <LoadingSpinner logoSize="small" />
+            <LoadingSpinner size="small" />
             <span style={{ marginLeft: "0.5rem" }}>
               🤖 Analizando comprobante con IA...
             </span>
@@ -899,7 +888,7 @@ export default function RegistrarPago() {
         </button>
       </form>
 
-      {cargando && <LoadingSpinner logoSize="medium" />}
+      {cargando && <LoadingSpinner size="medium" />}
     </div>
   );
 }

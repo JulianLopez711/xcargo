@@ -44,7 +44,7 @@ export default function HistorialPagos() {
   const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
   const [paginaActual, setPaginaActual] = useState(1);
   const [totalPaginas, setTotalPaginas] = useState(1);
-  const [limite, setLimite] = useState(50);
+  const [limite] = useState(50);
   
   const [filtros, setFiltros] = useState<FiltrosHistorial>({
     estado: "",
