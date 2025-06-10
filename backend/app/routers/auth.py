@@ -566,60 +566,129 @@ def obtener_datos_usuario_completos(correo: str, rol: str, client: bigquery.Clie
         traceback.print_exc()
         return None
 
-def crear_usuario_conductor_automatico(correo: str, client: bigquery.Client):
+def crear_usuario_conductor_automatico(correo: str, client: bigquery.Client, origen: str = "big"):
     """
-    Crea automáticamente credenciales para un conductor que existe en usuarios_BIG
+    Crea automáticamente credenciales para un usuario que existe en usuarios_BIG o usuarios
     pero no tiene credenciales aún
     """
     try:
-        # Verificar si el conductor existe en usuarios_BIG
-        query_check = """
-            SELECT Employee_id, Employee_Name, Employee_Mail, Carrier_Name
-            FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG`
-            WHERE LOWER(Employee_Mail) = LOWER(@correo)
-            LIMIT 1
-        """
+        if origen == "big":
+            # Verificar si el conductor existe en usuarios_BIG
+            query_check = """
+                SELECT Employee_id, Employee_Name, Employee_Mail, Carrier_Name
+                FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG`
+                WHERE LOWER(Employee_Mail) = LOWER(@correo)
+                LIMIT 1
+            """
+            
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("correo", "STRING", correo)
+                ]
+            )
+            
+            result = client.query(query_check, job_config=job_config).result()
+            rows = list(result)
+            
+            if not rows:
+                print(f"❌ Usuario {correo} no existe en usuarios_BIG")
+                return False
+                
+            usuario_data = dict(rows[0])
+            
+            # Crear credenciales automáticamente
+            hashed_password = hash_clave("123456")  # Clave por defecto
+            ahora = datetime.utcnow()
+            
+            query_insert = """
+                INSERT INTO `datos-clientes-441216.Conciliaciones.credenciales`
+                (correo, hashed_password, rol, clave_defecto, creado_en, id_usuario, empresa_carrier)
+                VALUES (@correo, @hashed, 'conductor', TRUE, @creado_en, @id_usuario, @empresa)
+            """
+            
+            job_config_insert = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("correo", "STRING", correo),
+                    bigquery.ScalarQueryParameter("hashed", "STRING", hashed_password),
+                    bigquery.ScalarQueryParameter("creado_en", "TIMESTAMP", ahora),
+                    bigquery.ScalarQueryParameter("id_usuario", "STRING", str(usuario_data["Employee_id"])),
+                    bigquery.ScalarQueryParameter("empresa", "STRING", usuario_data.get("Carrier_Name", ""))
+                ]
+            )
+            
+            client.query(query_insert, job_config=job_config_insert).result()
+            
+            print(f"✅ Credenciales creadas automáticamente para conductor: {usuario_data['Employee_Name']}")
+            return True
+            
+        elif origen == "interno":
+            # Verificar si el usuario existe en usuarios (tabla interna)
+            query_check = """
+                SELECT id_usuario, nombre, correo, telefono, empresa_carrier
+                FROM `datos-clientes-441216.Conciliaciones.usuarios`
+                WHERE LOWER(correo) = LOWER(@correo)
+                LIMIT 1
+            """
+            
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("correo", "STRING", correo)
+                ]
+            )
+            
+            result = client.query(query_check, job_config=job_config).result()
+            rows = list(result)
+            
+            if not rows:
+                print(f"❌ Usuario {correo} no existe en usuarios")
+                return False
+                
+            usuario_data = dict(rows[0])
+            
+            # Determinar el rol basado en el dominio del correo o empresa
+            rol = "operador"  # rol por defecto
+            if "@x-cargo.co" in correo.lower():
+                if "admin" in correo.lower():
+                    rol = "admin"
+                elif "contabilidad" in correo.lower() or "contable" in correo.lower():
+                    rol = "contabilidad"
+                elif "supervisor" in correo.lower():
+                    rol = "supervisor"
+                else:
+                    rol = "operador"
+            
+            # Crear credenciales automáticamente
+            hashed_password = hash_clave("123456")  # Clave por defecto
+            ahora = datetime.utcnow()
+            
+            query_insert = """
+                INSERT INTO `datos-clientes-441216.Conciliaciones.credenciales`
+                (correo, hashed_password, rol, clave_defecto, creado_en, id_usuario, empresa_carrier)
+                VALUES (@correo, @hashed, @rol, TRUE, @creado_en, @id_usuario, @empresa)
+            """
+            
+            job_config_insert = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("correo", "STRING", correo),
+                    bigquery.ScalarQueryParameter("hashed", "STRING", hashed_password),
+                    bigquery.ScalarQueryParameter("rol", "STRING", rol),
+                    bigquery.ScalarQueryParameter("creado_en", "TIMESTAMP", ahora),
+                    bigquery.ScalarQueryParameter("id_usuario", "STRING", usuario_data["id_usuario"]),
+                    bigquery.ScalarQueryParameter("empresa", "STRING", usuario_data.get("empresa_carrier", ""))
+                ]
+            )
+            
+            client.query(query_insert, job_config=job_config_insert).result()
+            
+            print(f"✅ Credenciales creadas automáticamente para usuario interno: {usuario_data['nombre']} con rol {rol}")
+            return True
         
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("correo", "STRING", correo)
-            ]
-        )
-        
-        result = client.query(query_check, job_config=job_config).result()
-        rows = list(result)
-        
-        if not rows:
-            print(f"❌ Conductor {correo} no existe en usuarios_BIG")
+        else:
+            print(f"❌ Origen desconocido: {origen}")
             return False
             
-        conductor = dict(rows[0])
-        
-        # Crear credenciales automáticamente
-        hashed_password = hash_clave("123456")  # Clave por defecto
-        ahora = datetime.utcnow()
-        
-        query_insert = """
-            INSERT INTO `datos-clientes-441216.Conciliaciones.credenciales`
-            (correo, hashed_password, rol, clave_defecto, creado_en, id_usuario, empresa_carrier)
-            VALUES (@correo, @hashed, 'conductor', TRUE, @creado_en, @id_usuario, @empresa)
-        """
-        
-        job_config_insert = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("correo", "STRING", correo),
-                bigquery.ScalarQueryParameter("hashed", "STRING", hashed_password),
-                bigquery.ScalarQueryParameter("creado_en", "TIMESTAMP", ahora),
-                bigquery.ScalarQueryParameter("id_usuario", "STRING", str(conductor["Employee_id"])),
-                bigquery.ScalarQueryParameter("empresa", "STRING", conductor.get("Carrier_Name", ""))
-            ]
-        )
-        
-        client.query(query_insert, job_config=job_config_insert).result()
-        
-        print(f"✅ Credenciales creadas automáticamente para conductor: {conductor['Employee_Name']}")
-        return True
-        
     except Exception as e:
-        print(f"❌ Error creando conductor automático: {e}")
+        print(f"❌ Error creando usuario automático: {e}")
+        import traceback
+        traceback.print_exc()
         return False

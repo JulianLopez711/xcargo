@@ -12,9 +12,19 @@ DATASET = "Conciliaciones"
 bq_client = bigquery.Client()
 
 def verificar_master(current_user: dict = Depends(get_current_user)):
-    """Verificar que el usuario tiene rol admin o master"""
+    """
+    Verificar que el usuario tenga permisos de master o admin
+    Se cambió para permitir tanto 'admin' como 'master'
+    """
+    print(f"🔐 Usuario verificando acceso master: {current_user}")
+    print(f"   - Email: {current_user.get('correo', 'No definido')}")
+    print(f"   - Rol: {current_user.get('rol', 'No definido')}")
+    
     if current_user["rol"] not in ["admin", "master"]:
+        print(f"❌ Acceso denegado - Rol requerido: admin o master, Rol actual: {current_user['rol']}")
         raise HTTPException(status_code=403, detail="No autorizado - Solo admin y master")
+    
+    print(f"✅ Acceso autorizado para usuario {current_user.get('correo')} con rol {current_user['rol']}")
     return current_user
 
 @router.get("/dashboard")
@@ -24,9 +34,11 @@ async def get_dashboard_master(current_user = Depends(verificar_master)):
     Datos en tiempo real desde BigQuery
     """
     try:
+        print(f"🎯 Iniciando dashboard master para usuario: {current_user.get('correo')}")
         client = bigquery.Client()
         
         # 1. ESTADÍSTICAS GLOBALES - Todos los carriers
+        print("📊 Consultando estadísticas globales...")
         query_stats_globales = """
         WITH guias_globales AS (
             SELECT 
@@ -81,8 +93,10 @@ async def get_dashboard_master(current_user = Depends(verificar_master)):
         
         result_stats = client.query(query_stats_globales).result()
         stats_globales = list(result_stats)[0]
+        print(f"✅ Estadísticas globales obtenidas: {stats_globales.total_guias} guías")
         
         # 2. RANKING DE CARRIERS - Vista comparativa
+        print("🏆 Consultando ranking de carriers...")
         query_ranking_carriers = """
         SELECT 
             cp.carrier_id,
@@ -144,13 +158,15 @@ async def get_dashboard_master(current_user = Depends(verificar_master)):
                 "eficiencia": eficiencia
             })
         
+        print(f"✅ Ranking de carriers obtenido: {len(ranking_carriers)} carriers")
+        
         # 3. TOP SUPERVISORES - Basado en usuarios administrativos
+        print("👥 Consultando supervisores...")
         query_supervisores = """
         SELECT 
             u.nombre as supervisor_nombre,
             u.correo as supervisor_email,
             u.empresa_carrier,
-            COUNT(DISTINCT CAST(SPLIT(u.empresa_carrier, ',')[OFFSET(0)] AS INT64)) as carriers_asignados,
             'supervisor' as rol_usuario
         FROM `datos-clientes-441216.Conciliaciones.usuarios` u
         JOIN `datos-clientes-441216.Conciliaciones.credenciales` c 
@@ -166,15 +182,19 @@ async def get_dashboard_master(current_user = Depends(verificar_master)):
         top_supervisores = []
         
         for row in result_supervisores:
+            carriers_asignados = 1 if row.empresa_carrier else 0
             top_supervisores.append({
                 "nombre": row.supervisor_nombre or "Sin nombre",
                 "email": row.supervisor_email or "",
                 "empresa_carrier": row.empresa_carrier or "",
-                "carriers_asignados": int(row.carriers_asignados) if row.carriers_asignados else 0,
+                "carriers_asignados": carriers_asignados,
                 "rol": row.rol_usuario or "supervisor"
             })
         
+        print(f"✅ Supervisores obtenidos: {len(top_supervisores)} supervisores")
+        
         # 4. ANÁLISIS POR CIUDADES
+        print("🏙️ Consultando análisis por ciudades...")
         query_ciudades = """
         SELECT 
             Ciudad,
@@ -217,7 +237,10 @@ async def get_dashboard_master(current_user = Depends(verificar_master)):
                 "eficiencia": float(row.eficiencia) if row.eficiencia else 0.0
             })
         
+        print(f"✅ Análisis de ciudades obtenido: {len(analisis_ciudades)} ciudades")
+        
         # 5. TENDENCIAS MENSUALES - Últimos 6 meses
+        print("📈 Consultando tendencias mensuales...")
         query_tendencias = """
         SELECT 
             FORMAT_DATE('%Y-%m', Status_Date) as mes,
@@ -254,8 +277,10 @@ async def get_dashboard_master(current_user = Depends(verificar_master)):
         
         # Invertir para mostrar cronológicamente
         tendencias_mensuales.reverse()
+        print(f"✅ Tendencias mensuales obtenidas: {len(tendencias_mensuales)} meses")
         
         # 6. ALERTAS CRÍTICAS
+        print("🚨 Generando alertas...")
         alertas = []
         
         # Alerta por alto monto pendiente
@@ -284,8 +309,10 @@ async def get_dashboard_master(current_user = Depends(verificar_master)):
                 "prioridad": "baja"
             })
         
+        print(f"✅ Alertas generadas: {len(alertas)} alertas")
+        
         # RESPUESTA FINAL
-        return {
+        dashboard_response = {
             "stats_globales": {
                 "total_guias": int(stats_globales.total_guias) if stats_globales.total_guias else 0,
                 "total_conductores_registrados": int(stats_globales.total_conductores_registrados) if stats_globales.total_conductores_registrados else 0,
@@ -310,10 +337,14 @@ async def get_dashboard_master(current_user = Depends(verificar_master)):
             "fecha_actualizacion": datetime.now().isoformat(),
             "usuario_master": {
                 "nombre": current_user.get("nombre", ""),
+                "correo": current_user.get("correo", ""),
                 "rol": current_user.get("rol", ""),
                 "acceso_completo": True
             }
         }
+        
+        print(f"🎉 Dashboard master generado exitosamente para {current_user.get('correo')}")
+        return dashboard_response
         
     except Exception as e:
         print(f"❌ Error en dashboard master: {e}")
@@ -408,7 +439,7 @@ async def export_master_data(
             return {
                 "export_data": dashboard_data,
                 "metadata": {
-                    "exported_by": current_user.get("nombre", ""),
+                    "exported_by": current_user.get("correo", ""),
                     "export_date": datetime.now().isoformat(),
                     "format": "json",
                     "total_records": len(dashboard_data.get("ranking_carriers", []))

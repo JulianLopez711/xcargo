@@ -41,7 +41,7 @@ export default function DashboardContabilidad() {
     setError("");
     
     try {
-      const response = await fetch("http://localhost:8000/contabilidad/resumen", {
+      const response = await fetch("https://api.x-cargo.co/contabilidad/resumen", {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

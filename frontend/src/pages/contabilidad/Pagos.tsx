@@ -58,7 +58,7 @@ export default function PagosContabilidad() {
   const obtenerPagos = async () => {
     try {
       // Usa el backend real (FastAPI) en el puerto 8000
-      const response = await fetch("http://localhost:8000/pagos/pendientes-contabilidad", {
+      const response = await fetch("https://api.x-cargo.co/pagos/pendientes-contabilidad", {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -129,7 +129,7 @@ export default function PagosContabilidad() {
 
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/pagos/detalles-pago/${referenciaPago}`);
+      const response = await fetch(`https://api.x-cargo.co/pagos/detalles-pago/${referenciaPago}`);
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -155,7 +155,7 @@ export default function PagosContabilidad() {
     try {
       const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
       
-      const response = await fetch("http://localhost:8000/pagos/aprobar-pago", {
+      const response = await fetch("https://api.x-cargo.co/pagos/aprobar-pago", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -194,7 +194,7 @@ export default function PagosContabilidad() {
     try {
       const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
       
-      const response = await fetch("http://localhost:8000/pagos/rechazar-pago", {
+      const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -68,6 +68,17 @@ interface Alerta {
   prioridad: string;
 }
 
+interface ResumenPagos {
+  total_pagos: number;
+  pagos_pendientes: number;
+  pagos_conciliados: number;
+  pagos_rechazados: number;
+  valor_total: number;
+  valor_pendiente: number;
+  valor_conciliado: number;
+  valor_rechazado: number;
+}
+
 interface UsuarioMaster {
   nombre: string;
   rol: string;
@@ -76,6 +87,9 @@ interface UsuarioMaster {
 
 export default function DashboardAdmin() {
   const { user } = useAuth();
+
+  const [resumenPagos, setResumenPagos] = useState<ResumenPagos | null>(null); // ← MOVIDO AQUÍ
+
   const [statsGlobales, setStatsGlobales] = useState<StatsGlobales>({
     total_guias: 0,
     total_conductores_registrados: 0,
@@ -92,9 +106,9 @@ export default function DashboardAdmin() {
     eficiencia_global: 0
   });
   const [rankingCarriers, setRankingCarriers] = useState<CarrierRanking[]>([]);
-  const [topSupervisores, setTopSupervisores] = useState<Supervisor[]>([]);
+  const [, setTopSupervisores] = useState<Supervisor[]>([]);
   const [analisisCiudades, setAnalisisCiudades] = useState<CiudadAnalisis[]>([]);
-  const [tendenciasMensuales, setTendenciasMensuales] = useState<TendenciaMensual[]>([]);
+  const [, setTendenciasMensuales] = useState<TendenciaMensual[]>([]);
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [usuarioMaster, setUsuarioMaster] = useState<UsuarioMaster | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,102 +120,178 @@ export default function DashboardAdmin() {
     cargarDashboardMaster();
   }, []);
 
-  const cargarDashboardMaster = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(`http://localhost:8000/master/dashboard`, {
-        headers: {
-          "X-User-Email": user?.email || "",
-          "X-User-Role": user?.role || "admin"
-        }
-      });
 
-      if (response.ok) {
-        const data = await response.json();
-
-        
-        setStatsGlobales(data.stats_globales || {});
-        setRankingCarriers(data.ranking_carriers || []);
-        setTopSupervisores(data.top_supervisores || []);
-        setAnalisisCiudades(data.analisis_ciudades || []);
-        setTendenciasMensuales(data.tendencias_mensuales || []);
-        setAlertas(data.alertas || []);
-        setUsuarioMaster(data.usuario_master || null);
-        setPeriodoAnalisis(data.periodo_analisis || "");
-        setFechaActualizacion(data.fecha_actualizacion || "");
-        setError("");
-      } else if (response.status === 403) {
-        throw new Error("No autorizado - Solo admin y master tienen acceso");
-      } else {
-        throw new Error(`Error HTTP ${response.status}`);
-      }
-    } catch (error) {
-      console.error("Error cargando dashboard master:", error);
-      setError(error instanceof Error ? error.message : "Error al cargar el dashboard master");
-      
-      // Fallback básico para mostrar algo mientras se implementa el backend
-      setStatsGlobales({
-        total_guias: 15847,
-        total_conductores_registrados: 247,
-        total_conductores_activos: 198,
-        total_carriers_registrados: 15,
-        total_carriers_activos: 12,
-        guias_pendientes: 3234,
-        guias_entregadas: 11892,
-        guias_pagadas: 721,
-        valor_pendiente: 42580000,
-        valor_entregado: 156780000,
-        valor_pagado: 8950000,
-        promedio_valor_guia: 95000,
-        eficiencia_global: 87.3
-      });
-      
-      setRankingCarriers([
-        {
-          carrier_id: 101,
-          carrier_nombre: "LogiTech Corp",
-          total_conductores: 35,
-          total_guias: 2847,
-          guias_pendientes: 423,
-          guias_entregadas: 2234,
-          valor_pendiente: 5680000,
-          valor_entregado: 18340000,
-          promedio_valor_guia: 95000,
-          ciudades_principales: "Bogotá, Medellín, Cali",
-          ultima_actividad: "2025-05-29",
-          eficiencia: 92.1
-        },
-        {
-          carrier_id: 102,
-          carrier_nombre: "FastTrack Inc",
-          total_conductores: 28,
-          total_guias: 2156,
-          guias_pendientes: 312,
-          guias_entregadas: 1687,
-          valor_pendiente: 4320000,
-          valor_entregado: 14560000,
-          promedio_valor_guia: 87000,
-          ciudades_principales: "Barranquilla, Cartagena",
-          ultima_actividad: "2025-05-29",
-          eficiencia: 88.7
-        }
-      ]);
-      
-      setAnalisisCiudades([
-        { ciudad: "Bogotá", total_guias: 4567, conductores_activos: 67, carriers_activos: 8, valor_pendiente: 15900000, guias_pendientes: 567, eficiencia: 91.2 },
-        { ciudad: "Medellín", total_guias: 3234, conductores_activos: 45, carriers_activos: 6, valor_pendiente: 8900000, guias_pendientes: 423, eficiencia: 89.8 }
-      ]);
-      
-      setPeriodoAnalisis("Demo - Datos de ejemplo");
-      setFechaActualizacion(new Date().toISOString());
-    } finally {
-      setLoading(false);
+const cargarDashboardMaster = async () => {
+  try {
+    setLoading(true);
+    setError("");
+    
+    console.log("🔍 DIAGNÓSTICO COMPLETO - Usuario actual:", user);
+    
+    // Verificar que tenemos los datos necesarios
+    if (!user) {
+      throw new Error("Usuario no autenticado");
     }
-  };
+    
+    if (!user.email || !user.role) {
+      throw new Error("Datos de usuario incompletos - falta email o role");
+    }
+    
+    // Construir headers de autenticación - AMBOS MÉTODOS
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    
+    // Método 1: Token JWT (si existe)
+    if (user.token) {
+      headers["Authorization"] = `Bearer ${user.token}`;
+      console.log("🔐 Agregando Authorization header con JWT");
+    }
+    
+    // Método 2: Headers X-User (SIEMPRE agregar como backup)
+    headers["X-User-Email"] = user.email;
+    headers["X-User-Role"] = user.role;
+    
+    console.log("📤 Headers que se enviarán:", {
+      "Authorization": headers.Authorization ? `Bearer ${headers.Authorization.substring(7, 27)}...` : "NO_PRESENTE",
+      "X-User-Email": headers["X-User-Email"],
+      "X-User-Role": headers["X-User-Role"]
+    });
+    
+    // Hacer la petición
+    console.log("🌐 Haciendo petición a /master/dashboard...");
+    const response = await fetch(`https://api.x-cargo.co/master/dashboard`, {
+      method: 'GET',
+      headers: headers
+    });
+
+    console.log("📥 Respuesta recibida:", {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log("✅ Datos recibidos exitosamente");
+      
+      // Actualizar estados con datos reales
+      setStatsGlobales(data.stats_globales || {});
+      setRankingCarriers(data.ranking_carriers || []);
+      setTopSupervisores(data.top_supervisores || []);
+      setAnalisisCiudades(data.analisis_ciudades || []);
+      setTendenciasMensuales(data.tendencias_mensuales || []);
+      setAlertas(data.alertas || []);
+      setUsuarioMaster(data.usuario_master || null);
+      setPeriodoAnalisis(data.periodo_analisis || "");
+      setFechaActualizacion(data.fecha_actualizacion || "");
+      
+    } else {
+      // Manejar errores específicos
+      let errorMessage = `Error HTTP ${response.status}: ${response.statusText}`;
+      
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorMessage;
+        console.error("❌ Error detallado del servidor:", errorData);
+      } catch (e) {
+        console.error("❌ No se pudo parsear respuesta de error");
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    // Cargar resumen de pagos con manejo robusto de errores
+    console.log("📊 Intentando cargar resumen de pagos...");
+    try {
+      const pagosResp = await fetch("https://api.x-cargo.co/admin/dashboard-pagos", {
+        headers: headers
+      });
+      
+      console.log("📥 Respuesta de pagos:", {
+        status: pagosResp.status,
+        statusText: pagosResp.statusText,
+        ok: pagosResp.ok
+      });
+      
+      if (pagosResp.ok) {
+        const pagosData = await pagosResp.json();
+        console.log("✅ Resumen de pagos cargado:", pagosData);
+        setResumenPagos(pagosData);
+        
+        // Si hay mensaje de información, mostrarlo
+        if (pagosData.mensaje) {
+          console.log(`ℹ️ Info de pagos: ${pagosData.mensaje}`);
+        }
+        
+      } else {
+        // Error en el endpoint de pagos
+        console.warn("⚠️ Error en endpoint de pagos:", pagosResp.status);
+        
+        try {
+          const errorData = await pagosResp.json();
+          console.warn("   Detalle del error:", errorData);
+          
+          // Si el backend devuelve datos de fallback, usarlos
+          if (errorData.total_pagos !== undefined) {
+            setResumenPagos(errorData);
+            console.log("✅ Usando datos de fallback de pagos");
+          } else {
+            // Usar datos por defecto locales
+            setResumenPagos(getDefaultPagosData());
+            console.log("⚠️ Usando datos por defecto locales para pagos");
+          }
+        } catch (e) {
+          // Error parseando respuesta de error
+          setResumenPagos(getDefaultPagosData());
+          console.warn("⚠️ Error parseando respuesta de pagos, usando datos por defecto");
+        }
+      }
+      
+    } catch (error) {
+      // Error de red o conexión al endpoint de pagos
+      console.error("❌ Error de conexión al cargar pagos:", error);
+      setResumenPagos(getDefaultPagosData());
+      console.log("⚠️ Usando datos por defecto debido a error de conexión");
+    }
+
+  } catch (error) {
+    console.error("❌ ERROR EN CARGAR DASHBOARD:", error);
+    
+    // Mostrar error real al usuario, sin datos simulados
+    const errorMessage = error instanceof Error ? error.message : "Error desconocido al cargar dashboard";
+    setError(errorMessage);
+    
+    // Limpiar estados en caso de error
+    setStatsGlobales({
+      total_guias: 0,
+      total_conductores_registrados: 0,
+      total_conductores_activos: 0,
+      total_carriers_registrados: 0,
+      total_carriers_activos: 0,
+      guias_pendientes: 0,
+      guias_entregadas: 0,
+      guias_pagadas: 0,
+      valor_pendiente: 0,
+      valor_entregado: 0,
+      valor_pagado: 0,
+      promedio_valor_guia: 0,
+      eficiencia_global: 0
+    });
+    setRankingCarriers([]);
+    setTopSupervisores([]);
+    setAnalisisCiudades([]);
+    setTendenciasMensuales([]);
+    setAlertas([]);
+    
+  } finally {
+    setLoading(false);
+  }
+};
 
   const exportarDatos = async (formato: string = "json") => {
     try {
-      const response = await fetch(`http://localhost:8000/master/export/data?formato=${formato}`, {
+      const response = await fetch(`https://api.x-cargo.co/master/export/data?formato=${formato}`, {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "admin"
@@ -410,6 +500,47 @@ export default function DashboardAdmin() {
         </div>
       </div>
 
+      {/* Tarjetas de Resumen de Pagos */}
+      {resumenPagos && (
+        <div className="stats-section">
+          <h2>💳 Resumen de Pagos</h2>
+          <div className="dashboard-cards">
+            <div className="dashboard-card info">
+              <div className="card-icon">💳</div>
+              <div className="card-content">
+                <h3>Total Pagos</h3>
+                <div className="card-number">{resumenPagos.total_pagos}</div>
+                <div className="card-detail">{formatCurrency(resumenPagos.valor_total)} total</div>
+              </div>
+            </div>
+            <div className="dashboard-card warning">
+              <div className="card-icon">⏳</div>
+              <div className="card-content">
+                <h3>Pendientes</h3>
+                <div className="card-number">{resumenPagos.pagos_pendientes}</div>
+                <div className="card-detail">{formatCurrency(resumenPagos.valor_pendiente)}</div>
+              </div>
+            </div>
+            <div className="dashboard-card success">
+              <div className="card-icon">✅</div>
+              <div className="card-content">
+                <h3>Conciliados</h3>
+                <div className="card-number">{resumenPagos.pagos_conciliados}</div>
+                <div className="card-detail">{formatCurrency(resumenPagos.valor_conciliado)}</div>
+              </div>
+            </div>
+            <div className="dashboard-card danger">
+              <div className="card-icon">❌</div>
+              <div className="card-content">
+                <h3>Rechazados</h3>
+                <div className="card-number">{resumenPagos.pagos_rechazados}</div>
+                <div className="card-detail">{formatCurrency(resumenPagos.valor_rechazado)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Ranking de Carriers */}
       <div className="ranking-section">
         <h2>🏆 Ranking de Carriers - Análisis Comparativo</h2>
@@ -553,3 +684,15 @@ export default function DashboardAdmin() {
     </div>
   );
 }
+
+// Función auxiliar para datos por defecto de pagos
+const getDefaultPagosData = () => ({
+  total_pagos: 0,
+  pagos_pendientes: 0,
+  pagos_conciliados: 0,
+  pagos_rechazados: 0,
+  valor_total: 0,
+  valor_pendiente: 0,
+  valor_conciliado: 0,
+  valor_rechazado: 0
+});
