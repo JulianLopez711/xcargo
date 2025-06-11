@@ -62,7 +62,7 @@ export default function PagosSupervisor() {
 
       // Agregar token JWT en la cabecera Authorization
       const token = user?.token || localStorage.getItem("token") || "";
-      const response = await fetch(`http://127.0.0.1:8000/supervisor/guias-pendientes?${params}`, {
+      const response = await fetch(`https://api.x-cargo.co/supervisor/guias-pendientes?${params}`, {
         headers: {
           "Authorization": `Bearer ${token}`,
           // Puedes mantener los headers personalizados si el backend los requiere:

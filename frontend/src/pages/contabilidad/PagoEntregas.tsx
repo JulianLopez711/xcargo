@@ -192,7 +192,7 @@ export default function PagoEntregas() {
 
       // Enviar al servidor
       const response = await fetch(
-        "http://127.0.0.1:8000/pagos/registrar-conductor",
+        "https://api.x-cargo.co/pagos/registrar-conductor",
         {
           method: "POST",
           body: formData,
@@ -273,7 +273,7 @@ export default function PagoEntregas() {
       formData.append("comprobante", formulario.comprobante);
 
       const response = await fetch(
-        "http://127.0.0.1:8000/enviar-confirmacion-email/",
+        "https://api.x-cargo.co/enviar-confirmacion-email/",
         {
           method: "POST",
           body: formData,
