@@ -12,7 +12,7 @@ interface Pago {
   valor: number;
   fecha: string;
   entidad: string;
-  estado_conciliacion: string; // antes: estado
+  estado_conciliacion: string;
   tipo: string;
   imagen: string;
   novedades?: string;
@@ -22,7 +22,6 @@ interface Pago {
   fecha_creacion?: string;
   fecha_modificacion?: string;
 }
-
 
 interface DetalleTracking {
   tracking: string;
@@ -38,10 +37,20 @@ interface DetalleTracking {
   comprobante: string;
 }
 
+interface PaginacionInfo {
+  total_registros: number;
+  total_paginas: number;
+  pagina_actual: number;
+  registros_por_pagina: number;
+  tiene_siguiente: boolean;
+  tiene_anterior: boolean;
+}
 
 export default function PagosContabilidad() {
   const [pagos, setPagos] = useState<Pago[]>([]);
-  const [] = useState(true);
+  const [paginaActual, setPaginaActual] = useState(1);
+  const pagosPorPagina = 20;
+  const [cargando, setCargando] = useState(false);
   const [filtroReferencia, setFiltroReferencia] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -53,48 +62,106 @@ export default function PagosContabilidad() {
   const [detalleTracking, setDetalleTracking] = useState<DetalleTracking[] | null>(null);
   const [modalDetallesVisible, setModalDetallesVisible] = useState(false);
   const [procesando, setProcesando] = useState<string | null>(null);
+  const [paginacionInfo, setPaginacionInfo] = useState<PaginacionInfo>({
+    total_registros: 0,
+    total_paginas: 0,
+    pagina_actual: 1,
+    registros_por_pagina: 20,
+    tiene_siguiente: false,
+    tiene_anterior: false
+  });
 
-  // Mover obtenerPagos fuera de useEffect para que esté disponible en todo el componente
-  const obtenerPagos = async () => {
+  // Función para obtener pagos con paginación y filtros
+  const obtenerPagos = async (pagina: number = paginaActual, aplicarFiltros: boolean = false) => {
+    setCargando(true);
+    const offset = (pagina - 1) * pagosPorPagina;
+    
     try {
-      // Usa el backend real (FastAPI) en el puerto 8000
-      const response = await fetch("https://api.x-cargo.co/pagos/pendientes-contabilidad", {
+      // Construir parámetros de query
+      const params = new URLSearchParams({
+        limit: pagosPorPagina.toString(),
+        offset: offset.toString()
+      });
+
+      // Aplicar filtros si están definidos
+      if (aplicarFiltros) {
+        if (filtroReferencia.trim()) {
+          params.append('referencia', filtroReferencia.trim());
+        }
+        if (fechaDesde) {
+          params.append('fecha_desde', fechaDesde);
+        }
+        if (fechaHasta) {
+          params.append('fecha_hasta', fechaHasta);
+        }
+        if (filtroEstado) {
+          params.append('estado', filtroEstado);
+        }
+      }
+
+      const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
       });
 
-      if (!response.ok) throw new Error("Error al obtener pagos");
-
-      // Intenta parsear como JSON y maneja errores de HTML
-      const text = await response.text();
-      try {
-        const data = JSON.parse(text);
-        setPagos(data); // O la variable que uses para guardar la lista
-      } catch (err) {
-        // Si la respuesta no es JSON, probablemente es un error HTML
-        console.error("❌ Respuesta inesperada (no es JSON):", text);
-        throw new Error("Respuesta inesperada del servidor. Verifica el backend.");
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
+
+      const data = await response.json();
+      
+      // Si la respuesta incluye información de paginación
+      if (data.pagos && data.paginacion) {
+        setPagos(data.pagos);
+        setPaginacionInfo(data.paginacion);
+      } else {
+        // Fallback para el formato actual
+        setPagos(Array.isArray(data) ? data : []);
+        // Calcular paginación estimada
+        const totalEstimado = data.length === pagosPorPagina ? (pagina * pagosPorPagina) + 1 : (pagina - 1) * pagosPorPagina + data.length;
+        setPaginacionInfo({
+          total_registros: totalEstimado,
+          total_paginas: Math.ceil(totalEstimado / pagosPorPagina),
+          pagina_actual: pagina,
+          registros_por_pagina: pagosPorPagina,
+          tiene_siguiente: data.length === pagosPorPagina,
+          tiene_anterior: pagina > 1
+        });
+      }
+
     } catch (error) {
       console.error("❌ Error cargando pagos pendientes:", error);
+      setPagos([]);
+      setPaginacionInfo({
+        total_registros: 0,
+        total_paginas: 0,
+        pagina_actual: 1,
+        registros_por_pagina: 20,
+        tiene_siguiente: false,
+        tiene_anterior: false
+      });
+    } finally {
+      setCargando(false);
     }
   };
 
   useEffect(() => {
-    obtenerPagos();
-  }, []);
+    obtenerPagos(paginaActual);
+  }, [paginaActual]);
 
+  // Función para aplicar filtros
+  const aplicarFiltros = () => {
+    setPaginaActual(1); // Resetear a la primera página
+    obtenerPagos(1, true);
+  };
 
+  // Función para filtrar pagos localmente (para compatibilidad)
   const pagosFiltrados = pagos.filter((p) => {
-    const cumpleReferencia = p.referencia_pago
-      .toLowerCase()
-      .includes(filtroReferencia.toLowerCase());
+    const cumpleReferencia = p.referencia_pago.toLowerCase().includes(filtroReferencia.toLowerCase());
     const cumpleDesde = !fechaDesde || p.fecha >= fechaDesde;
     const cumpleHasta = !fechaHasta || p.fecha <= fechaHasta;
     const cumpleEstado = !filtroEstado || p.estado_conciliacion === filtroEstado;
-
-    
     return cumpleReferencia && cumpleDesde && cumpleHasta && cumpleEstado;
   });
 
@@ -172,7 +239,7 @@ export default function PagosContabilidad() {
       const result = await response.json();
       
       alert(`✅ Pago aprobado correctamente. ${result.total_guias || 0} guías liberadas.`);
-      await obtenerPagos();
+      await obtenerPagos(paginaActual);
       
     } catch (error: any) {
       console.error("Error aprobando pago:", error);
@@ -209,14 +276,13 @@ export default function PagosContabilidad() {
         throw new Error(errorData.detail || "Error desconocido");
       }
 
-      
       alert(`❌ Pago rechazado correctamente. Razón: ${novedad}`);
       
       setModalVisible(false);
       setNovedad("");
       setRefPagoSeleccionada("");
       
-      await obtenerPagos();
+      await obtenerPagos(paginaActual);
       
     } catch (error: any) {
       console.error("Error rechazando pago:", error);
@@ -226,31 +292,80 @@ export default function PagosContabilidad() {
     }
   };
 
-
-const getEstadoTexto = (estado: string | undefined): string => {
-  if (!estado) return "⏳ Sin estado";
-  const textos: { [key: string]: string } = {
-    'pendiente_conciliacion': '⏳ Pendiente conciliación',
-    'conciliado_manual': '🔎 Conciliado manual',
-    'conciliado_automatico': '🤖 Conciliado automático',
-    'rechazado': '❌ Rechazado',
+  const getEstadoTexto = (estado: string | undefined): string => {
+    if (!estado) return "⏳ Sin estado";
+    const textos: { [key: string]: string } = {
+      'pendiente_conciliacion': '⏳ Pendiente conciliación',
+      'conciliado_manual': '🔎 Conciliado manual',
+      'conciliado_automatico': '🤖 Conciliado automático',
+      'rechazado': '❌ Rechazado',
+    };
+    return textos[estado.toLowerCase()] || estado;
   };
-  return textos[estado.toLowerCase()] || estado;
-};
-
 
   const limpiarFiltros = () => {
     setFiltroReferencia("");
     setFechaDesde("");
     setFechaHasta("");
     setFiltroEstado("");
+    setPaginaActual(1);
+    obtenerPagos(1, false);
   };
 
   const estadosUnicos = Array.from(new Set(pagos.map(p => p.estado_conciliacion))).sort();
 
+  // Funciones de paginación
+  const irAPagina = (pagina: number) => {
+    if (pagina >= 1 && pagina <= paginacionInfo.total_paginas) {
+      setPaginaActual(pagina);
+    }
+  };
+
+  const paginaAnterior = () => {
+    if (paginacionInfo.tiene_anterior) {
+      irAPagina(paginaActual - 1);
+    }
+  };
+
+  const paginaSiguiente = () => {
+    if (paginacionInfo.tiene_siguiente) {
+      irAPagina(paginaActual + 1);
+    }
+  };
+
+  // Generar números de página para mostrar
+  const generarNumerosPagina = () => {
+    const numeros = [];
+    const totalPaginas = paginacionInfo.total_paginas;
+    const actual = paginaActual;
+    
+    // Mostrar máximo 5 números de página
+    let inicio = Math.max(1, actual - 2);
+    let fin = Math.min(totalPaginas, inicio + 4);
+    
+    // Ajustar el inicio si estamos cerca del final
+    if (fin - inicio < 4) {
+      inicio = Math.max(1, fin - 4);
+    }
+    
+    for (let i = inicio; i <= fin; i++) {
+      numeros.push(i);
+    }
+    
+    return numeros;
+  };
+
   return (
     <div className="pagos-page">
-      <h2 className="pagos-title">Módulo de Pagos</h2>
+      <h2 className="pagos-title">Módulo de Pagos - Contabilidad</h2>
+
+      {/* Información de paginación */}
+      <div className="pagos-info" style={{ marginBottom: "1rem", padding: "0.5rem", backgroundColor: "#f8f9fa", borderRadius: "4px" }}>
+        <span style={{ fontSize: "0.9rem", color: "#6c757d" }}>
+          Mostrando {pagosFiltrados.length} de {paginacionInfo.total_registros} registros 
+          (Página {paginaActual} de {paginacionInfo.total_paginas})
+        </span>
+      </div>
 
       <div className="pagos-filtros">
         <label>
@@ -289,13 +404,22 @@ const getEstadoTexto = (estado: string | undefined): string => {
             onChange={(e) => setFechaHasta(e.target.value)}
           />
         </label>
-        <button onClick={limpiarFiltros} className="boton-accion">
+        <button onClick={aplicarFiltros} className="boton-accion" disabled={cargando}>
+          🔍 Buscar
+        </button>
+        <button onClick={limpiarFiltros} className="boton-accion" disabled={cargando}>
           🗑️ Limpiar
         </button>
         <button onClick={descargarCSV} className="boton-accion">
           📥 Descargar Informe
         </button>
       </div>
+
+      {cargando && (
+        <div style={{ textAlign: "center", padding: "2rem", color: "#666" }}>
+          <div>⏳ Cargando pagos...</div>
+        </div>
+      )}
 
       <div className="pagos-tabla-container">
         <table className="pagos-tabla">
@@ -320,7 +444,7 @@ const getEstadoTexto = (estado: string | undefined): string => {
             {pagosFiltrados.length > 0 ? (
               pagosFiltrados.map((p, idx) => (
                 <tr key={idx}>
-                  <td>{idx + 1}</td>
+                  <td>{((paginaActual - 1) * pagosPorPagina) + idx + 1}</td>
                   <td>{p.referencia_pago}</td>
                   <td>${p.valor.toLocaleString()}</td>
                   <td>{p.num_guias}</td>
@@ -328,12 +452,11 @@ const getEstadoTexto = (estado: string | undefined): string => {
                   <td>{p.entidad}</td>
                   <td>{p.tipo}</td>
                   <td style={{
-  color: p.estado_conciliacion === "rechazado" ? "crimson" :
-         p.estado_conciliacion === "conciliado_manual" ? "green" : undefined
-}}>
-  {getEstadoTexto(p.estado_conciliacion)}
-</td>
-
+                    color: p.estado_conciliacion === "rechazado" ? "crimson" :
+                           p.estado_conciliacion === "conciliado_manual" ? "green" : undefined
+                  }}>
+                    {getEstadoTexto(p.estado_conciliacion)}
+                  </td>
                   <td>
                     <button
                       onClick={() => verImagen(p.imagen)}
@@ -364,9 +487,10 @@ const getEstadoTexto = (estado: string | undefined): string => {
                     <button
                       onClick={() => aprobarPago(p.referencia_pago)}
                       className="boton-aprobar"
-                      disabled={p.estado_conciliacion === "aprobado"}
+                      disabled={p.estado_conciliacion === "aprobado" || procesando === p.referencia_pago}
                     >
-                      {p.estado_conciliacion === "aprobado" ? "Aprobado" : "Aprobar"}
+                      {procesando === p.referencia_pago ? "Procesando..." : 
+                       p.estado_conciliacion === "aprobado" ? "Aprobado" : "Aprobar"}
                     </button>
                     <button
                       onClick={() => {
@@ -374,8 +498,9 @@ const getEstadoTexto = (estado: string | undefined): string => {
                         setModalVisible(true);
                       }}
                       className="boton-rechazar"
-                      disabled={p.estado_conciliacion === "rechazado" || p.estado_conciliacion?.startsWith("conciliado")}
-
+                      disabled={p.estado_conciliacion === "rechazado" || 
+                               p.estado_conciliacion?.startsWith("conciliado") ||
+                               procesando === p.referencia_pago}
                     >
                       Rechazar
                     </button>
@@ -388,7 +513,7 @@ const getEstadoTexto = (estado: string | undefined): string => {
                   colSpan={12}
                   style={{ textAlign: "center", padding: "1rem" }}
                 >
-                  No hay pagos registrados.
+                  {cargando ? "Cargando..." : "No hay pagos registrados."}
                 </td>
               </tr>
             )}
@@ -396,7 +521,69 @@ const getEstadoTexto = (estado: string | undefined): string => {
         </table>
       </div>
 
-      {/* Modal de Detalles Mejorado */}
+      {/* Controles de Paginación */}
+      {paginacionInfo.total_paginas > 1 && (
+        <div className="paginacion-controles" style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: "0.5rem",
+          margin: "1rem 0",
+          padding: "1rem"
+        }}>
+          <button
+            onClick={paginaAnterior}
+            disabled={!paginacionInfo.tiene_anterior || cargando}
+            className="boton-paginacion"
+            style={{
+              padding: "0.5rem 1rem",
+              border: "1px solid #ddd",
+              backgroundColor: paginacionInfo.tiene_anterior ? "#fff" : "#f5f5f5",
+              cursor: paginacionInfo.tiene_anterior ? "pointer" : "not-allowed",
+              borderRadius: "4px"
+            }}
+          >
+            ← Anterior
+          </button>
+
+          {generarNumerosPagina().map(numero => (
+            <button
+              key={numero}
+              onClick={() => irAPagina(numero)}
+              disabled={cargando}
+              className={`boton-pagina ${numero === paginaActual ? 'activo' : ''}`}
+              style={{
+                padding: "0.5rem 0.75rem",
+                border: "1px solid #ddd",
+                backgroundColor: numero === paginaActual ? "#007bff" : "#fff",
+                color: numero === paginaActual ? "#fff" : "#333",
+                cursor: "pointer",
+                borderRadius: "4px",
+                minWidth: "40px"
+              }}
+            >
+              {numero}
+            </button>
+          ))}
+
+          <button
+            onClick={paginaSiguiente}
+            disabled={!paginacionInfo.tiene_siguiente || cargando}
+            className="boton-paginacion"
+            style={{
+              padding: "0.5rem 1rem",
+              border: "1px solid #ddd",
+              backgroundColor: paginacionInfo.tiene_siguiente ? "#fff" : "#f5f5f5",
+              cursor: paginacionInfo.tiene_siguiente ? "pointer" : "not-allowed",
+              borderRadius: "4px"
+            }}
+          >
+            Siguiente →
+          </button>
+        </div>
+      )}
+
+      {/* Resto de modales sin cambios */}
       {modalDetallesVisible && detalleTracking && (
         <div className="modal-detalles-overlay" onClick={() => setModalDetallesVisible(false)}>
           <div className="modal-detalles-content" onClick={(e) => e.stopPropagation()}>
@@ -553,8 +740,8 @@ const getEstadoTexto = (estado: string | undefined): string => {
               >
                 Cancelar
               </button>
-              <button className="boton-registrar" onClick={confirmarRechazo}>
-                Confirmar rechazo
+              <button className="boton-registrar" onClick={confirmarRechazo} disabled={procesando === refPagoSeleccionada}>
+                {procesando === refPagoSeleccionada ? "Procesando..." : "Confirmar rechazo"}
               </button>
             </div>
           </div>
@@ -563,5 +750,3 @@ const getEstadoTexto = (estado: string | undefined): string => {
     </div>
   );
 }
-
-

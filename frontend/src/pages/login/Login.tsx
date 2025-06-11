@@ -36,12 +36,9 @@ const XCargoLogin: React.FC = () => {
 
       const backendToken = data.token || data.access_token;
 
-      let finalToken;
       if (backendToken) {
 
-        finalToken = backendToken;
       } else {
-        finalToken = `session_${data.correo}_${Date.now()}`;
       }
 
       if (!res.ok) {

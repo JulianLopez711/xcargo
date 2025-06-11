@@ -566,3 +566,266 @@ ul {
 .modal-detalles-body::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+/* Agregar estos estilos al archivo Pagos.css */
+
+/* Estilos para información de paginación */
+.pagos-info {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: #495057;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Contenedor de controles de paginación */
+.paginacion-controles {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+  flex-wrap: wrap;
+}
+
+/* Botones de paginación generales */
+.boton-paginacion {
+  padding: 0.6rem 1.2rem;
+  border: 1px solid #dee2e6;
+  background: #ffffff;
+  color: #495057;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-width: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.boton-paginacion:hover:not(:disabled) {
+  background: #e9ecef;
+  border-color: #adb5bd;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.boton-paginacion:disabled {
+  background: #f8f9fa;
+  color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Botones de números de página */
+.boton-pagina {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #dee2e6;
+  background: #ffffff;
+  color: #495057;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-width: 44px;
+  text-align: center;
+}
+
+.boton-pagina:hover:not(:disabled) {
+  background: #e3f2fd;
+  border-color: #2196f3;
+  color: #1976d2;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(33, 150, 243, 0.2);
+}
+
+.boton-pagina.activo {
+  background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+  border-color: #1976d2;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(33, 150, 243, 0.3);
+  font-weight: 600;
+}
+
+.boton-pagina.activo:hover {
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  transform: none;
+}
+
+.boton-pagina:disabled {
+  background: #f8f9fa;
+  color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Responsive para móviles */
+@media (max-width: 768px) {
+  .paginacion-controles {
+    padding: 0.75rem 0.5rem;
+    gap: 0.25rem;
+  }
+  
+  .boton-paginacion {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.8rem;
+  }
+  
+  .boton-pagina {
+    padding: 0.5rem 0.6rem;
+    font-size: 0.8rem;
+    min-width: 38px;
+  }
+  
+  .pagos-info {
+    font-size: 0.8rem;
+    padding: 0.6rem 0.8rem;
+  }
+}
+
+/* Estilos para filtros mejorados */
+.pagos-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  align-items: end;
+}
+
+.pagos-filtros label {
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  font-weight: 500;
+  color: #495057;
+  font-size: 0.9rem;
+}
+
+.pagos-filtros input,
+.pagos-filtros select {
+  margin-top: 0.4rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  background: #ffffff;
+}
+
+.pagos-filtros input:focus,
+.pagos-filtros select:focus {
+  outline: none;
+  border-color: #2196f3;
+  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+}
+
+/* Mejorar botones de acción en filtros */
+.boton-accion {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+}
+
+.boton-accion:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+}
+
+.boton-accion:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Estados de carga */
+.pagos-tabla-container.cargando {
+  opacity: 0.7;
+  pointer-events: none;
+  position: relative;
+}
+
+.pagos-tabla-container.cargando::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #2196f3;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: translate(-50%, -50%) rotate(0deg); }
+  100% { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* Mejorar tabla responsive */
+@media (max-width: 1024px) {
+  .pagos-tabla {
+    font-size: 0.85rem;
+  }
+  
+  .pagos-tabla th,
+  .pagos-tabla td {
+    padding: 0.5rem 0.4rem;
+  }
+  
+  .pagos-filtros {
+    padding: 1rem;
+  }
+  
+  .pagos-filtros label {
+    min-width: 130px;
+  }
+}
+
+/* Indicadores de estado mejorados */
+.estado-pendiente {
+  color: #ff9800;
+  font-weight: 600;
+}
+
+.estado-aprobado {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.estado-rechazado {
+  color: #f44336;
+  font-weight: 600;
+}
+
+/* Animación suave para cambios de página */
+.pagos-tabla tbody {
+  transition: opacity 0.3s ease;
+}
+
+.pagos-tabla tbody.cargando {
+  opacity: 0.5;
+}

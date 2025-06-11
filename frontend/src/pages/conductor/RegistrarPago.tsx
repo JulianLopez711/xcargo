@@ -328,10 +328,13 @@ export default function RegistrarPago() {
   // 🔥 FUNCIÓN COMPLETAMENTE CORREGIDA: Registrar pagos con bonos integrados
   const registrarTodosLosPagos = async () => {
     const totales = calcularTotalConBonos();
+
+    // ✅ Ya está cubierto, simplemente seguimos
     if (totales.faltante <= 0) {
-     alert("✅ El total ya fue cubierto. No necesitas aplicar bonos.");
-    return; // Detiene proceso si el pago ya está completo
-}
+      console.log("✅ El total ya fue cubierto sin necesidad de aplicar bonos.");
+    }
+
+    // ... y NO hacemos return ni nada, se sigue ejecutando la función normalmente
 
     if (totales.faltante > 0) {
       // PASO 3: Confirmar uso de bonos al final
@@ -779,9 +782,6 @@ export default function RegistrarPago() {
             <h4 style={{ margin: "0 0 0.5rem 0", color: getConfianzaColor(validacionIA.score_confianza) }}>
               🤖 Validación IA: {validacionIA.score_confianza}% de confianza
             </h4>
-            <p style={{ margin: "0.25rem 0", fontSize: "0.9rem" }}>
-              <strong>Estado:</strong> {validacionIA.estado}
-            </p>
             {validacionIA.errores_detectados && Array.isArray(validacionIA.errores_detectados) && validacionIA.errores_detectados.length > 0 && (
               <div style={{ marginTop: "0.5rem" }}>
                 <strong style={{ color: "#dc2626" }}>⚠️ Errores detectados:</strong>

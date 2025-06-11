@@ -16,8 +16,8 @@ app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://gestion.x-cargo.co",  # ✅ Tu frontend en producción
-        "http://localhost:5173",        # ✅ Opcional para desarrollo local
+        "https://gestion.x-cargo.co",  
+        "http://localhost:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
