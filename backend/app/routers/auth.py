@@ -121,13 +121,24 @@ def login(data: LoginRequest):
     # Si no existe en credenciales, intentar crear automáticamente desde usuarios_big o usuarios
     if not rows and "@" in data.correo:
         print(f"🔄 Usuario {data.correo} no encontrado en credenciales. Verificando origen...")
-
+        print("📬 Correo recibido:", data.correo)
+        print("📨 Tipo:", type(data.correo))
         # Buscar en usuarios_big
         query_big = """
-            SELECT correo FROM `datos-clientes-441216.Conciliaciones.usuarios_big`
-            WHERE correo = @correo LIMIT 1
+            SELECT Employee_Mail AS correo, Employee_Name AS nombre, 'conductor' AS rol
+            FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG`
+            WHERE LOWER(Employee_Mail) = LOWER(@correo)
+            LIMIT 1
         """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("correo", "STRING", data.correo)
+            ]
+        )
+
         result_big = client.query(query_big, job_config=job_config).result()
+        
         if list(result_big):
             print(f"✅ Usuario encontrado en usuarios_big. Creando credencial automática...")
             crear_usuario_conductor_automatico(data.correo, client, origen="big")
@@ -604,7 +615,7 @@ def crear_usuario_conductor_automatico(correo: str, client: bigquery.Client, ori
             usuario_data = dict(rows[0])
             
             # Crear credenciales automáticamente
-            hashed_password = hash_clave("123456")  # Clave por defecto
+            hashed_password = hash_clave("Xcargo123")  # Clave por defecto
             ahora = datetime.utcnow()
             
             query_insert = """
@@ -665,7 +676,7 @@ def crear_usuario_conductor_automatico(correo: str, client: bigquery.Client, ori
                     rol = "operador"
             
             # Crear credenciales automáticamente
-            hashed_password = hash_clave("123456")  # Clave por defecto
+            hashed_password = hash_clave("Xcargo123")  # Clave por defecto
             ahora = datetime.utcnow()
             
             query_insert = """
