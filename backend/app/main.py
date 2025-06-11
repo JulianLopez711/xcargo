@@ -5,23 +5,19 @@ from fastapi.staticfiles import StaticFiles
 from app.routers import (
     guias, ocr, pagos, operador, asistente, 
     pagoCliente, contabilidad, auth, roles, 
-    conciliacion, cruces, entregas, admin,supervisor,master,pagos_avanzados
+    conciliacion, cruces, entregas, admin, supervisor, master, pagos_avanzados
 )
 
 app = FastAPI()
 logging.basicConfig(level=logging.DEBUG)
 app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 
+# CORS configurado correctamente para producción y desarrollo
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://api.x-cargo.co",
-        "https://192.168.0.38:5173",
-        "https://gestion.x-cargo.co",
-        "http://192.168.0.38:5173",
-        "http://localhost:8080",
-        "http://localhost:5173",  # <-- Agrega este para permitir peticiones desde Vite
-        "https://api.x-cargo.co"   # <-- Permite peticiones directas al backend
+        "https://gestion.x-cargo.co",  # ✅ Tu frontend en producción
+        "http://localhost:5173",        # ✅ Opcional para desarrollo local
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -32,20 +28,20 @@ app.add_middleware(
 def root():
     return {"message": "API XCargo backend funcionando"}
 
-# Registrar todas las rutas
-app.include_router(auth.router)           # /auth
-app.include_router(admin.router)          # /admin - ¡FALTABA ESTE!
-app.include_router(roles.router)          # /roles
-app.include_router(guias.router)          # /api/guias
-app.include_router(operador.router)       # /api/operador
-app.include_router(ocr.router)            # /ocr
-app.include_router(pagos.router)          # /pagos
-app.include_router(pagoCliente.router)    # sin prefix definido
-app.include_router(contabilidad.router)   # /contabilidad
-app.include_router(conciliacion.router)   # /conciliacion
-app.include_router(cruces.router)         # /cruces
-app.include_router(entregas.router)       # /entregas
-app.include_router(asistente.router)      # /asistente
-app.include_router(supervisor.router)     # /supervisor
-app.include_router(master.router)     # /master
-app.include_router(pagos_avanzados.router)  # /pagos_avanzados
+# Registrar rutas
+app.include_router(auth.router)
+app.include_router(admin.router)
+app.include_router(roles.router)
+app.include_router(guias.router)
+app.include_router(operador.router)
+app.include_router(ocr.router)
+app.include_router(pagos.router)
+app.include_router(pagoCliente.router)
+app.include_router(contabilidad.router)
+app.include_router(conciliacion.router)
+app.include_router(cruces.router)
+app.include_router(entregas.router)
+app.include_router(asistente.router)
+app.include_router(supervisor.router)
+app.include_router(master.router)
+app.include_router(pagos_avanzados.router)
