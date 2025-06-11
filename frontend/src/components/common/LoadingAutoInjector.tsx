@@ -1,7 +1,7 @@
 // src/components/common/LoadingAutoInjector.tsx
 import { useEffect } from 'react';
 import lottie from 'lottie-web';
-import animationData from '../../assets/animations/Animation - 1749523266862.json';
+import animationData from '../../assets/animations/Animation-1749523266862.json';
 
 const LoadingAutoInjector = () => {
   useEffect(() => {
