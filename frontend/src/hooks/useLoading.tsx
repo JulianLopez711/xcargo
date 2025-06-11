@@ -1,7 +1,7 @@
 // src/hooks/useLoadingEnhancer.tsx
 import { useEffect, useRef } from 'react';
 import Lottie from 'lottie-react';
-import animationData from '../assets/animations/Animation - 1749523266862.json';
+import animationData from '../assets/animations/Animation-1749523266862.json';
 
 export const useLoadingEnhancer = (containerRef: React.RefObject<HTMLElement>) => {
   const lottieInstanceRef = useRef<any>(null);
