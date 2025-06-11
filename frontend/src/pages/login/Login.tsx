@@ -26,7 +26,7 @@ const XCargoLogin: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch("https://api.x-cargo.co/auth/login", {
+      const res = await fetch("http://127.0.0.1:8000/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ correo: email.toLowerCase().trim(), password }),
@@ -64,11 +64,21 @@ const XCargoLogin: React.FC = () => {
         id_usuario: data.id_usuario,
       });
 
-      if (data.clave_defecto) {
+      if (data.forzar_cambio) {
         localStorage.setItem("correo_recuperacion", data.correo);
+        
+        // ✅ Enviar código automáticamente
+        const formData = new FormData();
+        formData.append("correo", data.correo);
+
+        await fetch("http://127.0.0.1:8000/auth/solicitar-codigo", {
+          method: "POST",
+          body: formData
+        });
+
         navigate("/cambiar-clave");
-        return;
       }
+
 
       // Redirección directa usando la ruta del backend
       if (data.ruta_defecto) {

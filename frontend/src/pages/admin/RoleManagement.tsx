@@ -119,7 +119,7 @@ export default function RoleManagement() {
 
     try {
       console.log("📋 Cargando roles...");
-      const data = await fetchWithAuth("https://api.x-cargo.co/admin/roles-con-permisos");
+      const data = await fetchWithAuth("http://127.0.0.1:8000/admin/roles-con-permisos");
       
       if (mountedRef.current) {
         setRoles(Array.isArray(data) ? data : []);
@@ -142,7 +142,7 @@ export default function RoleManagement() {
 
     try {
       console.log("🔑 Cargando permisos...");
-      const data = await fetchWithAuth("https://api.x-cargo.co/admin/permisos");
+      const data = await fetchWithAuth("http://127.0.0.1:8000/admin/permisos");
       
       if (mountedRef.current) {
         setPermisos(Array.isArray(data) ? data : []);
@@ -229,7 +229,7 @@ export default function RoleManagement() {
       const headers = getHeaders();
       // No agregar Content-Type para FormData
 
-      const response = await fetch(`https://api.x-cargo.co/admin/rol/${idRol}/permisos`, {
+      const response = await fetch(`http://127.0.0.1:8000/admin/rol/${idRol}/permisos`, {
         method: "POST",
         headers,
         body: formData
@@ -290,7 +290,7 @@ export default function RoleManagement() {
 
       const headers = getHeaders();
 
-      const responseRol = await fetch("https://api.x-cargo.co/admin/crear-rol", {
+      const responseRol = await fetch("http://127.0.0.1:8000/admin/crear-rol", {
         method: "POST",
         headers,
         body: formDataRol
@@ -303,7 +303,7 @@ export default function RoleManagement() {
         const formDataPermisos = new FormData();
         nuevoRol.permisos_seleccionados.forEach(id => formDataPermisos.append('permisos_ids', id));
 
-        await fetch(`https://api.x-cargo.co/admin/rol/${nuevoRol.id_rol}/permisos`, {
+        await fetch(`http://127.0.0.1:8000/admin/rol/${nuevoRol.id_rol}/permisos`, {
           method: "POST",
           headers,
           body: formDataPermisos
@@ -354,7 +354,7 @@ export default function RoleManagement() {
 
       const headers = getHeaders();
 
-      const response = await fetch("https://api.x-cargo.co/admin/crear-permiso", {
+      const response = await fetch("http://127.0.0.1:8000/admin/crear-permiso", {
         method: "POST",
         headers,
         body: formData

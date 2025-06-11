@@ -35,7 +35,7 @@ export default function PagosPendientes() {
 
   // 1.2 - Función mejorada para cargar bonos (reemplazar la existente)
   useEffect(() => {
-    const API_URL = "https://api.x-cargo.co"; // Usa tu variable/configuración real si aplica
+    const API_URL = "http://127.0.0.1:8000"; // Usa tu variable/configuración real si aplica
     const cargarBonos = async () => {
       try {
         const response = await fetch(`${API_URL}/guias/bonos-disponibles`, {
@@ -75,7 +75,7 @@ export default function PagosPendientes() {
           return;
         }
 
-        const res = await fetch("https://api.x-cargo.co/guias/pendientes", {
+        const res = await fetch("http://127.0.0.1:8000/guias/pendientes", {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,

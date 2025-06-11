@@ -75,7 +75,7 @@ export default function VerificarCodigo() {
     setMensaje("");
 
     try {
-      const res = await fetch("https://api.x-cargo.co/auth/verificar-codigo", {
+      const res = await fetch("http://127.0.0.1:8000/auth/verificar-codigo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ correo, codigo: codigoCompleto }),
@@ -108,7 +108,7 @@ export default function VerificarCodigo() {
       const formData = new FormData();
       formData.append("correo", correo || "");
 
-      const res = await fetch("https://api.x-cargo.co/auth/solicitar-codigo", {
+      const res = await fetch("http://127.0.0.1:8000/auth/solicitar-codigo", {
         method: "POST",
         body: formData,
       });

@@ -70,8 +70,8 @@ def crear_usuario_en_tabla_usuarios():
         print("\n👤 Configurando nuevo usuario...")
         
         # Datos básicos del usuario
-        correo = "camilo.basto@x-cargo.co"
-        nombre = "Camilo Basto"
+        correo = "leidy.tovar@x-cargo.co"
+        nombre = "Leidy Tovar"
         telefono = "+57 300 123 4567"  # Agrega el teléfono real
         empresa_carrier = "X-Cargo"
         

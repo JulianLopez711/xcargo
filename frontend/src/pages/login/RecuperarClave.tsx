@@ -10,7 +10,6 @@ export default function RecuperarClave() {
   const navigate = useNavigate();
 
   const solicitarCodigo = async () => {
-    // Validación básica
     if (!correo || !correo.includes("@")) {
       setError("Por favor ingresa un correo válido");
       return;
@@ -24,12 +23,19 @@ export default function RecuperarClave() {
       const formData = new FormData();
       formData.append("correo", correo);
 
-      const res = await fetch("https://api.x-cargo.co/auth/solicitar-codigo", {
+      const res = await fetch("http://127.0.0.1:8000/auth/solicitar-codigo", {
         method: "POST",
-        body: formData,
+        body: formData
       });
 
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch (jsonError) {
+        const textoPlano = await res.text();
+        data = { detail: textoPlano || "Respuesta inválida del servidor" };
+      }
+
       if (!res.ok) throw new Error(data.detail || "Error inesperado");
 
       setMensaje("Código enviado correctamente. Revisa tu correo.");
@@ -62,7 +68,7 @@ export default function RecuperarClave() {
         disabled={cargando}
         required
       />
-      
+
       <button 
         onClick={solicitarCodigo} 
         disabled={cargando || !correo}
@@ -76,7 +82,7 @@ export default function RecuperarClave() {
 
       {mensaje && <p className="mensaje-exito">{mensaje}</p>}
       {error && <p className="mensaje-error">{error}</p>}
-      
+
       {!mensaje && !cargando && (
         <a href="/login" className="volver-link">
           Volver al inicio de sesión

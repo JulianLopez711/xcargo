@@ -547,3 +547,91 @@ async def get_resumen_carrier(current_user = Depends(verificar_supervisor)):
     except Exception as e:
         print(f"Error obteniendo resumen carrier: {e}")
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+    
+    
+@router.get("/guias-entregadas")
+async def get_guias_entregadas_supervisor(
+    limit: int = Query(100),
+    offset: int = Query(0),
+    conductor: Optional[str] = Query(None),
+    current_user = Depends(verificar_supervisor)
+):
+    """
+    Lista las guías en estado 360 (entregadas) de los carriers supervisados
+    """
+    try:
+        client = bigquery.Client()
+        user_email = current_user.get("correo") or current_user.get("sub")
+        carrier_ids = obtener_carrier_id_supervisor(user_email, client)
+        
+        if not carrier_ids:
+            return {"guias": [], "total": 0}
+
+        carrier_ids_str = ','.join(map(str, carrier_ids))
+        where_conditions = [
+            f"cp.carrier_id IN ({carrier_ids_str})",
+            "cp.Valor > 0",
+            "(cp.Status_Big LIKE '%360%' OR cp.Status_Big LIKE '%Entregado%')"
+        ]
+        
+        query_params = []
+
+        if conductor:
+            where_conditions.append("LOWER(ub.Employee_Name) LIKE LOWER(@conductor)")
+            query_params.append(bigquery.ScalarQueryParameter("conductor", "STRING", f"%{conductor}%"))
+
+        where_clause = " AND ".join(where_conditions)
+        
+        query = f"""
+        SELECT 
+            cp.tracking_number,
+            cp.Cliente,
+            cp.Ciudad,
+            cp.Departamento,
+            cp.Valor,
+            cp.Status_Date,
+            cp.Status_Big,
+            cp.Carrier,
+            ub.Employee_Name as conductor_nombre,
+            ub.Employee_Mail as conductor_email,
+            ub.Employee_Phone as conductor_telefono
+        FROM `{PROJECT_ID}.{DATASET}.COD_pendientes_v1` cp
+        LEFT JOIN `{PROJECT_ID}.{DATASET}.usuarios_BIG` ub 
+            ON cp.Employee_id = ub.Employee_id
+        WHERE {where_clause}
+        ORDER BY cp.Status_Date DESC
+        LIMIT @limit OFFSET @offset
+        """
+        
+        query_params += [
+            bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            bigquery.ScalarQueryParameter("offset", "INT64", offset),
+        ]
+
+        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
+        result = client.query(query, job_config=job_config).result()
+        
+        guias = [{
+            "tracking_number": row.tracking_number,
+            "cliente": row.Cliente or "Sin cliente",
+            "ciudad": row.Ciudad,
+            "departamento": row.Departamento,
+            "valor": int(row.Valor),
+            "fecha": str(row.Status_Date),
+            "estado": row.Status_Big,
+            "carrier": row.Carrier,
+            "conductor": {
+                "nombre": row.conductor_nombre or "Sin asignar",
+                "email": row.conductor_email or "",
+                "telefono": row.conductor_telefono or ""
+            }
+        } for row in result]
+
+        return {
+            "guias": guias,
+            "total": len(guias)
+        }
+
+    except Exception as e:
+        print(f"Error cargando guías entregadas supervisor: {e}")
+        raise HTTPException(status_code=500, detail="Error interno")

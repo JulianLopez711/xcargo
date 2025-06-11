@@ -318,20 +318,22 @@ def cambiar_clave(request_data: dict = Body(...)):
         # Actualizar contraseña
         nueva_hash = hash_clave(nueva_clave)
         
-        query_update = """
-            UPDATE `datos-clientes-441216.Conciliaciones.credenciales`
-            SET hashed_password = @password,
-                clave_defecto = false,
-                actualizado_en = CURRENT_TIMESTAMP()
-            WHERE correo = @correo
-        """
-        job_config_update = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("correo", "STRING", correo),
-                bigquery.ScalarQueryParameter("password", "STRING", nueva_hash)
-            ]
-        )
-        client.query(query_update, job_config=job_config_update).result()
+        query_insert_clave = f"""
+            INSERT INTO `datos-clientes-441216.Conciliaciones.credenciales` (
+                correo, clave, creado_en, forzar_cambio
+            )
+            VALUES (
+                @correo, @clave, CURRENT_TIMESTAMP(), FALSE
+            )
+            """
+
+        job_config_insert = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("correo", "STRING", correo),
+            bigquery.ScalarQueryParameter("clave", "STRING", nueva_clave),
+        ])
+
+        client.query(query_insert_clave, job_config=job_config_insert).result()
+        logger.info(f"✅ Nueva clave insertada correctamente para {correo}")
         
         # Eliminar código usado si existe
         if correo in codigo_temporal:
@@ -355,7 +357,10 @@ def cambiar_clave(request_data: dict = Body(...)):
         raise HTTPException(status_code=500, detail="Error interno del servidor")
 
 @router.post("/solicitar-codigo")
-def solicitar_codigo(correo: str = Form(...)):
+def solicitar_codigo(
+    correo: str = Form(...),
+    clave_ingresada: str = Form(...)
+):
     client = bigquery.Client()
     correo = correo.lower().strip()
     
@@ -366,20 +371,27 @@ def solicitar_codigo(correo: str = Form(...)):
     limpiar_codigos_expirados()
     
     # Verificar que el usuario existe
-    query = """
-        SELECT correo
-        FROM `datos-clientes-441216.Conciliaciones.credenciales`
-        WHERE correo = @correo
-        LIMIT 1
+    query_clave = """
+    SELECT clave
+    FROM `datos-clientes-441216.Conciliaciones.credenciales`
+    WHERE correo = @correo
+    ORDER BY creado_en DESC
+    LIMIT 1
     """
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("correo", "STRING", correo)
-        ]
-    )
-    result = client.query(query, job_config=job_config).result()
-    if not list(result):
-        raise HTTPException(status_code=404, detail="Correo no registrado")
+
+    job_config = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("correo", "STRING", correo),
+    ])
+
+    result = client.query(query_clave, job_config=job_config).result()
+    clave_registrada = next(result, None)
+
+    if not clave_registrada:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+
+    # Validar la clave con la ingresada
+    if clave_registrada.clave != clave_ingresada:
+        raise HTTPException(status_code=401, detail="Clave incorrecta")
 
     # Generar código con expiración
     codigo = ''.join(random.choices(string.digits, k=6))

@@ -82,7 +82,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
             f.write(content)
         
         # URL para acceso
-        comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
+        comprobante_url = f"http://127.0.0.1:8000/static/{nombre_archivo}"
         logger.info(f"Comprobante guardado: {nombre_archivo}")
         
         return comprobante_url
@@ -168,33 +168,6 @@ async def registrar_pago_conductor(
                 detail="Ya existe un pago registrado con esa referencia"
             )
 
-        # PASO 3: Validar duplicados por conductor
-        # 🔥 Eliminada la validación que bloqueaba pagos repetidos el mismo día con igual valor
-        # logger.info(f"Validando duplicados para {correo}")
-        # verificacion_dup = client.query("""
-        #     SELECT COUNT(*) as total
-        #     FROM `{project}.{dataset}.pagosconductor`
-        #     WHERE correo = @correo
-        #       AND fecha_pago = @fecha
-        #       AND hora_pago = @hora
-        #       AND valor_total_consignacion = @valor
-        # """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES),
-        # job_config=bigquery.QueryJobConfig(
-        #     query_parameters=[
-        #         bigquery.ScalarQueryParameter("correo", "STRING", correo),
-        #         bigquery.ScalarQueryParameter("fecha", "DATE", fecha_pago),
-        #         bigquery.ScalarQueryParameter("hora", "STRING", hora_pago),
-        #         bigquery.ScalarQueryParameter("valor", "FLOAT64", valor_pago)
-        #     ]
-        # )).result()
-
-        # if next(verificacion_dup)["total"] > 0:
-        #     raise HTTPException(
-        #         status_code=409,
-        #         detail="Este pago ya fue registrado previamente"
-        #     )
-
-        # PASO 4: Procesar guías
         try:
             lista_guias = json.loads(guias)
             logger.info(f"Procesando {len(lista_guias)} guías")
@@ -472,7 +445,9 @@ async def registrar_pago_conductor(
                     client.query(insertar_bono_query, job_config=job_config).result()
                     logger.info(f"✅ Bono de excedente registrado: {bono_id}")
         except Exception as e:
-            logger.warning(f"⚠️ Error registrando bono de excedente: {e}")
+            logger.error(f"❌ ERROR GRAVE al registrar bono excedente: {e}")
+        raise HTTPException(status_code=500, detail=f"Fallo insertando bono excedente: {e}")
+
 
         return {
             "mensaje": "✅ Pago híbrido registrado correctamente",

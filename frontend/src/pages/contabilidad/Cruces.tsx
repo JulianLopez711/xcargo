@@ -99,7 +99,7 @@ const Cruces: React.FC = () => {
   // ✅ FUNCIÓN CARGAR ESTADÍSTICAS IMPLEMENTADA
   const cargarEstadisticas = async () => {
   try {
-    const res = await fetch("https://api.x-cargo.co/conciliacion/resumen-conciliacion");
+    const res = await fetch("http://127.0.0.1:8000/conciliacion/resumen-conciliacion");
     if (!res.ok) throw new Error("Error al obtener estadísticas");
 
     const data = await res.json();
@@ -171,7 +171,7 @@ const Cruces: React.FC = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
-      const res = await fetch("https://api.x-cargo.co/conciliacion/cargar-banco-excel", {
+      const res = await fetch("http://127.0.0.1:8000/conciliacion/cargar-banco-excel", {
         method: "POST",
         body: formData,
         signal: controller.signal,
@@ -236,7 +236,7 @@ const Cruces: React.FC = () => {
   setMensaje("");
 
   try {
-    const res = await fetch("https://api.x-cargo.co/conciliacion/conciliacion-automatica-mejorada");
+    const res = await fetch("http://127.0.0.1:8000/conciliacion/conciliacion-automatica-mejorada");
 
     if (!res.ok) throw new Error("Error al ejecutar conciliación");
 
@@ -296,7 +296,7 @@ const Cruces: React.FC = () => {
     try {
       const observaciones = prompt("Observaciones (opcional):") || "Conciliado manualmente";
 
-      const res = await fetch("https://api.x-cargo.co/conciliacion/marcar-conciliado-manual", {
+      const res = await fetch("http://127.0.0.1:8000/conciliacion/marcar-conciliado-manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -324,7 +324,7 @@ const Cruces: React.FC = () => {
   const validarDatos = async () => {
     try {
       setMensaje("🔍 Validando datos...");
-      const res = await fetch("https://api.x-cargo.co/conciliacion/validar-datos-conciliacion");
+      const res = await fetch("http://127.0.0.1:8000/conciliacion/validar-datos-conciliacion");
       if (!res.ok) throw new Error("Error al validar datos");
       
       const data = await res.json();
@@ -351,7 +351,7 @@ const Cruces: React.FC = () => {
 
   const consultarEstadoReferencias = async () => {
     try {
-      const res = await fetch("https://api.x-cargo.co/conciliacion/estado-referencias");
+      const res = await fetch("http://127.0.0.1:8000/conciliacion/estado-referencias");
       if (!res.ok) throw new Error("Error al consultar estado");
       
       const data = await res.json();
