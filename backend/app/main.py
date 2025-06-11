@@ -16,7 +16,7 @@ app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://gestion.x-cargo.co",  
+        "https://gestion.x-cargo.co",
         "http://localhost:5173",
     ],
     allow_credentials=True,
