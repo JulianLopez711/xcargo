@@ -76,25 +76,58 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
     ruta_local = os.path.join(COMPROBANTES_DIR, nombre_archivo)
     
     try:
-        # Guardar archivo
+        # Debug: verificar información del archivo
+        logger.info(f"📁 Guardando archivo: {archivo.filename}")
+        logger.info(f"📍 Ruta destino: {ruta_local}")
+        logger.info(f"📊 Content type: {archivo.content_type}")
+        
+        # Crear directorio si no existe
+        os.makedirs(COMPROBANTES_DIR, exist_ok=True)
+        logger.info(f"📂 Directorio verificado: {COMPROBANTES_DIR}")
+        
+        # Leer contenido
         content = await archivo.read()
+        logger.info(f"📋 Contenido leído: {len(content)} bytes")
+        
+        if len(content) == 0:
+            logger.error("❌ El archivo está vacío")
+            raise ValueError("Archivo vacío")
+        
+        # Guardar archivo
         with open(ruta_local, "wb") as f:
-            f.write(content)
+            bytes_written = f.write(content)
+            logger.info(f"💾 Bytes escritos: {bytes_written}")
+        
+        # Verificar que se guardó correctamente
+        if not os.path.exists(ruta_local):
+            logger.error(f"❌ El archivo no se guardó: {ruta_local}")
+            raise FileNotFoundError(f"No se pudo guardar: {ruta_local}")
+        
+        # Verificar tamaño y permisos
+        file_stat = os.stat(ruta_local)
+        logger.info(f"✅ Archivo guardado - Tamaño: {file_stat.st_size}, Permisos: {oct(file_stat.st_mode)}")
+        
+        # Establecer permisos correctos
+        os.chmod(ruta_local, 0o644)
         
         # URL para acceso
         comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
-        logger.info(f"Comprobante guardado: {nombre_archivo}")
+        logger.info(f"🔗 URL generada: {comprobante_url}")
         
         return comprobante_url
         
     except Exception as e:
-        logger.error(f"Error guardando comprobante: {e}")
+        logger.error(f"❌ Error guardando comprobante: {e}")
         # Limpiar archivo si hay error
         if os.path.exists(ruta_local):
-            os.remove(ruta_local)
+            try:
+                os.remove(ruta_local)
+                logger.info(f"🗑️ Archivo limpiado tras error: {ruta_local}")
+            except:
+                pass
         raise HTTPException(
             status_code=500,
-            detail="Error guardando comprobante de pago"
+            detail=f"Error guardando comprobante de pago: {str(e)}"
         )
 
 @router.post("/registrar-conductor")
@@ -415,8 +448,9 @@ async def registrar_pago_conductor(
             logger.warning(f"⚠️ Error actualizando Status_Big: {e}")
 
         # 🔥 FASE 1: Registrar bono por excedente si aplica
+       # 🔥 FASE 1: Registrar bono por excedente si aplica
         try:
-            valor_total_guias = sum(g['valor'] for g in lista_guias)
+            valor_total_guias = sum(float(g.get('valor', 0)) for g in lista_guias)
             excedente = round(valor_total_combinado - valor_total_guias, 2)
 
             if excedente > 0:
@@ -447,9 +481,11 @@ async def registrar_pago_conductor(
                     logger.info(f"✅ Bono de excedente registrado: {bono_id}")
         except Exception as e:
             logger.error(f"❌ ERROR GRAVE al registrar bono excedente: {e}")
-        raise HTTPException(status_code=500, detail=f"Fallo insertando bono excedente: {e}")
+            # ⚠️ IMPORTANTE: NO hacer raise aquí a menos que quieras que falle todo el pago
+            # Solo registrar el error pero continuar con el flujo
+            logger.warning("⚠️ Continuando sin registrar bono de excedente")
 
-
+        # ✅ RESPUESTA EXITOSA - Esta debe estar FUERA del try/except del bono
         return {
             "mensaje": "✅ Pago híbrido registrado correctamente",
             "valor_efectivo": valor_pago,

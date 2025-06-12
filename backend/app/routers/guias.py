@@ -99,9 +99,6 @@ def obtener_guias_pendientes(request: Request) -> Dict:
     usuario = request.headers.get("usuario")
     rol = request.headers.get("rol")
 
-    print(f"🔍 Usuario: {usuario}")
-    print(f"🔍 Rol: {rol}")
-
     if not usuario:
         return {"guias": [], "total": 0, "error": "Usuario no autenticado"}
 
