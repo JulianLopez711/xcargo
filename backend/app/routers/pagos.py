@@ -188,10 +188,11 @@ async def registrar_pago_conductor(
         refs_str = "', '".join(referencias_guias)
         
         query_clientes = f"""
-            SELECT tracking_number as referencia, Cliente, Valor as valor
+            SELECT tracking_number as referencia, cliente, valor_guia as valor
             FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
             WHERE tracking_number IN ('{refs_str}')
         """
+
         
         try:
             resultado_clientes = client.query(query_clientes).result()

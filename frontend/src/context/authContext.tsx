@@ -10,6 +10,7 @@ interface User {
   // ✅ Campos adicionales del backend
   nombre?: string;
   telefono?: string;
+  employee_id?: number;
   id_usuario?: string;
   clave_defecto?: boolean;
 }

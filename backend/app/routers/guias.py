@@ -1,9 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+# ✅ CORRECCIÓN COMPLETA - guias.py
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from google.cloud import bigquery
 from typing import List, Dict, Any, Optional
 import os
 from app.dependencies import get_current_user
 from datetime import datetime, date
+
+router = APIRouter()
+PROJECT_ID = "datos-clientes-441216"
+DATASET = "Conciliaciones"
 
 router = APIRouter(prefix="/guias", tags=["Guías"])
 
@@ -13,10 +19,11 @@ def get_bigquery_client():
 
 def obtener_employee_id_usuario(correo: str, client: bigquery.Client) -> Optional[int]:
     """
-    Obtiene el Employee_id del usuario basado en su correo
+    ✅ MEJORADO: Obtiene el Employee_id con múltiples estrategias
     """
     try:
-        query = """
+        # Estrategia 1: Búsqueda en usuarios_BIG (tabla principal de usuarios)
+        query1 = """
         SELECT Employee_id
         FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG`
         WHERE LOWER(Employee_Mail) = LOWER(@correo)
@@ -29,226 +36,283 @@ def obtener_employee_id_usuario(correo: str, client: bigquery.Client) -> Optiona
             ]
         )
         
-        result = client.query(query, job_config=job_config).result()
+        result = client.query(query1, job_config=job_config).result()
         rows = list(result)
         
         if rows:
             employee_id = rows[0]["Employee_id"]
-            print(f"✅ Employee_id encontrado para {correo}: {employee_id}")
+            print(f"✅ Employee_id encontrado en usuarios_BIG para {correo}: {employee_id}")
             return employee_id
-        else:
-            print(f"⚠️ No se encontró Employee_id para {correo}")
-            return None
+        
+        # Estrategia 2: Búsqueda en guias_liquidacion
+        query2 = """
+        SELECT DISTINCT employee_id
+        FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`
+        WHERE LOWER(conductor_email) = LOWER(@correo)
+        LIMIT 1
+        """
+        
+        result2 = client.query(query2, job_config=job_config).result()
+        rows2 = list(result2)
+        
+        if rows2:
+            employee_id = rows2[0]["employee_id"]
+            print(f"✅ Employee_id encontrado en guias_liquidacion para {correo}: {employee_id}")
+            return employee_id
+            
+        # Estrategia 3: Búsqueda en COD_pendientes_v1 como fallback
+        query3 = """
+        SELECT DISTINCT Employee_id
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1`
+        WHERE LOWER(Empleado) LIKE LOWER(@correo_pattern)
+        LIMIT 1
+        """
+        
+        job_config3 = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("correo_pattern", "STRING", f"%{correo}%")
+            ]
+        )
+        
+        result3 = client.query(query3, job_config=job_config3).result()
+        rows3 = list(result3)
+        
+        if rows3:
+            employee_id = rows3[0]["Employee_id"]
+            print(f"✅ Employee_id encontrado en COD_pendientes_v1 para {correo}: {employee_id}")
+            return employee_id
+        
+        print(f"⚠️ No se encontró Employee_id para {correo}")
+        return None
             
     except Exception as e:
         print(f"❌ Error obteniendo Employee_id: {e}")
         return None
 
 @router.get("/pendientes")
-async def obtener_guias_pendientes_conductor(
-    cliente_filtro: Optional[str] = Query(None, description="Filtrar por cliente específico"),
-    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
-    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    limite: int = Query(100, description="Límite de registros", ge=1, le=500),
-    client: bigquery.Client = Depends(get_bigquery_client),
-    current_user: dict = Depends(get_current_user)
-) -> Dict[str, Any]:
+def obtener_guias_pendientes(request: Request) -> Dict:
     """
-    🔄 NUEVA VERSIÓN: Usa guias_liquidacion + COD_pendientes_v1 con JOIN
-    Solo muestra guías disponibles para liquidar (no pagadas)
+    ✅ CORREGIDO: Endpoint principal para obtener guías pendientes de liquidación
     """
+    print("🔍 ===== INICIO REQUEST GUIAS PENDIENTES (CORREGIDO) =====")
+
+    usuario = request.headers.get("usuario")
+    rol = request.headers.get("rol")
+
+    print(f"🔍 Usuario: {usuario}")
+    print(f"🔍 Rol: {rol}")
+
+    if not usuario:
+        return {"guias": [], "total": 0, "error": "Usuario no autenticado"}
+
     try:
-        print(f"🔍 ===== INICIO REQUEST GUIAS PENDIENTES (NUEVA ESTRUCTURA) =====")
-        print(f"🔍 Usuario: {current_user.get('correo') or current_user.get('sub')}")
-        print(f"🔍 Rol: {current_user.get('rol', 'N/A')}")
-        print(f"🔍 Filtros: cliente={cliente_filtro}, desde={fecha_desde}, hasta={fecha_hasta}")
+        # Conexión a BigQuery
+        client = bigquery.Client()
 
-        user_email = current_user.get("correo") or current_user.get("sub")
+        # Obtener employee_id
+        employee_id = obtener_employee_id_usuario(usuario, client)
+        
+        if not employee_id:
+            print(f"❌ No se encontró employee_id para {usuario}")
+            return {"guias": [], "total": 0, "error": "Employee_id no encontrado"}
 
-        if not user_email:
-            print(f"❌ No se encontró email en el token")
-            return {"guias": [], "total": 0, "error": "Usuario no autenticado"}
+        print(f"✅ Employee_id encontrado para {usuario}: {employee_id}")
 
-        # Construir filtros dinámicos
-        filtros_adicionales = []
-        parametros = []
-
-        if cliente_filtro:
-            filtros_adicionales.append("AND UPPER(gl.cliente) LIKE UPPER(@cliente_filtro)")
-            parametros.append(bigquery.ScalarQueryParameter("cliente_filtro", "STRING", f"%{cliente_filtro}%"))
-
-        if fecha_desde:
-            filtros_adicionales.append("AND gl.fecha_entrega >= @fecha_desde")
-            parametros.append(bigquery.ScalarQueryParameter("fecha_desde", "DATE", fecha_desde))
-
-        if fecha_hasta:
-            filtros_adicionales.append("AND gl.fecha_entrega <= @fecha_hasta")
-            parametros.append(bigquery.ScalarQueryParameter("fecha_hasta", "DATE", fecha_hasta))
-
-        filtros_sql = " ".join(filtros_adicionales)
-
-        # Si es admin o rol superior, puede ver todas las guías disponibles
-        if current_user.get("rol") in ["admin", "master", "supervisor"]:
-            print("👑 Usuario con privilegios - mostrando todas las guías disponibles")
-            
-            query = f"""
-            SELECT 
-                gl.id as liquidacion_id,
-                gl.tracking_number as tracking,
-                gl.cliente as empresa,
-                gl.valor_guia as valor,
+        # ✅ QUERY CORREGIDA: Mapear correctamente los campos para el frontend
+        query = """
+            SELECT
+                gl.tracking_number AS tracking,
+                COALESCE(gl.conductor_nombre_completo, u.Employee_Name, 'Conductor') AS conductor,
+                COALESCE(gl.cliente, 'XCargo') AS empresa,
+                gl.valor_guia AS valor,
+                gl.estado_liquidacion AS estado,
+                CAST(NULL AS STRING) AS novedad,  -- Campo requerido por frontend
                 gl.fecha_entrega,
-                gl.estado_liquidacion,
+                gl.carrier,
+                gl.carrier_id,
+                gl.ciudad,
+                gl.departamento,
+                gl.status_big,
+                gl.status_date,
                 gl.employee_id,
                 gl.conductor_email,
-                -- Datos enriquecidos de COD_pendientes_v1
-                cod.Status_Big as estado,
-                cod.Status_Date as fecha_estado,
-                cod.Empleado as conductor,
-                cod.Carrier,
-                cod.carrier_id,
-                -- Información adicional útil
-                CASE 
-                    WHEN DATE_DIFF(CURRENT_DATE(), gl.fecha_entrega, DAY) <= 7 THEN 'RECIENTE'
-                    WHEN DATE_DIFF(CURRENT_DATE(), gl.fecha_entrega, DAY) <= 30 THEN 'NORMAL'
-                    ELSE 'ANTIGUA'
-                END as antiguedad
+                gl.pago_referencia,
+                -- Generar liquidacion_id para el frontend
+                CONCAT('LIQ_', gl.tracking_number, '_', gl.employee_id) AS liquidacion_id
             FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
-            INNER JOIN `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
-                ON gl.tracking_number = cod.tracking_number
-            WHERE gl.estado_liquidacion = 'disponible'
-                AND cod.Status_Big = '360 - Entregado al cliente'
-                {filtros_sql}
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
+                ON u.Employee_id = gl.employee_id
+            WHERE gl.estado_liquidacion = 'pendiente'  -- Solo disponibles para pago
+              AND gl.employee_id = @employee_id
+              AND gl.valor_guia > 0  -- Solo con valor
             ORDER BY gl.fecha_entrega DESC
-            LIMIT @limite
-            """
+        """
 
-            parametros.append(bigquery.ScalarQueryParameter("limite", "INTEGER", limite))
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("employee_id", "INT64", employee_id)
+            ]
+        )
 
-        else:
-            # Para conductores: solo sus guías asignadas disponibles
-            print("🚛 Usuario conductor - buscando Employee_id")
-            employee_id = obtener_employee_id_usuario(user_email, client)
+        result = client.query(query, job_config=job_config).result()
 
-            if not employee_id:
-                print(f"❌ Conductor {user_email} no tiene Employee_id")
-                return {
-                    "guias": [], 
-                    "total": 0, 
-                    "error": f"Conductor {user_email} no encontrado en el sistema"
-                }
-
-            print(f"🔍 Employee_id obtenido: {employee_id}")
-
-            query = f"""
-            SELECT 
-                gl.id as liquidacion_id,
-                gl.tracking_number as tracking,
-                gl.cliente as empresa,
-                gl.valor_guia as valor,
-                gl.fecha_entrega,
-                gl.estado_liquidacion,
-                gl.employee_id,
-                gl.conductor_email,
-                -- Datos enriquecidos de COD_pendientes_v1
-                cod.Status_Big as estado,
-                cod.Status_Date as fecha_estado,
-                cod.Empleado as conductor,
-                cod.Carrier,
-                cod.carrier_id,
-                -- Información adicional útil
-                CASE 
-                    WHEN DATE_DIFF(CURRENT_DATE(), gl.fecha_entrega, DAY) <= 7 THEN 'RECIENTE'
-                    WHEN DATE_DIFF(CURRENT_DATE(), gl.fecha_entrega, DAY) <= 30 THEN 'NORMAL'
-                    ELSE 'ANTIGUA'
-                END as antiguedad
-            FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
-            INNER JOIN `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
-                ON gl.tracking_number = cod.tracking_number
-            WHERE gl.employee_id = @employee_id
-                AND gl.estado_liquidacion = 'disponible'
-                AND cod.Status_Big = '360 - Entregado al cliente'
-                {filtros_sql}
-            ORDER BY gl.fecha_entrega DESC
-            LIMIT @limite
-            """
-
-            parametros.extend([
-                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
-                bigquery.ScalarQueryParameter("limite", "INTEGER", limite)
-            ])
-
-        # Ejecutar query
-        job_config = bigquery.QueryJobConfig(query_parameters=parametros)
-        query_job = client.query(query, job_config=job_config)
-        results = query_job.result()
-
-        guias_pendientes = []
-        total_valor = 0
-        clientes_unicos = set()
-
-        for row in results:
-            valor = float(row.valor) if row.valor else 0
-            total_valor += valor
-            clientes_unicos.add(row.empresa)
-            
-            guia = {
-                "liquidacion_id": row.liquidacion_id,  # 🔄 NUEVO: ID interno para liquidación
+        guias = []
+        for row in result:
+            guias.append({
                 "tracking": row.tracking,
                 "conductor": row.conductor,
                 "empresa": row.empresa,
-                "valor": valor,
+                "valor": float(row.valor),
                 "estado": row.estado,
-                "fecha_estado": row.fecha_estado.isoformat() if row.fecha_estado else None,
-                "fecha_entrega": row.fecha_entrega.isoformat() if row.fecha_entrega else None,  # 🔄 NUEVO
-                "employee_id": row.employee_id,
+                "novedad": row.novedad or "",
+                "fecha_entrega": row.fecha_entrega.isoformat() if row.fecha_entrega else None,
+                "carrier": row.carrier,
                 "carrier_id": row.carrier_id,
-                "carrier": row.Carrier,
-                "antiguedad": row.antiguedad,
-                # ✅ Información útil para liquidación
-                "listo_para_liquidar": True,
-                "estado_liquidacion": row.estado_liquidacion
-            }
-            guias_pendientes.append(guia)
+                "ciudad": row.ciudad,
+                "departamento": row.departamento,
+                "status_big": row.status_big,
+                "status_date": row.status_date.isoformat() if row.status_date else None,
+                "employee_id": row.employee_id,
+                "liquidacion_id": row.liquidacion_id,
+                "pago_referencia": row.pago_referencia
+            })
 
-        print(f"✅ Guías disponibles encontradas para {user_email}: {len(guias_pendientes)}")
+        print(f"✅ Guías encontradas: {len(guias)}")
 
-        # ✅ Respuesta enriquecida con estadísticas
         return {
-            "guias": guias_pendientes,
-            "total": len(guias_pendientes),
-            "estadisticas": {
-                "total_guias": len(guias_pendientes),
-                "valor_total": total_valor,
-                "clientes_unicos": len(clientes_unicos),
-                "clientes": list(clientes_unicos),
-                "promedio_valor": total_valor / len(guias_pendientes) if len(guias_pendientes) > 0 else 0
-            },
-            "filtros_aplicados": {
-                "cliente": cliente_filtro,
-                "fecha_desde": fecha_desde,
-                "fecha_hasta": fecha_hasta,
-                "limite": limite
-            },
-            "usuario": {
-                "email": user_email,
-                "rol": current_user.get("rol"),
-                "puede_ver_todos": current_user.get("rol") in ["admin", "master", "supervisor"]
-            },
-            "fuente_datos": "guias_liquidacion",  # 🔄 NUEVO: Indicar fuente
-            "timestamp": datetime.now().isoformat()
+            "guias": guias,
+            "total": len(guias),
+            "timestamp": datetime.utcnow().isoformat(),
+            "employee_id": employee_id,
+            "usuario": usuario
         }
 
     except Exception as e:
-        print(f"❌ Error al obtener guías pendientes: {str(e)}")
-        import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
+        print(f"❌ Error obteniendo guías pendientes: {e}")
         return {
             "guias": [],
             "total": 0,
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.utcnow().isoformat()
         }
+
+@router.post("/sincronizar-guias-desde-cod")
+async def sincronizar_guias_desde_cod_pendientes(
+    client: bigquery.Client = Depends(get_bigquery_client),
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    🔄 NUEVO: Sincroniza guías entregadas de COD_pendientes_v1 a guias_liquidacion
+    """
+    try:
+        # Verificar permisos
+        if current_user.get("rol") not in ["admin", "master"]:
+            raise HTTPException(status_code=403, detail="Solo administradores pueden sincronizar")
+        
+        print("🔄 Iniciando sincronización desde COD_pendientes_v1...")
+        
+        # 1️⃣ INSERTAR nuevas guías entregadas que no estén en guias_liquidacion
+        insert_query = """
+        INSERT INTO `datos-clientes-441216.Conciliaciones.guias_liquidacion` (
+            id,
+            tracking_number,
+            employee_id,
+            conductor_email,
+            cliente,
+            valor_guia,
+            fecha_entrega,
+            estado_liquidacion,
+            carrier,
+            carrier_id,
+            ciudad,
+            departamento,
+            status_big,
+            status_date,
+            conductor_nombre_completo,
+            fecha_creacion,
+            creado_por
+        )
+        SELECT 
+            CONCAT('SYNC_', UNIX_MILLIS(CURRENT_TIMESTAMP()), '_', ROW_NUMBER() OVER(ORDER BY cod.tracking_number)) as id,
+            cod.tracking_number,
+            cod.Employee_id,
+            COALESCE(u.Employee_Mail, CONCAT('conductor_', CAST(cod.Employee_id AS STRING), '@unknown.com')) as conductor_email,
+            cod.Cliente,
+            CAST(cod.Valor AS FLOAT64),
+            DATE(cod.Status_Date) as fecha_entrega,
+            'disponible' as estado_liquidacion,
+            cod.Carrier,
+            cod.carrier_id,
+            cod.Ciudad,
+            cod.Departamento,
+            cod.Status_Big,
+            cod.Status_Date,
+            cod.Empleado,
+            CURRENT_TIMESTAMP(),
+            @usuario
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
+        LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
+            ON u.Employee_id = cod.Employee_id
+        LEFT JOIN `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
+            ON gl.tracking_number = cod.tracking_number
+        WHERE cod.Status_Big = '360 - Entregado al cliente'
+            AND cod.Valor > 0
+            AND gl.tracking_number IS NULL  -- Solo las que NO existen
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("usuario", "STRING", current_user.get("correo", "admin"))
+            ]
+        )
+        
+        result = client.query(insert_query, job_config=job_config).result()
+        
+        # 2️⃣ ACTUALIZAR guías existentes con nueva información de COD_pendientes_v1
+        update_query = """
+        UPDATE `datos-clientes-441216.Conciliaciones.guias_liquidacion` AS gl
+        SET 
+            cliente = cod.Cliente,
+            valor_guia = CAST(cod.Valor AS FLOAT64),
+            ciudad = cod.Ciudad,
+            departamento = cod.Departamento,
+            status_big = cod.Status_Big,
+            status_date = cod.Status_Date,
+            carrier = cod.Carrier,
+            carrier_id = cod.carrier_id,
+            conductor_nombre_completo = cod.Empleado,
+            fecha_modificacion = CURRENT_TIMESTAMP(),
+            modificado_por = @usuario
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` AS cod
+        WHERE gl.tracking_number = cod.tracking_number
+          AND cod.Status_Big = '360 - Entregado al cliente'
+          AND gl.estado_liquidacion = 'disponible'  -- Solo actualizar disponibles
+        """
+        
+        client.query(update_query, job_config=job_config).result()
+        
+        # 3️⃣ Contar las nuevas guías sincronizadas
+        count_query = """
+        SELECT COUNT(*) as nuevas_guias
+        FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`
+        WHERE DATE(fecha_creacion) = CURRENT_DATE()
+            AND creado_por = @usuario
+        """
+        
+        count_result = list(client.query(count_query, job_config=job_config).result())[0]
+        nuevas_guias = count_result.nuevas_guias if count_result.nuevas_guias else 0
+        
+        return {
+            "mensaje": f"Sincronización completada exitosamente",
+            "nuevas_guias": nuevas_guias,
+            "fecha_sincronizacion": datetime.now().isoformat(),
+            "ejecutado_por": current_user.get("correo", "admin"),
+            "proceso": "sync_cod_to_liquidacion"
+        }
+        
+    except Exception as e:
+        print(f"❌ Error en sincronización: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/bonos-disponibles")
 async def obtener_bonos_disponibles(
@@ -256,7 +320,7 @@ async def obtener_bonos_disponibles(
     current_user: dict = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
-    🔄 NUEVO: Obtiene los bonos disponibles del conductor
+    ✅ MANTENER: Obtiene los bonos disponibles del conductor
     """
     try:
         user_email = current_user.get("correo") or current_user.get("sub")
@@ -319,99 +383,172 @@ async def obtener_bonos_disponibles(
         }
         
     except Exception as e:
-        print(f"Error obteniendo bonos: {e}")
+        print(f"❌ Error obteniendo bonos: {e}")
         return {
             "bonos": [],
             "total_disponible": 0,
             "error": str(e)
         }
 
-@router.post("/sincronizar-guias")
-async def sincronizar_guias_liquidacion(
+@router.post("/verificar-datos-conductor")
+async def verificar_datos_conductor(
     client: bigquery.Client = Depends(get_bigquery_client),
     current_user: dict = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
-    🔄 NUEVO: Sincroniza guias_liquidacion con nuevas entregas 360
-    Solo admin puede ejecutar esto
+    🔍 DEBUG: Verifica la consistencia de datos del conductor
     """
     try:
-        # Verificar permisos
-        if current_user.get("rol") not in ["admin", "master"]:
-            raise HTTPException(status_code=403, detail="Solo administradores pueden sincronizar")
+        user_email = current_user.get("correo") or current_user.get("sub")
+        employee_id = obtener_employee_id_usuario(user_email, client)
         
-        # Buscar guías 360 que no estén en guias_liquidacion
-        query = """
-        INSERT INTO `datos-clientes-441216.Conciliaciones.guias_liquidacion` (
-            id,
-            tracking_number,
-            employee_id,
-            conductor_email,
-            cliente,
-            valor_guia,
-            fecha_entrega,
-            estado_liquidacion,
-            fecha_creacion,
-            creado_por
-        )
+        if not employee_id:
+            return {"error": "Conductor no encontrado en ninguna tabla"}
+        
+        # Verificar datos en usuarios_BIG
+        query_usuario = """
+        SELECT Employee_id, Employee_Name, Employee_Mail
+        FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG`
+        WHERE Employee_id = @employee_id
+        """
+        
+        # Verificar datos en guias_liquidacion
+        query_guias = """
         SELECT 
-            CONCAT('GUIA_LIQ_', UNIX_MILLIS(CURRENT_TIMESTAMP()), '_', ROW_NUMBER() OVER(ORDER BY cod.tracking_number)) as id,
-            cod.tracking_number,
-            cod.Employee_id,
-            COALESCE(u.Employee_Mail, CONCAT('conductor_', CAST(cod.Employee_id AS STRING), '@unknown.com')) as conductor_email,
-            cod.Cliente,
-            cod.Valor,
-            DATE(cod.Status_Date) as fecha_entrega,
-            'disponible' as estado_liquidacion,
-            CURRENT_TIMESTAMP() as fecha_creacion,
-            @usuario as creado_por
-        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
-        LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
-            ON u.Employee_id = cod.Employee_id
-        LEFT JOIN `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
-            ON gl.tracking_number = cod.tracking_number
-        WHERE cod.Status_Big = '360 - Entregado al cliente'
-            AND cod.Valor > 0
-            AND gl.tracking_number IS NULL
+            COUNT(*) as total_guias,
+            COUNT(CASE WHEN estado_liquidacion = 'disponible' THEN 1 END) as disponibles,
+            COUNT(CASE WHEN estado_liquidacion = 'pagado' THEN 1 END) as pagadas,
+            MIN(fecha_entrega) as primera_entrega,
+            MAX(fecha_entrega) as ultima_entrega,
+            SUM(CASE WHEN estado_liquidacion = 'disponible' THEN valor_guia ELSE 0 END) as valor_disponible
+        FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`
+        WHERE employee_id = @employee_id
+        """
+        
+        # Verificar datos en COD_pendientes_v1 para comparación
+        query_cod = """
+        SELECT 
+            COUNT(*) as total_cod,
+            COUNT(CASE WHEN Status_Big = '360 - Entregado al cliente' THEN 1 END) as entregadas_cod
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1`
+        WHERE Employee_id = @employee_id
         """
         
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("usuario", "STRING", current_user.get("correo", "admin"))
+                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id)
             ]
         )
         
-        result = client.query(query, job_config=job_config).result()
-        
-        # Contar las nuevas guías sincronizadas
-        count_query = """
-        SELECT COUNT(*) as nuevas_guias
-        FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`
-        WHERE DATE(fecha_creacion) = CURRENT_DATE()
-            AND creado_por = @usuario
-        """
-        
-        count_result = list(client.query(count_query, job_config=job_config).result())[0]
-        nuevas_guias = count_result.nuevas_guias if count_result.nuevas_guias else 0
+        usuario_result = list(client.query(query_usuario, job_config=job_config).result())
+        guias_result = list(client.query(query_guias, job_config=job_config).result())
+        cod_result = list(client.query(query_cod, job_config=job_config).result())
         
         return {
-            "mensaje": f"Sincronización completada",
-            "nuevas_guias": nuevas_guias,
-            "fecha_sincronizacion": datetime.now().isoformat(),
-            "ejecutado_por": current_user.get("correo", "admin")
+            "employee_id": employee_id,
+            "email_consultado": user_email,
+            "datos_usuario": dict(usuario_result[0]) if usuario_result else None,
+            "estadisticas_guias_liquidacion": dict(guias_result[0]) if guias_result else None,
+            "estadisticas_cod_pendientes": dict(cod_result[0]) if cod_result else None,
+            "estado": "ok" if usuario_result else "usuario_no_encontrado",
+            "necesita_sincronizacion": (cod_result and cod_result[0]['entregadas_cod'] > 
+                                      (guias_result[0]['total_guias'] if guias_result else 0)),
+            "timestamp": datetime.now().isoformat()
         }
         
     except Exception as e:
-        print(f"Error en sincronización: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"error": str(e), "timestamp": datetime.now().isoformat()}
 
+@router.get("/test-connection")
+async def test_connection(
+    client: bigquery.Client = Depends(get_bigquery_client),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    ✅ MEJORADO: Test de conexión con información detallada
+    """
+    try:
+        print(f"🔧 Test de conexión para: {current_user}")
+        
+        user_email = current_user.get("correo") or current_user.get("sub")
+        employee_id = obtener_employee_id_usuario(user_email, client) if user_email else None
+        
+        # Test de conexión básica
+        query = "SELECT 1 as test, CURRENT_TIMESTAMP() as timestamp"
+        result = client.query(query).result()
+        basic_test = list(result)[0]
+        
+        # Test de guias_liquidacion
+        query_liquidacion = """
+        SELECT 
+            COUNT(*) as total_liquidacion,
+            COUNT(CASE WHEN estado_liquidacion = 'disponible' THEN 1 END) as disponibles,
+            COUNT(CASE WHEN estado_liquidacion = 'pagado' THEN 1 END) as pagadas,
+            COUNT(DISTINCT employee_id) as conductores_unicos
+        FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`
+        """
+        
+        # Test de COD_pendientes_v1
+        query_cod = """
+        SELECT 
+            COUNT(*) as total_cod,
+            COUNT(CASE WHEN Status_Big = '360 - Entregado al cliente' THEN 1 END) as entregadas,
+            COUNT(DISTINCT Employee_id) as conductores_cod
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1`
+        """
+        
+        liquidacion_result = list(client.query(query_liquidacion).result())[0]
+        cod_result = list(client.query(query_cod).result())[0]
+        
+        return {
+            "status": "ok",
+            "user": {
+                "email": user_email,
+                "rol": current_user.get("rol"),
+                "employee_id": employee_id
+            },
+            "bigquery_connection": {
+                "status": "ok",
+                "test_result": basic_test["test"],
+                "timestamp": basic_test["timestamp"].isoformat()
+            },
+            "tablas": {
+                "guias_liquidacion": {
+                    "total": int(liquidacion_result["total_liquidacion"]),
+                    "disponibles": int(liquidacion_result["disponibles"]),
+                    "pagadas": int(liquidacion_result["pagadas"]),
+                    "conductores": int(liquidacion_result["conductores_unicos"])
+                },
+                "cod_pendientes_v1": {
+                    "total": int(cod_result["total_cod"]),
+                    "entregadas": int(cod_result["entregadas"]),
+                    "conductores": int(cod_result["conductores_cod"])
+                }
+            },
+            "conductor_actual": {
+                "tiene_guias_disponibles": employee_id is not None,
+                "necesita_sincronizacion": cod_result["entregadas"] > liquidacion_result["total_liquidacion"]
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Error en test de conexión: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "user": current_user,
+            "timestamp": datetime.now().isoformat()
+        }
+
+# ✅ MANTENER ENDPOINTS EXISTENTES PARA COMPATIBILIDAD
 @router.get("/estadisticas-liquidacion")
 async def obtener_estadisticas_liquidacion(
     client: bigquery.Client = Depends(get_bigquery_client),
     current_user: dict = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
-    🔄 NUEVO: Estadísticas de liquidación usando la nueva estructura
+    ✅ MANTENER: Estadísticas usando la estructura de guias_liquidacion
     """
     try:
         user_email = current_user.get("correo") or current_user.get("sub")
@@ -422,26 +559,16 @@ async def obtener_estadisticas_liquidacion(
         
         query = """
         SELECT 
-            -- Estadísticas generales
             COUNT(*) as total_guias,
             SUM(valor_guia) as valor_total,
-            
-            -- Por estado de liquidación
             COUNT(CASE WHEN estado_liquidacion = 'disponible' THEN 1 END) as disponibles,
             COUNT(CASE WHEN estado_liquidacion = 'pagado' THEN 1 END) as pagadas,
             COUNT(CASE WHEN estado_liquidacion = 'procesando' THEN 1 END) as procesando,
-            
-            -- Valores por estado
             SUM(CASE WHEN estado_liquidacion = 'disponible' THEN valor_guia ELSE 0 END) as valor_disponible,
             SUM(CASE WHEN estado_liquidacion = 'pagado' THEN valor_guia ELSE 0 END) as valor_pagado,
-            
-            -- Clientes únicos
             COUNT(DISTINCT cliente) as clientes_unicos,
-            
-            -- Estadísticas de tiempo
             COUNT(CASE WHEN estado_liquidacion = 'disponible' 
                        AND DATE_DIFF(CURRENT_DATE(), fecha_entrega, DAY) <= 7 THEN 1 END) as disponibles_recientes
-            
         FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`
         WHERE employee_id = @employee_id
         """
@@ -486,179 +613,5 @@ async def obtener_estadisticas_liquidacion(
         }
         
     except Exception as e:
-        print(f"Error obteniendo estadísticas: {e}")
+        print(f"❌ Error obteniendo estadísticas: {e}")
         raise HTTPException(status_code=500, detail=f"Error obteniendo estadísticas: {str(e)}")
-
-# ✅ MANTENER ENDPOINTS EXISTENTES PARA COMPATIBILIDAD
-@router.get("/entregadas")
-async def obtener_guias_entregadas_conductor(
-    cliente_filtro: Optional[str] = Query(None, description="Filtrar por cliente específico"),
-    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
-    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    limite: int = Query(100, description="Límite de registros", ge=1, le=500),
-    client: bigquery.Client = Depends(get_bigquery_client),
-    current_user: dict = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """
-    ✅ ALIAS: Endpoint específico para obtener guías entregadas (usa nueva estructura)
-    """
-    return await obtener_guias_pendientes_conductor(
-        cliente_filtro=cliente_filtro,
-        fecha_desde=fecha_desde,
-        fecha_hasta=fecha_hasta,
-        limite=limite,
-        client=client,
-        current_user=current_user
-    )
-
-@router.get("/resumen-conductor")
-async def obtener_resumen_conductor(
-    client: bigquery.Client = Depends(get_bigquery_client),
-    current_user: dict = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """
-    ✅ ALIAS: Resumen específico del conductor (usa nueva estructura)
-    """
-    return await obtener_estadisticas_liquidacion(client=client, current_user=current_user)
-
-@router.get("/test-connection")
-async def test_connection(
-    client: bigquery.Client = Depends(get_bigquery_client),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    🔄 ACTUALIZADO: Test de conexión con nueva estructura
-    """
-    try:
-        print(f"🔧 Test de conexión para: {current_user}")
-        
-        user_email = current_user.get("correo") or current_user.get("sub")
-        employee_id = obtener_employee_id_usuario(user_email, client) if user_email else None
-        
-        # Test simple de conexión a BigQuery
-        query = "SELECT 1 as test"
-        result = client.query(query).result()
-        rows = list(result)
-        
-        # Test de nueva tabla guias_liquidacion
-        query_count = """
-        SELECT 
-            COUNT(*) as total_liquidacion,
-            COUNT(CASE WHEN estado_liquidacion = 'disponible' THEN 1 END) as disponibles,
-            COUNT(CASE WHEN estado_liquidacion = 'pagado' THEN 1 END) as pagadas
-        FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`
-        """
-        result_count = client.query(query_count).result()
-        count_rows = list(result_count)
-        
-        stats = count_rows[0] if count_rows else {"total_liquidacion": 0, "disponibles": 0, "pagadas": 0}
-        
-        return {
-            "status": "ok",
-            "user": {
-                "email": user_email,
-                "rol": current_user.get("rol"),
-                "employee_id": employee_id
-            },
-            "bigquery_connection": "ok",
-            "nueva_estructura": {
-                "total_guias_liquidacion": int(stats["total_liquidacion"]),
-                "guias_disponibles": int(stats["disponibles"]),
-                "guias_pagadas": int(stats["pagadas"])
-            },
-            "test_query_result": rows[0]["test"] if rows else None,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        print(f"❌ Error en test de conexión: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "user": current_user,
-            "timestamp": datetime.now().isoformat()
-        }
-
-# ✅ MANTENER ENDPOINTS EXISTENTES (compatibilidad hacia atrás)
-@router.get("/pendientes/conductor/{correo_conductor}")
-async def obtener_guias_pendientes_por_conductor(
-    correo_conductor: str,
-    client: bigquery.Client = Depends(get_bigquery_client),
-    current_user: dict = Depends(get_current_user)
-) -> List[Dict[str, Any]]:
-    """
-    ✅ COMPATIBLE: Mantener para compatibilidad (usa estructura antigua)
-    """
-    try:
-        # Verificar permisos
-        user_email = current_user.get("correo") or current_user.get("sub")
-        if user_email != correo_conductor and current_user["rol"] not in ["admin", "supervisor", "master"]:
-            raise HTTPException(status_code=403, detail="No autorizado para ver guías de otro conductor")
-        
-        employee_id = obtener_employee_id_usuario(correo_conductor, client)
-        
-        if not employee_id:
-            print(f"❌ Conductor {correo_conductor} no tiene Employee_id")
-            return []
-        
-        # Usar COD_pendientes_v1 para estados que NO son 360 (compatible)
-        query = """
-        SELECT 
-            tracking_number AS tracking,
-            Empleado AS conductor,
-            Cliente AS empresa,
-            Valor AS valor,
-            Status_Big as estado,
-            Status_Date as fecha_estado,
-            Employee_id,
-            carrier_id,
-            Carrier
-        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1`
-        WHERE Valor > 0 
-            AND Status_Big NOT LIKE '%Entregado%' 
-            AND Status_Big NOT LIKE '%360%'
-            AND Employee_id = @employee_id
-        ORDER BY Status_Date DESC
-        LIMIT 100
-        """
-
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id)
-            ]
-        )
-
-        query_job = client.query(query, job_config=job_config)
-        results = query_job.result()
-
-        guias_pendientes = []
-        for row in results:
-            guia = {
-                "tracking": row.tracking,
-                "conductor": row.conductor,
-                "empresa": row.empresa,
-                "valor": int(row.valor),
-                "estado": row.estado,
-                "fecha_estado": row.fecha_estado.isoformat() if row.fecha_estado else None,
-                "employee_id": row.Employee_id,
-                "carrier_id": row.carrier_id,
-                "carrier": row.Carrier
-            }
-            guias_pendientes.append(guia)
-
-        print(f"✅ Guías encontradas para conductor {correo_conductor}: {len(guias_pendientes)}")
-        return guias_pendientes
-
-    except Exception as e:
-        print(f"Error al obtener guías pendientes del conductor: {str(e)}")
-        return []
-
-@router.get("/mis-estadisticas")
-async def obtener_estadisticas_conductor(
-    client: bigquery.Client = Depends(get_bigquery_client),
-    current_user: dict = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """
-    ✅ ALIAS: Redirigir al nuevo endpoint más completo
-    """
-    return await obtener_estadisticas_liquidacion(client=client, current_user=current_user)
