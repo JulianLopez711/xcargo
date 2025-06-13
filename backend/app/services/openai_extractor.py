@@ -2,16 +2,17 @@ import os
 import json
 import io
 import re
+import traceback
+import logging
 from typing import Dict, Any, Optional, List, Tuple
 from dotenv import load_dotenv
 from openai import OpenAI
-import easyocr
 from fastapi import UploadFile
 from PIL import Image, ImageEnhance, ImageFilter
 import cv2
 import numpy as np
 import pytesseract
-import logging
+import easyocr
 from datetime import datetime
 
 # Importar el validador IA
@@ -44,15 +45,10 @@ reader = easyocr.Reader(['es'], gpu=False)
 class EnhancedOCRExtractor:
     """
     🎯 Extractor OCR mejorado con múltiples engines y validación IA
-    
-    Combina:
-    - OpenAI Vision API (alta precisión)
-    - EasyOCR (rápido, offline)
-    - Tesseract (backup)
-    - Validación IA automática
     """
     
     def __init__(self):
+        """Inicializar el extractor con configuración por defecto"""
         self.engines_disponibles = ["openai", "easyocr", "tesseract"]
         self.umbrales_calidad = {
             "resolucion_minima": 300,  # pixels
@@ -79,67 +75,56 @@ class EnhancedOCRExtractor:
             Dict con datos extraídos, validación IA y metadata completa
         """
         inicio_proceso = datetime.now()
-        
+        resultado_validacion = None
+        contents = None
+
         try:
-            # 1. PREPARAR IMAGEN
+            # 1. Preparar imagen
             contents = await file.read()
             imagen_metadata = await self._analizar_calidad_imagen(contents, file)
             
-            # 2. PREPROCESAR IMAGEN SI ES NECESARIO
+            # 2. Preprocesar imagen si es necesario
             imagen_mejorada = self._mejorar_imagen_si_necesario(contents, imagen_metadata)
             
-            # 3. EXTRACCIÓN CON MÚLTIPLES ENGINES
+            # 3. Extracción con múltiples engines
             engines_a_usar = engines_preferidos or ["openai", "easyocr"]
             resultados_engines = await self._extraer_con_multiples_engines(
-                imagen_mejorada, engines_a_usar, imagen_metadata
+                imagen_mejorada, 
+                engines_a_usar, 
+                imagen_metadata
             )
             
-            # 4. FUSIONAR RESULTADOS Y ELEGIR EL MEJOR
-            datos_finales = self._fusionar_resultados_engines(resultados_engines)
+            # 4. Fusionar y validar resultados
+            datos_fusionados = self._fusionar_resultados_engines(resultados_engines)
+            datos_finales = self._validar_datos_sin_errores(datos_fusionados)
             
-            # 5. VALIDACIÓN IA (SI ESTÁ HABILITADA)
-            resultado_validacion = None
+            # 5. Validación IA si está habilitada
             if usar_validacion_ia:
-                resultado_validacion = validar_comprobante_ia(datos_finales, imagen_metadata)
-                
-                # Auto-corregir si la IA encontró correcciones
-                if resultado_validacion.datos_corregidos:
-                    datos_finales = resultado_validacion.datos_corregidos
-                    logger.info("🔧 Datos auto-corregidos por IA aplicados")
+                try:
+                    resultado_validacion = validar_comprobante_ia(datos_finales)
+                except Exception as e:
+                    logger.error(f"Error en validación IA: {str(e)}")
+                    resultado_validacion = None
             
-            # 6. RESPUESTA COMPLETA
+            # 6. Preparar respuesta
             tiempo_total = (datetime.now() - inicio_proceso).total_seconds()
             
             respuesta_final = {
-                # Datos extraídos finales
                 "datos_extraidos": datos_finales,
-                
-                # Resultados de cada engine (para debugging)
                 "resultados_engines": {
                     engine: resultado["datos"] 
                     for engine, resultado in resultados_engines.items()
-                },
-                
-                # Validación IA
+                } if resultados_engines else {},
                 "validacion_ia": self._formatear_validacion_ia(resultado_validacion) if resultado_validacion else None,
-                
-                # Calidad y metadata
                 "imagen_metadata": imagen_metadata,
                 "imagen_mejorada": imagen_mejorada != contents,
-                
-                # Estadísticas del proceso
                 "estadisticas": {
                     "tiempo_total": tiempo_total,
-                    "engines_utilizados": list(resultados_engines.keys()),
+                    "engines_utilizados": list(resultados_engines.keys()) if resultados_engines else [],
                     "engine_ganador": self._determinar_engine_ganador(resultados_engines),
                     "calidad_imagen": imagen_metadata.get("calidad_score", 0),
-                    "requiere_mejora": self._requiere_mejora_imagen(imagen_metadata)
                 },
-                
-                # Para compatibilidad con código existente
                 "texto_detectado": resultados_engines.get("easyocr", {}).get("texto_completo", ""),
-                
-                # Timestamp
                 "timestamp": inicio_proceso.isoformat()
             }
             
@@ -150,15 +135,22 @@ class EnhancedOCRExtractor:
             
         except Exception as e:
             logger.error(f"❌ Error en extracción inteligente: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            logger.error(traceback.format_exc())
+            
+            # Intentar extraer datos de emergencia
+            fallback_data = None
+            if contents:
+                try:
+                    fallback_data = await self._extraer_fallback(file)
+                except Exception as fallback_error:
+                    logger.error(f"Error en extracción fallback: {str(fallback_error)}")
             
             return {
                 "error": True,
                 "mensaje": "Error en extracción OCR",
                 "detalle": str(e),
                 "timestamp": datetime.now().isoformat(),
-                "fallback_data": await self._extraer_fallback(file)
+                "fallback_data": fallback_data
             }
     
     async def _analizar_calidad_imagen(self, contents: bytes, file: UploadFile) -> Dict[str, Any]:
@@ -326,28 +318,68 @@ class EnhancedOCRExtractor:
             
             # Prompt mejorado para OpenAI
             prompt = """
-Eres un experto en extracción de datos de comprobantes de pago colombianos. 
-Analiza esta imagen y extrae la información financiera con máxima precisión.
+    Eres un experto en análisis y extracción de datos de comprobantes de pago colombianos. Tu tarea es analizar cuidadosamente la información y extraer solo los datos financieros más relevantes, siguiendo las reglas de validación estrictas que se describen a continuación.
 
-Extrae EXACTAMENTE estos campos en formato JSON:
-{
-  "valor": "solo números, sin símbolos ni comas",
-  "fecha": "formato YYYY-MM-DD si encuentras fecha",
-  "hora": "formato HH:MM:SS si encuentras hora",
-  "entidad": "nombre exacto de la entidad bancaria o app",
-  "referencia": "número de referencia/autorización completo",
-  "estado": "estado de la transacción si está visible",
-  "descripcion": "descripción o concepto del pago",
-  "tipo_comprobante": "transferencia/pago/recarga/etc"
-}
+    Extrae EXCLUSIVAMENTE los siguientes campos en formato JSON:
+    {
+    "valor": "solo números, sin símbolos ni comas",
+    "fecha": "formato YYYY-MM-DD si encuentras fecha",
+    "hora": "formato HH:MM:SS si encuentras hora",
+    "entidad": "nombre exacto de la entidad emisora del comprobante (ej: Nequi, Bancolombia, Daviplata, etc.)",
+    "referencia": "número de referencia/autorización/recibo, siempre el más relevante y completo",
+    "estado": "estado de la transacción si está visible, en otro caso usa null",
+    "descripcion": "descripción o concepto del pago, si existe",
+    "tipo_comprobante": "nequi, transferencia o consignacion — según las reglas abajo"
+    }
 
-REGLAS CRÍTICAS:
-- Si no encuentras un campo, usa null (sin comillas)
-- El valor debe ser SOLO números (ej: "150000" no "$150,000")
-- Si ves "Nequi", "Bancolombia", "PSE", etc., úsalo como entidad
-- Sé extremadamente preciso con números y referencias
-- NO agregues texto adicional, solo el JSON
-"""
+    REGLAS CRÍTICAS:
+    - Si no encuentras un campo, usa null (sin comillas).
+    - El valor debe ser SOLO números (ej: "150000" no "$150,000").
+    - La entidad SIEMPRE es el nombre exacto de la app o banco que EMITE el comprobante, nunca el receptor ni la red (ejemplo: "Nequi" si el comprobante es de la app Nequi, aunque aparezca Bancolombia como banco destino; "Bancolombia" si el comprobante es de corresponsal o sucursal de Bancolombia).
+    - El campo "referencia" debe ser el número de referencia/autorización/recibo principal, o ambos si es relevante, siempre lo más completo posible.
+    - Sé extremadamente preciso con los números, fechas y referencias.
+    - NO agregues texto adicional, solo el JSON solicitado.
+
+    REGLAS PARA "tipo_comprobante":
+    - Solo acepta los siguientes valores: "nequi", "transferencia", "consignacion".
+    - Si el comprobante es de la app Nequi (por diseño, logo, colores, QR con "N", instrucciones que mencionan Nequi, o la app emisora es Nequi), entonces "tipo_comprobante" debe ser "nequi", aunque aparezca Bancolombia como banco destino.
+    - Si el comprobante contiene palabras como "Consignación", "Consignacion", "Depósito", "Deposito", "Corresponsal", "Recibo" (especialmente en recibos físicos de Redeban, cajero, taquilla o corresponsal bancario), entonces "tipo_comprobante" debe ser "consignacion".
+    - Si el comprobante corresponde a transferencias digitales (por app bancaria, PSE, entre cuentas de bancos diferentes que no sean Nequi), y NO cumple los criterios anteriores, entonces "tipo_comprobante" debe ser "transferencia".
+    - No aceptes otros valores. Si tienes dudas, prioriza "nequi" si es de Nequi, "consignacion" si hay indicios de consignación, de lo contrario usa "transferencia".
+
+    EJEMPLOS DE USO (NO INCLUYAS EN LA RESPUESTA, SOLO PARA TU CRITERIO):
+
+    // Ejemplo 1: Comprobante Nequi (aunque diga Bancolombia como destino)
+    {
+    "valor": "168000",
+    "fecha": "2025-06-12",
+    "hora": "13:10:00",
+    "entidad": "Nequi",
+    "referencia": "M6609757",
+    "estado": "Disponible",
+    "descripcion": null,
+    "tipo_comprobante": "nequi"
+    }
+
+    // Ejemplo 2: Recibo físico corresponsal Bancolombia (deposito)
+    {
+    "valor": "250000",
+    "fecha": "2025-06-11",
+    "hora": "18:16:48",
+    "entidad": "Bancolombia",
+    "referencia": "036589",
+    "estado": null,
+    "descripcion": "deposito",
+    "tipo_comprobante": "consignacion"
+    }
+
+    RECUERDA:  
+    - No inventes datos ni interpretes si no estás seguro.  
+    - Si el comprobante no cumple con estas reglas, devuelve null en el campo correspondiente.
+
+    Solo responde el JSON solicitado, nada más.
+
+    """            # Realizar la llamada a OpenAI Vision API
 
             response = client.chat.completions.create(
                 model="gpt-4o",  # Usar GPT-4 con visión
@@ -547,8 +579,8 @@ REGLAS CRÍTICAS:
         return datos
     
     def _fusionar_resultados_engines(self, resultados: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """Fusiona resultados de múltiples engines eligiendo los mejores campos"""
-        datos_finales = {}
+        """Fusiona resultados de múltiples engines eligiendo los mejores campos y validando"""
+        datos_fusionados = {}
         
         # Ordenar engines por confianza
         engines_ordenados = sorted(
@@ -558,45 +590,41 @@ REGLAS CRÍTICAS:
         )
         
         # Campos importantes con sus pesos
-        campos_importantes = ["valor", "fecha", "entidad", "referencia", "hora"]
+        campos = ["valor", "fecha", "hora", "entidad", "referencia"]
         
-        for campo in campos_importantes:
-            mejor_valor = None
-            mejor_confianza = 0
-            
-            for engine_name, resultado in engines_ordenados:
-                if "error" in resultado:
-                    continue
-                
+        # Tomar el mejor valor para cada campo
+        for campo in campos:
+            for engine, resultado in engines_ordenados:
                 datos = resultado.get("datos", {})
-                valor = datos.get(campo)
-                
-                if valor and valor != "null" and str(valor).strip():
-                    confianza_engine = resultado.get("confianza", 0)
-                    
-                    # Dar bonus a OpenAI para ciertos campos
-                    if engine_name == "openai" and campo in ["valor", "referencia"]:
-                        confianza_engine += 10
-                    
-                    # Validar que el valor sea razonable
-                    if self._es_valor_razonable(campo, valor):
-                        if confianza_engine > mejor_confianza:
-                            mejor_valor = valor
-                            mejor_confianza = confianza_engine
-            
-            if mejor_valor:
-                datos_finales[campo] = mejor_valor
+                if campo in datos and datos[campo]:
+                    datos_fusionados[campo] = datos[campo]
+                    break
+          # Validar todos los datos extraídos
+        datos_validados = self._validar_datos_sin_errores(datos_fusionados)
         
-        # Agregar campos adicionales del engine más confiable
-        if engines_ordenados:
-            engine_principal = engines_ordenados[0][1]
-            datos_principal = engine_principal.get("datos", {})
-            
-            for campo, valor in datos_principal.items():
-                if campo not in datos_finales and valor and valor != "null":
-                    datos_finales[campo] = valor
+        # Registrar diferencias de normalización
+        campos_normalizados = [
+            campo for campo in campos 
+            if campo in datos_fusionados 
+            and campo in datos_validados 
+            and datos_fusionados[campo] != datos_validados[campo]
+        ]
+
+        # Detectar campos inválidos
+        campos_invalidos = [
+            campo for campo in campos
+            if campo in datos_fusionados and not self._es_valor_razonable(campo, datos_fusionados[campo])
+        ]
         
-        return datos_finales
+        if campos_normalizados:
+            logger.info("ℹ️ Campos normalizados:")
+            for campo in campos_normalizados:
+                logger.info(f"  - {campo}: {datos_fusionados[campo]} → {datos_validados[campo]}")
+        
+        if campos_invalidos:
+            logger.warning(f"❌ Campos inválidos encontrados: {campos_invalidos}")
+        
+        return datos_validados
     
     def _es_valor_razonable(self, campo: str, valor: Any) -> bool:
         """Valida que un valor extraído sea razonable"""
@@ -654,90 +682,118 @@ REGLAS CRÍTICAS:
         calidad = metadata.get("calidad_score", 100)
         return calidad < 70
     
-    def _formatear_validacion_ia(self, resultado_validacion) -> Dict[str, Any]:
-        """Formatea el resultado de validación IA para la respuesta"""
+    def _validar_datos_sin_errores(self, datos: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validación más flexible de los datos extraídos
+        """
+        datos_validados = datos.copy()
+        mensajes_info = []
+
+        # Validar hora
+        if 'hora' in datos and datos['hora']:
+            hora = datos['hora'].strip()
+            if re.match(r'\d{1,2}:\d{2}(:\d{2})?', hora):
+                if ':' in hora and len(hora.split(':')) == 2:
+                    hora = f"{hora}:00"
+                datos_validados['hora'] = hora
+                if hora != datos['hora']:
+                    mensajes_info.append(f"🕒 Hora normalizada: {datos['hora']} → {hora}")
+
+        # Validar referencia
+        if 'referencia' in datos and datos['referencia']:
+            ref = str(datos['referencia']).strip().upper()
+            if re.match(r'[A-Z0-9]{5,}', ref):
+                datos_validados['referencia'] = ref
+                if ref != datos['referencia']:
+                    mensajes_info.append(f"📝 Referencia normalizada: {datos['referencia']} → {ref}")
+
+        # Registrar mensajes informativos
+        if mensajes_info:
+            logger.info("ℹ️ Información de normalización:")
+            for msg in mensajes_info:
+                logger.info(f"  {msg}")
+
+        return datos_validados
+    
+    def _formatear_validacion_ia(self, resultado_validacion: Any) -> Optional[Dict[str, Any]]:
+        """
+        Formatea el resultado de validación IA para la respuesta
+        """
         if not resultado_validacion:
             return None
-        
-        return {
-            "score_confianza": resultado_validacion.score_confianza,
-            "estado": resultado_validacion.estado.value,
-            "accion_recomendada": resultado_validacion.accion_recomendada.value,
-            "errores_detectados": resultado_validacion.errores_detectados,
-            "alertas": resultado_validacion.alertas,
-            "sugerencias": resultado_validacion.sugerencias_correccion,
-            "datos_corregidos": bool(resultado_validacion.datos_corregidos),
-            "validaciones": resultado_validacion.validaciones
-        }
-    
-    async def _extraer_fallback(self, file: UploadFile) -> Dict[str, Any]:
-        """Extracción de emergencia usando solo EasyOCR"""
-        try:
-            contents = await file.read()
-            resultados = reader.readtext(contents, detail=0, paragraph=True)
-            texto_completo = "\n".join(resultados)
             
+        try:
             return {
-                "texto_detectado": texto_completo,
-                "datos_extraidos": self._extraer_datos_con_patrones(texto_completo),
-                "fallback": True
+                "score_confianza": getattr(resultado_validacion, 'score_confianza', 0),
+                "estado": getattr(getattr(resultado_validacion, 'estado', None), 'value', 'DESCONOCIDO'),
+                "accion_recomendada": getattr(getattr(resultado_validacion, 'accion_recomendada', None), 'value', 'REVISION_MANUAL'),
+                "errores_detectados": getattr(resultado_validacion, 'errores_detectados', []),
+                "alertas": getattr(resultado_validacion, 'alertas', []),
+                "sugerencias": getattr(resultado_validacion, 'sugerencias_correccion', []),
+                "datos_corregidos": bool(getattr(resultado_validacion, 'datos_corregidos', None)),
+                "validaciones": getattr(resultado_validacion, 'validaciones', {})
             }
         except Exception as e:
+            logger.error(f"Error formateando validación IA: {e}")
+            return None
+
+    async def _extraer_fallback(self, file: UploadFile) -> Optional[Dict[str, Any]]:
+        """
+        Extracción de emergencia usando solo EasyOCR
+        """
+        try:
+            # Leer el archivo
+            contents = await file.read()
+            
+            # Convertir el contenido del archivo a una imagen numpy
+            nparr = np.frombuffer(contents, np.uint8)
+            if len(nparr) == 0:
+                raise ValueError("Archivo de imagen vacío")
+                
+            # Decodificar la imagen
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if image is None:
+                raise ValueError("No se pudo decodificar la imagen")
+
+            # Convertir a escala de grises
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            
+            # Usar EasyOCR para extraer texto
+            reader = easyocr.Reader(['es'], gpu=False)
+            result = reader.readtext(gray)
+            
+            # Extraer texto completo
+            texto_completo = " ".join([text[1] for text in result])
+            
+            # Usar patrones para extraer datos básicos
+            datos = self._extraer_datos_con_patrones(texto_completo)
+            
             return {
-                "error": f"Fallback también falló: {str(e)}",
-                "datos_extraidos": {},
-                "fallback": True
+                "datos": datos,
+                "texto_completo": texto_completo,
+                "confianza": 50,
+                "engine": "fallback"
             }
+            
+        except Exception as e:
+            logger.error(f"Error en extracción fallback: {str(e)}")
+            return None
 
-# 🎯 INSTANCIA GLOBAL
-enhanced_extractor = EnhancedOCRExtractor()
+# Crear la instancia global del extractor
+enhanced_extractor = None
 
-# 🔄 FUNCIÓN DE COMPATIBILIDAD
-async def extraer_datos_pago(file: UploadFile):
-    """
-    Función de compatibilidad con el código existente
-    Usa el nuevo extractor mejorado pero mantiene la interfaz original
-    """
-    resultado = await enhanced_extractor.extraer_datos_pago_inteligente(file)
-    
-    # Formato de compatibilidad
-    return {
-        "texto_detectado": resultado.get("estadisticas", {}).get("texto_completo", ""),
-        "datos_extraidos": resultado.get("datos_extraidos", {}),
-        
-        # Nuevos campos disponibles
-        "validacion_ia": resultado.get("validacion_ia"),
-        "imagen_metadata": resultado.get("imagen_metadata"),
-        "estadisticas": resultado.get("estadisticas"),
-        "engines_utilizados": resultado.get("estadisticas", {}).get("engines_utilizados", []),
-        "calidad_imagen": resultado.get("imagen_metadata", {}).get("calidad_score", 0),
-        "sugerencias_mejora": resultado.get("validacion_ia", {}).get("sugerencias", []) if resultado.get("validacion_ia") else []
-    }
+def init_extractor():
+    """Inicializar la instancia global del extractor"""
+    global enhanced_extractor
+    if enhanced_extractor is None:
+        try:
+            logger.info("🚀 Inicializando EnhancedOCRExtractor...")
+            enhanced_extractor = EnhancedOCRExtractor()
+            logger.info("✅ EnhancedOCRExtractor inicializado correctamente")
+            return enhanced_extractor
+        except Exception as e:
+            logger.error(f"❌ Error inicializando EnhancedOCRExtractor: {e}")
+            raise
 
-# 🧪 FUNCIÓN DE TESTING
-async def test_enhanced_extractor():
-    """Testing del extractor mejorado"""
-    print("🧪 Testing Enhanced OCR Extractor...")
-    
-    # Aquí se incluirían tests con imágenes de muestra
-    # Por ahora solo verificamos que las funciones se inicialicen
-    
-    try:
-        extractor = EnhancedOCRExtractor()
-        print("✅ EnhancedOCRExtractor inicializado correctamente")
-        
-        # Test de patrones
-        texto_test = "NEQUI Valor: $150,000 Fecha: 15/01/2025 Referencia: ABC123456"
-        datos = extractor._extraer_datos_con_patrones(texto_test)
-        
-        print(f"✅ Extracción de patrones: {datos}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error en testing: {e}")
-        return False
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(test_enhanced_extractor())
+# Inicializar el extractor cuando se importa el módulo
+enhanced_extractor = init_extractor()

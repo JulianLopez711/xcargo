@@ -488,34 +488,57 @@ async def registrar_pago_conductor(
 
 
         # 🔥 FASE 1: Registrar bono por excedente si aplica
-       # 🔥 FASE 1: Registrar bono por excedente si aplica
-        try:
-            valor_total_guias = sum(float(g.get('valor', 0)) for g in lista_guias)
-            excedente = round(valor_total_combinado - valor_total_guias, 2)
+       # 🔥 FASE 1: Registrar bono por excedente si aplica        try:
+            # Calcular excedente con validación
+            try:
+                valor_total_guias = sum(float(g.get('valor', 0)) for g in lista_guias)
+                excedente = round(valor_total_combinado - valor_total_guias, 2)
+                logger.info(f"📊 Cálculo de excedente - Total pagado: ${valor_total_combinado}, Total guías: ${valor_total_guias}, Excedente: ${excedente}")
+            except Exception as e:
+                logger.error(f"❌ Error calculando excedente: {e}")
+                return
 
             if excedente > 0:
-                logger.info(f"💸 Excedente detectado: ${excedente} — se registrará como bono")
+                logger.info(f"💸 Excedente detectado: ${excedente} — iniciando registro de bono")
 
+                # Obtener y validar employee_id
                 employee_id = obtener_employee_id_usuario(correo, client)
                 if not employee_id:
+                    logger.error(f"❌ No se pudo obtener employee_id para {correo}")
+                    # Enviar notificación al administrador
+                    await notificar_error_bono(correo, excedente, "No se encontró employee_id")
                     logger.warning(f"⚠️ No se pudo obtener el Employee ID para {correo}, no se registrará bono")
                 else:
-                    bono_id = f"BONO_EXCEDENTE_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{employee_id}"
+                    timestamp_actual = datetime.now()
+                    bono_id = f"BONO_EXCEDENTE_{timestamp_actual.strftime('%Y%m%d_%H%M%S')}_{employee_id}"
+                    
+                    # Construir descripción detallada
+                    descripcion = f"Excedente generado automáticamente del pago ref: {referencia}. Valor total pagado: ${valor_total_combinado}, Valor guías: ${valor_total_guias}"
+                    
                     insertar_bono_query = f"""
                     INSERT INTO `{PROJECT_ID}.{DATASET_CONCILIACIONES}.conductor_bonos` (
                         id, tipo_bono, valor_bono, saldo_disponible, descripcion,
-                        fecha_generacion, referencia_pago_origen, estado_bono, employee_id
+                        fecha_generacion, referencia_pago_origen, estado_bono, employee_id,
+                        conductor_email, fecha_creacion, fecha_modificacion, 
+                        creado_por, modificado_por
                     ) VALUES (
                         @id, 'excedente', @valor, @valor, @descripcion,
-                        CURRENT_TIMESTAMP(), @referencia, 'activo', @employee_id
+                        CURRENT_DATE(), @referencia, 'activo', @employee_id,
+                        @correo, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(),
+                        @creado_por, @modificado_por
                     )
                     """
+                    
+                    # Configuración mejorada de parámetros
                     job_config = bigquery.QueryJobConfig(query_parameters=[
                         bigquery.ScalarQueryParameter("id", "STRING", bono_id),
                         bigquery.ScalarQueryParameter("valor", "FLOAT64", excedente),
-                        bigquery.ScalarQueryParameter("descripcion", "STRING", "Excedente generado automáticamente"),
+                        bigquery.ScalarQueryParameter("descripcion", "STRING", descripcion),
                         bigquery.ScalarQueryParameter("referencia", "STRING", referencia),
                         bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
+                        bigquery.ScalarQueryParameter("correo", "STRING", correo),
+                        bigquery.ScalarQueryParameter("creado_por", "STRING", correo),
+                        bigquery.ScalarQueryParameter("modificado_por", "STRING", correo),
                     ])
                     client.query(insertar_bono_query, job_config=job_config).result()
                     logger.info(f"✅ Bono de excedente registrado: {bono_id}")
@@ -1718,4 +1741,41 @@ def rechazar_pago(payload: dict):
             status_code=500, 
             detail=f"Error interno del servidor: {str(e)}"
         )
+
+async def notificar_error_bono(correo: str, excedente: float, razon: str):
+    """
+    Notifica a los administradores cuando hay un error al registrar un bono por excedente
+    """
+    try:
+        error_log = {
+            "tipo": "error_bono_excedente",
+            "correo_conductor": correo,
+            "excedente": excedente,
+            "razon": razon,
+            "fecha": datetime.now().isoformat()
+        }
+        
+        # Registrar en tabla de errores
+        client = bigquery.Client()
+        table_id = f"{PROJECT_ID}.{DATASET_CONCILIACIONES}.errores_bonos"
+        
+        query = f"""
+        INSERT INTO `{table_id}` (
+            tipo_error, correo_conductor, excedente, razon, fecha_error
+        ) VALUES (
+            'error_bono_excedente', @correo, @excedente, @razon, CURRENT_TIMESTAMP()
+        )
+        """
+        
+        job_config = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("correo", "STRING", correo),
+            bigquery.ScalarQueryParameter("excedente", "FLOAT64", excedente),
+            bigquery.ScalarQueryParameter("razon", "STRING", razon),
+        ])
+        
+        client.query(query, job_config=job_config).result()
+        logger.info(f"✅ Error de bono registrado para conductor {correo}")
+        
+    except Exception as e:
+        logger.error(f"❌ Error al notificar error de bono: {e}")
 

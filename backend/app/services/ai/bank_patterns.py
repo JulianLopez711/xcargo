@@ -25,28 +25,28 @@ class BankPatternValidator:
         """Carga patrones específicos por entidad bancaria"""
         return {
             "nequi": {
-                "referencia_formato": r"^[A-Z0-9]{8,12}$",
+                "referencia_formato": r"^[A-Z0-9]{6,15}$",
                 "monto_maximo": 2000000,  # $2M límite Nequi
                 "monto_minimo": 1000,
-                "horario_operacion": (6, 22),  # 6AM - 10PM
-                "formatos_aceptados": ["transferencia", "pago"]
+                "horario_operacion": (0, 24),  # 24h para mayor flexibilidad
+                "formatos_aceptados": ["transferencia", "pago", "nequi"]
             },
             "bancolombia": {
-                "referencia_formato": r"^[0-9]{10,15}$", 
+                "referencia_formato": r"^[A-Z0-9]{6,20}$",  # Más flexible
                 "monto_maximo": 10000000,  # $10M
-                "monto_minimo": 5000,
+                "monto_minimo": 1000,
                 "horario_operacion": (0, 24),  # 24/7
-                "formatos_aceptados": ["transferencia", "pse"]
+                "formatos_aceptados": ["transferencia", "pse", "consignacion"]
             },
             "daviplata": {
-                "referencia_formato": r"^[A-Z0-9]{6,10}$",
-                "monto_maximo": 300000,  # $300K límite DaviPlata
-                "monto_minimo": 2000,
-                "horario_operacion": (5, 23),  # 5AM - 11PM  
-                "formatos_aceptados": ["transferencia", "pago"]
+                "referencia_formato": r"^[A-Z0-9]{6,15}$",
+                "monto_maximo": 1000000,  # Actualizado a $1M
+                "monto_minimo": 1000,
+                "horario_operacion": (0, 24),  # 24h para mayor flexibilidad
+                "formatos_aceptados": ["transferencia", "pago", "daviplata"]
             },
             "pse": {
-                "referencia_formato": r"^[0-9]{12,20}$",
+                "referencia_formato": r"^[A-Z0-9]{6,20}$",  # Más flexible
                 "monto_maximo": 50000000,  # $50M
                 "monto_minimo": 10000,
                 "horario_operacion": (0, 24),  # 24/7

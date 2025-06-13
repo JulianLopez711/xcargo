@@ -10,10 +10,17 @@ interface Rol {
 }
 
 interface NuevoUsuario {
+  id_usuario: string;
   nombre: string;
   correo: string;
   telefono: string;
   rol: string;
+  empresa_carrier: string;
+}
+
+interface SugerenciaUsuario {
+  correo: string;
+  nombre: string;
   empresa_carrier: string;
 }
 
@@ -23,8 +30,11 @@ export default function FormCrearUsuario() {
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
   const [roles, setRoles] = useState<Rol[]>([]);
+  const [sugerencias, setSugerencias] = useState<SugerenciaUsuario[]>([]);
+  const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
 
   const [usuario, setUsuario] = useState<NuevoUsuario>({
+    id_usuario: '',
     nombre: "",
     correo: "",
     telefono: "",
@@ -129,7 +139,6 @@ export default function FormCrearUsuario() {
 
     return true;
   };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -140,6 +149,8 @@ export default function FormCrearUsuario() {
     setLoading(true);
 
     try {
+      // Generar ID único para el usuario
+      const id_usuario = generarIdUsuario(usuario.correo);
       console.log("📤 Enviando datos de usuario:", {
         nombre: usuario.nombre,
         correo: usuario.correo,
@@ -188,6 +199,7 @@ export default function FormCrearUsuario() {
 
         // Resetear formulario
         setUsuario({
+          id_usuario: '',
           nombre: "",
           correo: "",
           telefono: "",
@@ -241,198 +253,170 @@ export default function FormCrearUsuario() {
     }
   };
 
+  // Función para buscar sugerencias
+  const buscarSugerencias = async (query: string) => {
+    if (!query || query.length < 3) {
+      setSugerencias([]);
+      setMostrarSugerencias(false);
+      return;
+    }
+
+    try {
+      const headers: Record<string, string> = {};
+      if (user?.token) {
+        headers["Authorization"] = `Bearer ${user.token}`;
+      }
+      if (user?.email && user?.role) {
+        headers["X-User-Email"] = user.email;
+        headers["X-User-Role"] = user.role;
+      }
+
+      const response = await fetch(`https://api.x-cargo.co/admin/buscar-usuarios?q=${encodeURIComponent(query)}`, {
+        headers
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setSugerencias(data);
+        setMostrarSugerencias(true);
+      }
+    } catch (error) {
+      console.error("Error buscando sugerencias:", error);
+      setSugerencias([]);
+      setMostrarSugerencias(false);
+    }
+  };
+
+  // Función para seleccionar una sugerencia
+  const seleccionarSugerencia = (sugerencia: SugerenciaUsuario) => {
+    setUsuario(prev => ({
+      ...prev,
+      correo: sugerencia.correo,
+      nombre: sugerencia.nombre,
+      empresa_carrier: sugerencia.empresa_carrier || prev.empresa_carrier
+    }));
+    setMostrarSugerencias(false);
+  };
+
+  // Manejar cambios en el campo de correo con debounce
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (usuario.correo) {
+        buscarSugerencias(usuario.correo);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [usuario.correo]);
+
+  // Generar ID único para el usuario
+  const generarIdUsuario = (correo: string): string => {
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(2, 8);
+    const emailPart = correo.split('@')[0].substring(0, 8);
+    return `USR_${emailPart}_${randomStr}_${timestamp}`.toUpperCase();
+  };
+
   return (
     <div className="form-crear-usuario">
-      <div className="form-header">
-        <h2>👤 Crear Nuevo Usuario</h2>
-        <p>Registra un nuevo usuario en el sistema XCargo</p>
-      </div>
+      <h2>Crear Nuevo Usuario</h2>
 
       {message && (
         <div className={`message ${messageType}`}>
-          <span className="message-icon">
-            {messageType === "success" ? "✅" : "❌"}
-          </span>
-          <span className="message-text">{message}</span>
+          {message}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="usuario-form">
-        <div className="form-grid">
-          <div className="form-group">
-            <label htmlFor="nombre">
-              <span className="label-icon">👤</span>
-              Nombre Completo *
-            </label>
-            <input
-              type="text"
-              id="nombre"
-              value={usuario.nombre}
-              onChange={(e) => handleInputChange("nombre", e.target.value)}
-              placeholder="Ej: Juan Carlos Pérez"
-              required
-              disabled={loading}
-              className="form-input"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="correo">
-              <span className="label-icon">📧</span>
-              Correo Electrónico *
-            </label>
+        <div className="form-group">
+          <label htmlFor="correo">Correo electrónico:</label>
+          <div className="input-sugerencias-container">
             <input
               type="email"
               id="correo"
               value={usuario.correo}
-              onChange={(e) => handleInputChange("correo", e.target.value)}
-              placeholder="Ej: juan.perez@x-cargo.co"
+              onChange={(e) => {
+                handleInputChange("correo", e.target.value);
+                // El ID se generará al momento de crear el usuario
+              }}
               required
-              disabled={loading}
-              className="form-input"
             />
-            <small className="form-hint">
-              Se enviará la contraseña temporal a este correo
-            </small>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="telefono">
-              <span className="label-icon">📱</span>
-              Teléfono *
-            </label>
-            <input
-              type="tel"
-              id="telefono"
-              value={usuario.telefono}
-              onChange={(e) => handleInputChange("telefono", e.target.value)}
-              placeholder="Ej: +57 300 123 4567"
-              required
-              disabled={loading}
-              className="form-input"
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="rol">
-              <span className="label-icon">🏷️</span>
-              Rol en el Sistema *
-            </label>
-            <select
-              id="rol"
-              value={usuario.rol}
-              onChange={(e) => handleRolChange(e.target.value)}
-              required
-              disabled={loading}
-              className="form-select"
-            >
-              <option value="">Seleccionar rol...</option>
-              {roles.map((rol) => (
-                <option key={rol.id_rol} value={rol.id_rol}>
-                  {rol.nombre_rol} - {rol.descripcion}
-                </option>
-              ))}
-            </select>
-            {usuario.rol && (
-              <small className="form-hint">
-                Ruta por defecto: {roles.find(r => r.id_rol === usuario.rol)?.ruta_defecto || "No definida"}
-              </small>
+            {mostrarSugerencias && sugerencias.length > 0 && (
+              <div className="sugerencias-dropdown">
+                {sugerencias.map((sugerencia, index) => (
+                  <div
+                    key={index}
+                    className="sugerencia-item"
+                    onClick={() => seleccionarSugerencia(sugerencia)}
+                  >
+                    <div className="sugerencia-principal">
+                      {sugerencia.correo}
+                    </div>
+                    <div className="sugerencia-secundaria">
+                      {sugerencia.nombre} - {sugerencia.empresa_carrier || "Sin empresa"}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
+        </div>
 
+        <div className="form-group">
+          <label htmlFor="nombre">Nombre completo:</label>
+          <input
+            type="text"
+            id="nombre"
+            value={usuario.nombre}
+            onChange={(e) => handleInputChange("nombre", e.target.value)}
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="telefono">Teléfono:</label>
+          <input
+            type="tel"
+            id="telefono"
+            value={usuario.telefono}
+            onChange={(e) => handleInputChange("telefono", e.target.value)}
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="rol">Rol:</label>
+          <select
+            id="rol"
+            value={usuario.rol}
+            onChange={(e) => handleRolChange(e.target.value)}
+            required
+          >
+            <option value="">Selecciona un rol</option>
+            {roles.map((rol) => (
+              <option key={rol.id_rol} value={rol.id_rol}>
+                {rol.nombre_rol}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {(usuario.rol === "conductor" || usuario.rol === "operador") && (
           <div className="form-group">
-            <label htmlFor="empresa_carrier">
-              <span className="label-icon">🏢</span>
-              Empresa/Carrier
-            </label>
+            <label htmlFor="empresa_carrier">Empresa/Carrier:</label>
             <input
               type="text"
               id="empresa_carrier"
               value={usuario.empresa_carrier}
               onChange={(e) => handleInputChange("empresa_carrier", e.target.value)}
-              placeholder="Ej: X-Cargo, LogiTech Corp"
-              disabled={loading}
-              className="form-input"
             />
-            <small className="form-hint">
-              Para usuarios administrativos usar "X-Cargo". Para conductores, especificar el carrier asignado.
-            </small>
           </div>
-        </div>
+        )}
 
-        <div className="form-preview">
-          <h3>👀 Vista Previa</h3>
-          <div className="preview-content">
-            <div className="preview-item">
-              <strong>Nombre:</strong> {usuario.nombre || "Sin especificar"}
-            </div>
-            <div className="preview-item">
-              <strong>Correo:</strong> {usuario.correo || "Sin especificar"}
-            </div>
-            <div className="preview-item">
-              <strong>Teléfono:</strong> {usuario.telefono || "Sin especificar"}
-            </div>
-            <div className="preview-item">
-              <strong>Rol:</strong> {
-                usuario.rol 
-                  ? roles.find(r => r.id_rol === usuario.rol)?.nombre_rol || usuario.rol
-                  : "Sin especificar"
-              }
-            </div>
-            <div className="preview-item">
-              <strong>Empresa:</strong> {usuario.empresa_carrier || "Sin especificar"}
-            </div>
-            <div className="preview-item">
-              <strong>Contraseña inicial:</strong> <code>123456</code> (debe cambiarla en el primer login)
-            </div>
-          </div>
-        </div>
-
-        <div className="form-actions">
-          <button
-            type="button"
-            onClick={() => setUsuario({
-              nombre: "",
-              correo: "",
-              telefono: "",
-              rol: "",
-              empresa_carrier: ""
-            })}
-            disabled={loading}
-            className="btn-secondary"
-          >
-            🗑️ Limpiar Formulario
-          </button>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn-primary"
-          >
-            {loading ? (
-              <>
-                <span className="loading-spinner"></span>
-                Creando Usuario...
-              </>
-            ) : (
-              <>
-                ✨ Crear Usuario
-              </>
-            )}
-          </button>
-        </div>
+        <button type="submit" disabled={loading}>
+          {loading ? "Creando..." : "Crear Usuario"}
+        </button>
       </form>
-
-      <div className="form-info">
-        <h3>ℹ️ Información Importante</h3>
-        <ul>
-          <li>El usuario recibirá una contraseña temporal: <strong>Xcargo123</strong></li>
-          <li>Debe cambiar la contraseña en el primer login</li>
-          <li>Los permisos dependen del rol asignado</li>
-          <li>Para conductores, asegúrate de que existan en la tabla usuarios_BIG</li>
-          <li>El correo debe ser único en el sistema</li>
-        </ul>
-      </div>
     </div>
   );
 }

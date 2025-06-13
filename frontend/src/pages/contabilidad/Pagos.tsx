@@ -28,7 +28,7 @@ interface DetalleTracking {
   referencia: string;
   valor: number;
   cliente: string;
-  entidad: string;
+  carrier: string;
   tipo: string;
   fecha_pago: string;
   hora_pago: string;
@@ -430,7 +430,7 @@ export default function PagosContabilidad() {
               <th>Valor Total</th>
               <th>Guías</th>
               <th>Fecha</th>
-              <th>Entidad</th>
+              <th>Carrier</th>
               <th>Tipo</th>
               <th>Estado</th>
               <th>Comprobante</th>

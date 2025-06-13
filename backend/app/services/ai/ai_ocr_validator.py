@@ -153,44 +153,74 @@ class AIValidator:
             )
     
     def _validar_formato_basico(self, datos: Dict[str, Any]) -> Dict[str, str]:
-        """Validaciones básicas de formato de datos"""
+        """Validaciones básicas de formato para campos comunes"""
         validaciones = {}
         
-        # 1. Validar valor/monto
-        valor = datos.get("valor", "")
-        if self._es_monto_valido(valor):
-            validaciones["formato_monto"] = "✅ Monto válido"
+        # Validar valor monetario
+        if valor := datos.get("valor"):
+            try:
+                valor_num = float(str(valor).replace(',', ''))
+                if 1000 <= valor_num <= 50000000:
+                    validaciones["valor"] = "OK"
+                else:
+                    validaciones["valor"] = f"❌ Valor fuera de rango: {valor}"
+            except:
+                validaciones["valor"] = "❌ Formato de valor inválido"
         else:
-            validaciones["formato_monto"] = f"❌ Monto inválido: {valor}"
-        
-        # 2. Validar fecha
-        fecha = datos.get("fecha", "")
-        if self._es_fecha_valida(fecha):
-            validaciones["formato_fecha"] = "✅ Fecha válida"
+            validaciones["valor"] = "❌ Valor no encontrado"
+
+        # Validar fecha
+        if fecha := datos.get("fecha"):
+            try:
+                datetime.strptime(fecha, "%Y-%m-%d")
+                validaciones["fecha"] = "OK"
+            except:
+                validaciones["fecha"] = "❌ Formato de fecha inválido"
         else:
-            validaciones["formato_fecha"] = f"❌ Fecha inválida: {fecha}"
-        
-        # 3. Validar hora
-        hora = datos.get("hora", "")
-        if self._es_hora_valida(hora):
-            validaciones["formato_hora"] = "✅ Hora válida"
+            validaciones["fecha"] = "❌ Fecha no encontrada"
+
+        # Validar hora (más flexible)
+        if hora := datos.get("hora"):
+            try:
+                # Aceptar formato HH:MM:SS o HH:MM
+                if re.match(r"^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$", hora):
+                    validaciones["hora"] = "OK"
+                else:
+                    validaciones["hora"] = "❌ Formato de hora inválido"
+            except:
+                validaciones["hora"] = "❌ Error validando hora"
         else:
-            validaciones["formato_hora"] = f"❌ Hora inválida: {hora}"
-        
-        # 4. Validar referencia
-        referencia = datos.get("referencia", "")
-        if self._es_referencia_valida(referencia):
-            validaciones["formato_referencia"] = "✅ Referencia válida"
+            validaciones["hora"] = None  # Hora es opcional
+
+        # Validar entidad
+        if entidad := datos.get("entidad"):
+            entidad = entidad.lower()
+            if entidad in ["nequi", "bancolombia", "daviplata", "pse", "efecty"]:
+                validaciones["entidad"] = "OK"
+            else:
+                validaciones["entidad"] = f"❌ Entidad no reconocida: {entidad}"
         else:
-            validaciones["formato_referencia"] = f"❌ Referencia inválida: {referencia}"
-        
-        # 5. Validar entidad
-        entidad = datos.get("entidad", "")
-        if entidad and len(entidad.strip()) > 0:
-            validaciones["entidad_presente"] = "✅ Entidad identificada"
+            validaciones["entidad"] = "❌ Entidad no encontrada"
+
+        # Validar tipo de comprobante
+        if tipo := datos.get("tipo_comprobante"):
+            tipo = tipo.lower()
+            if tipo in ["nequi", "transferencia", "consignacion"]:
+                validaciones["tipo_comprobante"] = "OK"
+            else:
+                validaciones["tipo_comprobante"] = f"❌ Tipo no válido: {tipo}"
         else:
-            validaciones["entidad_presente"] = "❌ Entidad no identificada"
-        
+            validaciones["tipo_comprobante"] = "❌ Tipo no encontrado"
+
+        # Validar referencia (más flexible)
+        if ref := datos.get("referencia"):
+            if len(ref) >= 6:  # Solo validamos longitud mínima
+                validaciones["referencia"] = "OK"
+            else:
+                validaciones["referencia"] = "❌ Referencia muy corta"
+        else:
+            validaciones["referencia"] = "❌ Referencia no encontrada"
+
         return validaciones
     
     def _es_monto_valido(self, valor: str) -> bool:

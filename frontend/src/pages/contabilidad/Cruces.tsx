@@ -324,56 +324,6 @@ const Cruces: React.FC = () => {
     }
   };
 
-  // ✅ FUNCIONES ADICIONALES ÚTILES
-  const validarDatos = async () => {
-    try {
-      setMensaje("🔍 Validando datos...");
-      const res = await fetch("https://api.x-cargo.co/conciliacion/validar-datos-conciliacion");
-      if (!res.ok) throw new Error("Error al validar datos");
-      
-      const data = await res.json();
-
-      
-      const problemas = data.resultados.filter((r: any) => 
-        !['movimientos_pendientes', 'pagos_disponibles_para_conciliar'].includes(r.problema) && r.cantidad > 0
-      );
-      
-      if (problemas.length > 0) {
-        const mensajeProblemas = problemas.map((p: any) => 
-          `• ${p.problema}: ${p.cantidad} casos`
-        ).join('\n');
-        
-        setMensaje(`⚠️ Problemas detectados en datos:\n${mensajeProblemas}`);
-      } else {
-        setMensaje("✅ Validación exitosa: Los datos están listos para conciliación");
-      }
-    } catch (err: any) {
-      console.error("Error validando datos:", err);
-      setMensaje("❌ Error validando datos: " + err.message);
-    }
-  };
-
-  const consultarEstadoReferencias = async () => {
-    try {
-      const res = await fetch("https://api.x-cargo.co/conciliacion/estado-referencias");
-      if (!res.ok) throw new Error("Error al consultar estado");
-      
-      const data = await res.json();
-
-      
-      const resumen = data.resumen;
-      alert(
-        `Estado de Referencias:\n\n` +
-        `• Movimientos pendientes: ${resumen.total_movimientos_pendientes}\n` +
-        `• Pagos disponibles: ${resumen.total_pagos_disponibles}\n\n` +
-        `Ver consola para detalles completos.`
-      );
-    } catch (err: any) {
-      console.error("Error consultando estado:", err);
-      setMensaje("❌ Error consultando estado de referencias: " + err.message);
-    }
-  };
-
   const getEstadoColor = (estado: string) => {
     const colores = {
       conciliado_exacto: "#22c55e",
@@ -480,7 +430,6 @@ const Cruces: React.FC = () => {
             ? "🔄 Procesando..."
             : "🤖 Ejecutar Conciliación Automática"}
         </button>
-
         {mensaje && (
           <div
             className={`mensaje-estado ${
