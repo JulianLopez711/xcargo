@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, logger
 from google.cloud import bigquery
 from app.dependencies import get_current_user
 from typing import List, Dict, Any, Optional
@@ -8,6 +8,7 @@ router = APIRouter(prefix="/supervisor", tags=["Supervisor"])
 
 PROJECT_ID = "datos-clientes-441216"
 DATASET = "Conciliaciones"
+DATASET_CONCILIACIONES = DATASET  # Añadido para evitar error de variable no definida
 
 bq_client = bigquery.Client()
 
@@ -188,7 +189,7 @@ async def get_dashboard_supervisor(current_user = Depends(verificar_supervisor))
             FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1`
             WHERE carrier_id IN ({carrier_ids_str})
                 AND Valor > 0
-                AND Status_Date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+                AND Status_Date >= '2025-06-09'  # Agregamos el filtro de fecha
         ),
         conductores_stats AS (
             SELECT 
@@ -231,8 +232,8 @@ async def get_dashboard_supervisor(current_user = Depends(verificar_supervisor))
         FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG` ub
         LEFT JOIN `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cp 
             ON ub.Employee_id = cp.Employee_id
-            AND cp.Status_Date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
         WHERE ub.Carrier_id IN ({carrier_ids_str})
+            AND cp.Status_Date >= '2025-06-09'  # Agregamos el filtro de fecha
         GROUP BY ub.Employee_Name, ub.Employee_Mail, ub.Employee_Phone
         HAVING COUNT(cp.tracking_number) > 0
         ORDER BY guias_totales DESC, ultima_actividad DESC
@@ -425,11 +426,10 @@ async def get_guias_pendientes_supervisor(
 @router.get("/conductores")
 async def get_conductores_supervisor(current_user = Depends(verificar_supervisor)):
     """
-    Lista todos los conductores de los carriers del supervisor
+    Lista todos los conductores de los carriers del supervisor desde 2025-06-09
     """
     try:
         client = bigquery.Client()
-        # CORRECCIÓN: Obtener correo correctamente desde el JWT
         user_email = current_user.get("correo") or current_user.get("sub")
         carrier_ids = obtener_carrier_id_supervisor(user_email, client)
         
@@ -439,29 +439,40 @@ async def get_conductores_supervisor(current_user = Depends(verificar_supervisor
         carrier_ids_str = ','.join(map(str, carrier_ids))
         
         query = f"""
+        WITH conductores_actividad AS (
+            SELECT 
+                ub.Employee_id,
+                ub.Employee_Name as nombre,
+                ub.Employee_Mail as correo,
+                ub.Employee_Phone as telefono,
+                ub.Carrier_Name as empresa,
+                ub.Created as fecha_registro,
+                COUNT(cp.tracking_number) as total_entregas,
+                COUNT(CASE 
+                    WHEN cp.Status_Big NOT LIKE '%360%' AND cp.Status_Big NOT LIKE '%Entregado%' 
+                    THEN 1 
+                END) as entregas_pendientes,
+                SUM(CASE 
+                    WHEN cp.Status_Big NOT LIKE '%360%' AND cp.Status_Big NOT LIKE '%Entregado%' 
+                    THEN cp.Valor ELSE 0 
+                END) as valor_pendiente,
+                MAX(cp.Status_Date) as ultima_actividad
+            FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG` ub
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cp 
+                ON ub.Employee_id = cp.Employee_id
+                AND cp.Status_Date >= '2025-06-09'  # Filtro por fecha
+            WHERE ub.Carrier_id IN ({carrier_ids_str})
+            GROUP BY ub.Employee_id, ub.Employee_Name, ub.Employee_Mail, 
+                     ub.Employee_Phone, ub.Carrier_Name, ub.Created
+        )
         SELECT 
-            ub.Employee_id,
-            ub.Employee_Name as nombre,
-            ub.Employee_Mail as correo,
-            ub.Employee_Phone as telefono,
-            ub.Carrier_Name as empresa,
-            ub.Created as fecha_registro,
-            COUNT(cp.tracking_number) as total_entregas,
-            COUNT(CASE 
-                WHEN cp.Status_Big NOT LIKE '%360%' AND cp.Status_Big NOT LIKE '%Entregado%' 
-                THEN 1 
-            END) as entregas_pendientes,
-            SUM(CASE 
-                WHEN cp.Status_Big NOT LIKE '%360%' AND cp.Status_Big NOT LIKE '%Entregado%' 
-                THEN cp.Valor ELSE 0 
-            END) as valor_pendiente,
-            MAX(cp.Status_Date) as ultima_actividad
-        FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG` ub
-        LEFT JOIN `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cp 
-            ON ub.Employee_id = cp.Employee_id
-        WHERE ub.Carrier_id IN ({carrier_ids_str})
-        GROUP BY ub.Employee_id, ub.Employee_Name, ub.Employee_Mail, 
-                 ub.Employee_Phone, ub.Carrier_Name, ub.Created
+            *,
+            CASE
+                WHEN entregas_pendientes > 0 THEN 'activo'
+                WHEN total_entregas > 0 AND ultima_actividad >= '2025-06-09' THEN 'activo'
+                ELSE 'inactivo'
+            END as estado
+        FROM conductores_actividad
         ORDER BY ultima_actividad DESC NULLS LAST
         """
         
@@ -480,7 +491,7 @@ async def get_conductores_supervisor(current_user = Depends(verificar_supervisor
                 "entregas_pendientes": int(row.entregas_pendientes) if row.entregas_pendientes else 0,
                 "valor_pendiente": int(row.valor_pendiente) if row.valor_pendiente else 0,
                 "ultima_actividad": str(row.ultima_actividad) if row.ultima_actividad else "Sin actividad",
-                "estado": "activo" if row.entregas_pendientes and int(row.entregas_pendientes) > 0 else "inactivo"
+                "estado": row.estado
             })
         
         return conductores
@@ -635,3 +646,82 @@ async def get_guias_entregadas_supervisor(
     except Exception as e:
         print(f"Error cargando guías entregadas supervisor: {e}")
         raise HTTPException(status_code=500, detail="Error interno")
+
+@router.get("/pagos-conductor")
+async def obtener_pagos_conductor(current_user = Depends(verificar_supervisor)):
+    """
+    Obtiene la lista de pagos filtrados por carrier y fecha
+    """
+    try:
+        client = bigquery.Client()
+        user_email = current_user.get("correo") or current_user.get("sub")
+        
+        # Obtener carriers del supervisor
+        carrier_ids = obtener_carrier_id_supervisor(user_email, client)
+        if not carrier_ids:
+            return []
+            
+        carrier_ids_str = ','.join(map(str, carrier_ids))
+        
+        query = f"""
+        WITH pagos_filtrados AS (
+            SELECT 
+                pc.*,
+                cp.Status_Big as estado_guia,
+                cp.carrier_id,
+                cp.tracking_number,
+                cp.Employee_id
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+            INNER JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cp 
+                ON pc.tracking = cp.tracking_number
+            WHERE cp.carrier_id IN ({carrier_ids_str})
+                AND pc.fecha_pago >= '2025-06-09'
+                AND cp.Status_Big LIKE '%360%'
+        )
+        SELECT 
+            pf.*,
+            ub.Employee_Name as nombre_conductor
+        FROM pagos_filtrados pf
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.usuarios_BIG` ub
+            ON pf.Employee_id = ub.Employee_id
+        ORDER BY pf.fecha_pago DESC, pf.creado_en DESC
+        """
+        
+        resultados = client.query(query).result()
+        
+        # Agrupar pagos por referencia
+        pagos_agrupados = {}
+        for row in resultados:
+            ref = row.referencia_pago
+            if ref not in pagos_agrupados:
+                pagos_agrupados[ref] = {
+                    "referencia_pago": ref,
+                    "valor": float(row.valor or 0),
+                    "fecha": str(row.fecha_pago),
+                    "entidad": row.entidad,
+                    "estado": row.estado,
+                    "tipo": row.tipo,
+                    "imagen": row.comprobante,
+                    "novedades": row.novedades,
+                    "guias": [],
+                    "correo_conductor": row.correo,
+                    "nombre_conductor": row.nombre_conductor,
+                    "estado_conciliacion": row.estado_conciliacion or "Pendiente"
+                }
+            
+            pagos_agrupados[ref]["guias"].append(row.tracking_number)
+            
+        # Formatear respuesta final
+        pagos = []
+        for pago in pagos_agrupados.values():
+            pagos.append({
+                **pago,
+                "num_guias": len(pago["guias"]),
+                "trackings_preview": ", ".join(pago["guias"][:5])
+            })
+            
+        return pagos
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo pagos: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1,0 +1,183 @@
+import { useEffect, useState } from "react";
+import { useAuth } from "../../context/authContext";
+import "../../styles/supervisor/Pagos.css";
+import "../../styles/supervisor/cargando.css";
+import LogoXcargo from "../../../public/icons/Logo192.png";
+
+interface Guia {
+  tracking_number: string;
+  cliente: string;
+  ciudad: string;
+  departamento: string;
+  valor: number;
+  fecha: string;
+  estado: string;
+  carrier: string;
+  conductor: {
+    nombre: string;
+    email: string;
+    telefono: string;
+  };
+}
+
+export default function GuiasEntregadas() {
+  const { user } = useAuth();
+  const [guias, setGuias] = useState<Guia[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [filtroConductor, setFiltroConductor] = useState("");
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const limit = 100;
+
+  const cargarGuias = async () => {
+    try {
+      setLoading(true);
+      const token = user?.token || localStorage.getItem("token") || "";
+      
+      const response = await fetch(
+        `https://api.x-cargo.co/supervisor/guias-entregadas?limit=${limit}&offset=${page * limit}${filtroConductor ? `&conductor=${filtroConductor}` : ''}`,
+        {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "X-User-Email": user?.email || "",
+            "X-User-Role": user?.role || "supervisor"
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setGuias(data.guias);
+        setTotal(data.total);
+        setError("");
+      } else {
+        throw new Error(`Error HTTP ${response.status}`);
+      }
+    } catch (error) {
+      console.error("Error cargando guías:", error);
+      setError("Error al cargar las guías");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarGuias();
+  }, [page, filtroConductor]);
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0
+    }).format(amount);
+  };
+
+  if (loading && page === 0) {
+    return (
+      <div className="loading-container">
+        <img src={LogoXcargo} alt="Cargando guías" className="loading-logo" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="guias-entregadas">
+      <div className="page-header">
+        <h1>Guías Entregadas</h1>
+        <div className="header-info">
+          <span className="fecha-badge">
+            📅 Desde: 2025-06-09
+          </span>
+        </div>
+      </div>
+
+      {error && (
+        <div className="error-banner">
+          ⚠️ {error}
+        </div>
+      )}
+
+      <div className="controls-section">
+        <div className="filters">
+          <input
+            type="text"
+            placeholder="Buscar por conductor..."
+            value={filtroConductor}
+            onChange={(e) => setFiltroConductor(e.target.value)}
+            className="search-input"
+          />
+          <button 
+            className="btn-secondary"
+            onClick={() => cargarGuias()}
+          >
+            🔄 Actualizar
+          </button>
+        </div>
+      </div>
+
+      <div className="guias-table">
+        <div className="table-header">
+          <div className="header-cell">Tracking</div>
+          <div className="header-cell">Cliente</div>
+          <div className="header-cell">Conductor</div>
+          <div className="header-cell">Ciudad</div>
+          <div className="header-cell">Valor</div>
+          <div className="header-cell">Fecha Entrega</div>
+        </div>
+
+        {guias.map((guia) => (
+          <div key={guia.tracking_number} className="table-row">
+            <div className="table-cell">
+              <span className="tracking">{guia.tracking_number}</span>
+            </div>
+            <div className="table-cell">
+              <span className="cliente">{guia.cliente}</span>
+            </div>
+            <div className="table-cell">
+              <span className="conductor">{guia.conductor.nombre}</span>
+              <span className="conductor-email">{guia.conductor.email}</span>
+            </div>
+            <div className="table-cell">
+              <span className="ciudad">{guia.ciudad}</span>
+              <span className="departamento">{guia.departamento}</span>
+            </div>
+            <div className="table-cell">
+              <span className="valor">{formatCurrency(guia.valor)}</span>
+            </div>
+            <div className="table-cell">
+              <span className="fecha">{new Date(guia.fecha).toLocaleDateString()}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {guias.length === 0 && !loading && (
+        <div className="empty-state">
+          <p>No se encontraron guías entregadas</p>
+        </div>
+      )}
+
+      <div className="pagination">
+        <button 
+          disabled={page === 0} 
+          onClick={() => setPage(p => p - 1)}
+          className="btn-secondary"
+        >
+          ← Anterior
+        </button>
+        <span className="page-info">
+          Página {page + 1} de {Math.ceil(total / limit)}
+        </span>
+        <button 
+          disabled={guias.length < limit} 
+          onClick={() => setPage(p => p + 1)}
+          className="btn-secondary"
+        >
+          Siguiente →
+        </button>
+      </div>
+    </div>
+  );
+}

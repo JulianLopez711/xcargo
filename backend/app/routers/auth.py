@@ -591,7 +591,8 @@ def crear_usuario_conductor_automatico(correo: str, client: bigquery.Client, ori
     """
     try:
         if origen == "big":
-            # Verificar si el conductor existe en usuarios_BIG
+            # CASO 1: Usuario de usuarios_BIG (conductores)
+            # Verificar existencia en tabla usuarios_BIG
             query_check = """
                 SELECT Employee_id, Employee_Name, Employee_Mail, Carrier_Name
                 FROM `datos-clientes-441216.Conciliaciones.usuarios_BIG`
@@ -640,7 +641,8 @@ def crear_usuario_conductor_automatico(correo: str, client: bigquery.Client, ori
             return True
             
         elif origen == "interno":
-            # Verificar si el usuario existe en usuarios (tabla interna)
+            # CASO 2: Usuario de tabla usuarios (administrativos)
+            # Buscar los datos del usuario interno
             query_check = """
                 SELECT id_usuario, nombre, correo, telefono, empresa_carrier
                 FROM `datos-clientes-441216.Conciliaciones.usuarios`
@@ -663,49 +665,58 @@ def crear_usuario_conductor_automatico(correo: str, client: bigquery.Client, ori
                 
             usuario_data = dict(rows[0])
             
-            # Determinar el rol basado en el dominio del correo o empresa
-            rol = "operador"  # rol por defecto
+            # Asignación inteligente de roles basada en el correo
+            rol = "operador"  # rol predeterminado
             if "@x-cargo.co" in correo.lower():
+                # Asignar rol según palabras clave en el correo
                 if "admin" in correo.lower():
-                    rol = "admin"
+                    rol = "admin"  # Administrador del sistema
                 elif "contabilidad" in correo.lower() or "contable" in correo.lower():
-                    rol = "contabilidad"
+                    rol = "contabilidad"  # Usuario de contabilidad
                 elif "supervisor" in correo.lower():
-                    rol = "supervisor"
+                    rol = "supervisor"  # Supervisor de operaciones
                 else:
-                    rol = "operador"
+                    rol = "operador"  # Operador regular
             
-            # Crear credenciales automáticamente
-            hashed_password = hash_clave("Xcargo123")  # Clave por defecto
+            # Crear credenciales con contraseña por defecto
+            hashed_password = hash_clave("Xcargo123")  # TODO: Cambiar en producción
             ahora = datetime.utcnow()
             
+            # Query para insertar nuevas credenciales
             query_insert = """
                 INSERT INTO `datos-clientes-441216.Conciliaciones.credenciales`
                 (correo, hashed_password, rol, clave_defecto, creado_en, id_usuario, empresa_carrier)
                 VALUES (@correo, @hashed, @rol, TRUE, @creado_en, @id_usuario, @empresa)
             """
             
+            # Configurar parámetros de la query
             job_config_insert = bigquery.QueryJobConfig(
                 query_parameters=[
+                    # Datos básicos del usuario
                     bigquery.ScalarQueryParameter("correo", "STRING", correo),
                     bigquery.ScalarQueryParameter("hashed", "STRING", hashed_password),
                     bigquery.ScalarQueryParameter("rol", "STRING", rol),
+                    # Metadatos de creación
                     bigquery.ScalarQueryParameter("creado_en", "TIMESTAMP", ahora),
                     bigquery.ScalarQueryParameter("id_usuario", "STRING", usuario_data["id_usuario"]),
+                    # Datos de empresa
                     bigquery.ScalarQueryParameter("empresa", "STRING", usuario_data.get("empresa_carrier", ""))
                 ]
             )
             
+            # Ejecutar la inserción
             client.query(query_insert, job_config=job_config_insert).result()
             
             print(f"✅ Credenciales creadas automáticamente para usuario interno: {usuario_data['nombre']} con rol {rol}")
             return True
         
         else:
+            # Origen no reconocido
             print(f"❌ Origen desconocido: {origen}")
             return False
             
     except Exception as e:
+        # Manejo de errores con logging detallado
         print(f"❌ Error creando usuario automático: {e}")
         import traceback
         traceback.print_exc()

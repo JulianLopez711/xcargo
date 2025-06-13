@@ -17,6 +17,74 @@ def get_bigquery_client():
     """Obtiene el cliente de BigQuery"""
     return bigquery.Client()
 
+def consumir_bono(employee_id, valor_a_usar, usuario, referencia_uso):
+    client = bigquery.Client()
+    # Obtiene bonos activos ordenados por antigüedad (FIFO)
+    query = """
+        SELECT id, saldo_disponible
+        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        WHERE employee_id = @employee_id AND estado_bono = 'activo' AND saldo_disponible > 0
+        ORDER BY fecha_generacion ASC
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id)]
+    )
+    bonos = list(client.query(query, job_config=job_config).result())
+    restante = valor_a_usar
+    for bono in bonos:
+        bono_id = bono.id
+        disponible = bono.saldo_disponible
+        a_usar = min(disponible, restante)
+        # Actualiza el bono
+        update_query = """
+            UPDATE `datos-clientes-441216.Conciliaciones.conductor_bonos`
+            SET saldo_disponible = saldo_disponible - @a_usar,
+                fecha_ultimo_uso = CURRENT_DATE(),
+                fecha_modificacion = CURRENT_TIMESTAMP(),
+                modificado_por = @usuario,
+                estado_bono = CASE WHEN saldo_disponible - @a_usar <= 0 THEN 'usado' ELSE 'activo' END
+            WHERE id = @bono_id
+        """
+        job_config_upd = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("a_usar", "FLOAT", a_usar),
+                bigquery.ScalarQueryParameter("usuario", "STRING", usuario),
+                bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id)
+            ]
+        )
+        client.query(update_query, job_config=job_config_upd).result()
+        restante -= a_usar
+        if restante <= 0:
+            break
+    if restante > 0:
+        raise Exception("Saldo de bono insuficiente para cubrir lo solicitado")
+
+def registrar_bono_excedente(employee_id, conductor_email, excedente, referencia_pago, descripcion, creado_por):
+    client = bigquery.Client()
+    table_id = "datos-clientes-441216.Conciliaciones.conductor_bonos"
+    bono = {
+        "id": f"BONO_{referencia_pago}_{employee_id}_{int(datetime.now().timestamp())}",
+        "employee_id": employee_id,
+        "conductor_email": conductor_email,
+        "tipo_bono": "excedente_pago",
+        "valor_bono": float(excedente),
+        "saldo_disponible": float(excedente),
+        "referencia_pago_origen": referencia_pago,
+        "descripcion": descripcion,
+        "fecha_generacion": date.today().isoformat(),
+        "estado_bono": "activo",
+        "fecha_ultimo_uso": None,
+        "fecha_creacion": datetime.now().isoformat(),
+        "fecha_modificacion": datetime.now().isoformat(),
+        "creado_por": creado_por,
+        "modificado_por": creado_por,
+    }
+    errors = client.insert_rows_json(table_id, [bono])
+    if errors:
+        print("❌ Error guardando bono excedente:", errors)
+    else:
+        print("✅ Bono excedente registrado correctamente")
+
 def obtener_employee_id_usuario(correo: str, client: bigquery.Client) -> Optional[int]:
     """
     ✅ MEJORADO: Obtiene el Employee_id con múltiples estrategias
@@ -387,6 +455,12 @@ async def obtener_bonos_disponibles(
             "error": str(e)
         }
 
+
+
+
+
+
+
 @router.post("/verificar-datos-conductor")
 async def verificar_datos_conductor(
     client: bigquery.Client = Depends(get_bigquery_client),
@@ -455,88 +529,6 @@ async def verificar_datos_conductor(
         
     except Exception as e:
         return {"error": str(e), "timestamp": datetime.now().isoformat()}
-
-@router.get("/test-connection")
-async def test_connection(
-    client: bigquery.Client = Depends(get_bigquery_client),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    ✅ MEJORADO: Test de conexión con información detallada
-    """
-    try:
-        print(f"🔧 Test de conexión para: {current_user}")
-        
-        user_email = current_user.get("correo") or current_user.get("sub")
-        employee_id = obtener_employee_id_usuario(user_email, client) if user_email else None
-        
-        # Test de conexión básica
-        query = "SELECT 1 as test, CURRENT_TIMESTAMP() as timestamp"
-        result = client.query(query).result()
-        basic_test = list(result)[0]
-        
-        # Test de guias_liquidacion
-        query_liquidacion = """
-        SELECT 
-            COUNT(*) as total_liquidacion,
-            COUNT(CASE WHEN estado_liquidacion = 'disponible' THEN 1 END) as disponibles,
-            COUNT(CASE WHEN estado_liquidacion = 'pagado' THEN 1 END) as pagadas,
-            COUNT(DISTINCT employee_id) as conductores_unicos
-        FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`
-        """
-        
-        # Test de COD_pendientes_v1
-        query_cod = """
-        SELECT 
-            COUNT(*) as total_cod,
-            COUNT(CASE WHEN Status_Big = '360 - Entregado al cliente' THEN 1 END) as entregadas,
-            COUNT(DISTINCT Employee_id) as conductores_cod
-        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1`
-        """
-        
-        liquidacion_result = list(client.query(query_liquidacion).result())[0]
-        cod_result = list(client.query(query_cod).result())[0]
-        
-        return {
-            "status": "ok",
-            "user": {
-                "email": user_email,
-                "rol": current_user.get("rol"),
-                "employee_id": employee_id
-            },
-            "bigquery_connection": {
-                "status": "ok",
-                "test_result": basic_test["test"],
-                "timestamp": basic_test["timestamp"].isoformat()
-            },
-            "tablas": {
-                "guias_liquidacion": {
-                    "total": int(liquidacion_result["total_liquidacion"]),
-                    "disponibles": int(liquidacion_result["disponibles"]),
-                    "pagadas": int(liquidacion_result["pagadas"]),
-                    "conductores": int(liquidacion_result["conductores_unicos"])
-                },
-                "cod_pendientes_v1": {
-                    "total": int(cod_result["total_cod"]),
-                    "entregadas": int(cod_result["entregadas"]),
-                    "conductores": int(cod_result["conductores_cod"])
-                }
-            },
-            "conductor_actual": {
-                "tiene_guias_disponibles": employee_id is not None,
-                "necesita_sincronizacion": cod_result["entregadas"] > liquidacion_result["total_liquidacion"]
-            },
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        print(f"❌ Error en test de conexión: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "user": current_user,
-            "timestamp": datetime.now().isoformat()
-        }
 
 # ✅ MANTENER ENDPOINTS EXISTENTES PARA COMPATIBILIDAD
 @router.get("/estadisticas-liquidacion")

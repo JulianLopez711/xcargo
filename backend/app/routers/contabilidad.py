@@ -84,6 +84,7 @@ async def obtener_resumen_contabilidad() -> List[Dict[str, Any]]:
                 WHERE cliente IS NOT NULL 
                     AND cliente != ''
                     AND valor IS NOT NULL
+                    AND fecha_pago >= '2025-06-09'
                     AND SAFE_CAST(valor AS FLOAT64) > 0
                 GROUP BY cliente, estado
             )
@@ -110,6 +111,7 @@ async def obtener_resumen_contabilidad() -> List[Dict[str, Any]]:
                     WHERE Cliente IS NOT NULL
                         AND Cliente != ''
                         AND Valor IS NOT NULL
+                        AND Status_Date >= '2025-06-09'
                         AND SAFE_CAST(Valor AS FLOAT64) > 0
                     GROUP BY Cliente, Status_Big
                 ),
@@ -143,6 +145,7 @@ async def obtener_resumen_contabilidad() -> List[Dict[str, Any]]:
                     WHERE Cliente IS NOT NULL
                         AND Cliente != ''
                         AND Valor IS NOT NULL
+                        AND Status_Date >= '2025-06-09'
                         AND SAFE_CAST(Valor AS FLOAT64) > 0
                     GROUP BY Cliente, Status_Big
                 )
@@ -350,6 +353,7 @@ async def obtener_resumen_cliente(cliente: str) -> Dict[str, Any]:
         WHERE UPPER(TRIM(cliente)) = @cliente_upper
             AND valor IS NOT NULL 
             AND SAFE_CAST(valor AS FLOAT64) > 0
+            AND fecha_pago >= '2025-06-09'
         GROUP BY estado
         """.format(
             project=PROJECT_ID,
@@ -505,6 +509,7 @@ def test_datos_muestra(limite: int = Query(5, ge=1, le=20)) -> Dict[str, Any]:
         FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
         WHERE cliente IS NOT NULL 
             AND valor IS NOT NULL
+            AND fecha_pago >= '2025-06-09'
         ORDER BY fecha_pago DESC
         LIMIT {limite}
         """

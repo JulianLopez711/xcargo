@@ -1,4 +1,9 @@
-# admin.py limpio y corregido
+"""
+Módulo de administración para el sistema XCargo.
+Maneja las rutas y funciones administrativas incluyendo verificación de permisos
+y gestión de entregas.
+"""
+
 from fastapi import APIRouter, HTTPException, Depends, Query, Header, Request
 from google.cloud import bigquery
 from datetime import datetime
@@ -28,6 +33,21 @@ def verificar_admin(
     x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
     x_user_role: Optional[str] = Header(None, alias="X-User-Role")
 ):
+    """
+    Verifica si el usuario tiene permisos de administrador.
+    
+    Args:
+        request (Request): Objeto de solicitud FastAPI
+        authorization (str, optional): Token de autorización
+        x_user_email (str, optional): Email del usuario en los headers
+        x_user_role (str, optional): Rol del usuario en los headers
+    
+    Returns:
+        dict: Información del usuario autorizado
+    
+    Raises:
+        HTTPException: Si el usuario no está autorizado o las credenciales son inválidas
+    """
     logger.info(f"🔐 Verificando admin para endpoint: {request.url.path}")
     logger.info(f"   - Email: {x_user_email} | Rol: {x_user_role}")
     if x_user_email and x_user_role:
@@ -37,6 +57,12 @@ def verificar_admin(
     raise HTTPException(status_code=403, detail="Credenciales no válidas")
 
 def verificar_bigquery():
+    """
+    Verifica la conexión con BigQuery realizando una consulta simple.
+    
+    Returns:
+        bool: True si la conexión está activa, False en caso contrario
+    """
     if not bq_client:
         logger.error("❌ BigQuery no inicializado")
         return False
@@ -57,6 +83,28 @@ async def listar_entregas(
     ciudad: Optional[str] = Query(None),
     user = Depends(verificar_admin)
 ):
+    """
+    Lista las entregas con filtros y paginación.
+    
+    Args:
+        request (Request): Objeto de solicitud FastAPI
+        page (int): Número de página actual (mínimo 1)
+        limit (int): Cantidad de registros por página (entre 1 y 100)
+        carrier (str, optional): Filtro por nombre del carrier
+        conductor (str, optional): Filtro por nombre del conductor
+        ciudad (str, optional): Filtro por ciudad
+        user (dict): Usuario autenticado (inyectado por verificar_admin)
+    
+    Returns:
+        dict: Contiene:
+            - entregas: Lista de entregas encontradas
+            - page: Página actual
+            - limit: Límite de registros
+            - total: Total de registros encontrados
+    
+    Raises:
+        HTTPException: Si hay error en la consulta o BigQuery no está disponible
+    """
     logger.info(f"📦 Listando entregas para: {user['correo']}")
 
     if not verificar_bigquery():

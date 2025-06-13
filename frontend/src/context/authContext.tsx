@@ -10,7 +10,6 @@ interface User {
   // ✅ Campos adicionales del backend
   nombre?: string;
   telefono?: string;
-  employee_id?: number;
   id_usuario?: string;
   clave_defecto?: boolean;
 }
@@ -84,7 +83,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     
     // Verificación inmediata
-    const verification = localStorage.getItem("token");
 
   };
 

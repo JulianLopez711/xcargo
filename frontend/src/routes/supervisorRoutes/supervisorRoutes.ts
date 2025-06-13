@@ -18,6 +18,18 @@ export const supervisorRoutes = [
     permission: "supervisor_pagos",
     icon: "💰"
   },
+  { 
+    name: "Guías Pendientes", 
+    path: "/supervisor/guias-pendientes", 
+    permission: "supervisor_guias",
+    icon: "📦"
+  },
+  { 
+    name: "Guías Entregadas", 
+    path: "/supervisor/guias-entregadas", 
+    permission: "supervisor_guias",
+    icon: "✅"
+  },
 ];
 
 // Función para obtener rutas disponibles según permisos del usuario

@@ -64,7 +64,6 @@ export default function DashboardContabilidad() {
         console.error("Formato de respuesta inválido:", data);
         setError("Formato de datos inválido recibido del servidor");
         setResumen([]);
-        mostrarDatosEjemplo();
       }
     } catch (err: unknown) {
       console.error("Error cargando resumen:", err);
@@ -81,39 +80,13 @@ export default function DashboardContabilidad() {
         } else {
           mensajeError = err.message;
         }
-      }
-      
+      } 
       setError(mensajeError);
-      mostrarDatosEjemplo();
     } finally {
       setCargando(false);
     }
   };
 
-  // Función separada para datos de ejemplo (solo en desarrollo)
-  const mostrarDatosEjemplo = () => {
-    const datosEjemplo: ClienteResumen[] = [
-      {
-        cliente: "DROPI - XCargo",
-        datos: [
-          { estado: "360 - Entregado al cliente", guias: 150, valor: 12500000, pendiente: 0 },
-          { estado: "302 - En ruta de última milla", guias: 25, valor: 2100000, pendiente: 2100000 },
-          { estado: "301 - Asignado a ruta de última milla", guias: 10, valor: 850000, pendiente: 850000 }
-        ]
-      },
-      {
-        cliente: "Cliente Ejemplo 2",
-        datos: [
-          { estado: "360 - Entregado al cliente", guias: 80, valor: 6400000, pendiente: 0 },
-          { estado: "302 - En ruta de última milla", guias: 15, valor: 1200000, pendiente: 1200000 }
-        ]
-      }
-    ];
-    
-    console.warn("Usando datos de ejemplo debido al error");
-    setResumen(datosEjemplo);
-    calcularEstadisticas(datosEjemplo);
-  };
 
   const calcularEstadisticas = (data: ClienteResumen[]) => {
     const stats = data.reduce((acc, cliente) => {

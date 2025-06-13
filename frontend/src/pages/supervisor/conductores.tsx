@@ -21,6 +21,8 @@ interface Conductor {
   calificacion: number;
 }
 
+const FECHA_INICIO = '2025-06-10';
+
 export default function ConductoresSupervisor() {
   const { user } = useAuth();
   const [conductores, setConductores] = useState<Conductor[]>([]);
@@ -153,6 +155,9 @@ if (loading) {
         <div className="empresa-info">
           <span className="empresa-badge">
             🏢 {user?.empresa_carrier || "Sin empresa asignada"}
+          </span>
+          <span className="fecha-badge">
+            📅 Datos desde: {new Date(FECHA_INICIO).toLocaleDateString()}
           </span>
         </div>
       </div>

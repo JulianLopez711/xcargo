@@ -1,0 +1,40 @@
+.guias-entregadas {
+  padding: 20px;
+}
+
+.guias-table {
+  margin-top: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.pagination {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+}
+
+.page-info {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.tracking {
+  font-family: monospace;
+  font-weight: bold;
+}
+
+.conductor-email {
+  display: block;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.departamento {
+  display: block;
+  font-size: 0.8rem;
+  color: #666;
+}

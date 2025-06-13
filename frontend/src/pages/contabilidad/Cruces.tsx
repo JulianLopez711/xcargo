@@ -66,17 +66,21 @@ interface ResumenConciliacion {
 }
 
 interface EstadisticasGenerales {
+  resumen_general: {
+    total_movimientos: number;
+    conciliados: number;
+    pendientes: number;
+    valor_total: number;
+    fecha_inicial?: string;
+    fecha_final?: string;
+  };
   resumen_por_estado: Array<{
     estado_conciliacion: string;
     cantidad: number;
     valor_total: number;
-    fecha_min: string;
-    fecha_max: string;
+    fecha_min?: string;
+    fecha_max?: string;
   }>;
-  totales: {
-    movimientos: number;
-    valor: number;
-  };
 }
 
 const Cruces: React.FC = () => {
@@ -99,37 +103,34 @@ const Cruces: React.FC = () => {
   // ✅ FUNCIÓN CARGAR ESTADÍSTICAS IMPLEMENTADA
   const cargarEstadisticas = async () => {
   try {
-    const res = await fetch("https://api.x-cargo.co/conciliacion/resumen-conciliacion");
-    if (!res.ok) throw new Error("Error al obtener estadísticas");
+    const response = await fetch("http://localhost:8000/conciliacion/resumen-conciliacion");
+    if (!response.ok) {
+      throw new Error("Error al obtener estadísticas");
+    }
+    
+    const data = await response.json();
+    
+    // Validar que data tenga la estructura esperada
+    if (!data || !data.resumen_por_estado) {
+      throw new Error("Respuesta inválida del servidor");
+    }
 
-    const data = await res.json();
-
-    const resumen: EstadisticasGenerales = {
-      resumen_por_estado: [
-        {
-          estado_conciliacion: "conciliado",
-          cantidad: data.resumen.reduce((acc: number, r: any) => acc + r.total_conciliados, 0),
-          valor_total: data.resumen.reduce((acc: number, r: any) => acc + r.total_valor, 0),
-          fecha_min: data.resumen[data.resumen.length - 1]?.fecha ?? "",
-          fecha_max: data.resumen[0]?.fecha ?? ""
-        },
-        {
-          estado_conciliacion: "pendiente",
-          cantidad: data.resumen.reduce((acc: number, r: any) => acc + r.total_pendientes, 0),
-          valor_total: 0, // Solo si lo deseas calcular también
-          fecha_min: data.resumen[data.resumen.length - 1]?.fecha ?? "",
-          fecha_max: data.resumen[0]?.fecha ?? ""
-        }
-      ],
-      totales: {
-        movimientos: data.resumen.reduce((acc: number, r: any) => acc + r.total_movimientos, 0),
-        valor: data.resumen.reduce((acc: number, r: any) => acc + r.total_valor, 0),
-      }
+    // Procesar los datos con validación
+    const estadisticas = {
+      resumen_general: data.resumen_general || {
+        total_movimientos: 0,
+        conciliados: 0,
+        pendientes: 0,
+        valor_total: 0
+      },
+      resumen_por_estado: data.resumen_por_estado || []
     };
 
-    setEstadisticasGenerales(resumen);
-  } catch (err) {
+    setEstadisticasGenerales(estadisticas);
+    
+  } catch (err: any) {
     console.error("Error cargando estadísticas:", err);
+    setMensaje(`❌ Error: ${err.message}`);
   }
 };
 
@@ -306,17 +307,20 @@ const Cruces: React.FC = () => {
         }),
       });
 
-      if (!res.ok) throw new Error("Error al marcar como conciliado");
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Error al conciliar");
+      }
 
-      setMensaje("✅ Marcado como conciliado manual.");
+      setMensaje("✅ Conciliación manual completada");
       
       // Recargar datos
-      cargarEstadisticas();
-      if (resultadoConciliacion) {
-        ejecutarConciliacion(); // Actualizar resultados
-      }
+      await cargarEstadisticas();
+      await ejecutarConciliacion(); // Actualizar resultados completos
+      
     } catch (err: any) {
-      setMensaje("❌ " + err.message);
+      setMensaje("❌ Error: " + err.message);
+      console.error("Error en conciliación manual:", err);
     }
   };
 
@@ -413,11 +417,11 @@ const Cruces: React.FC = () => {
           <div className="estadisticas-grid">
             <div className="stat-card">
               <h4>Total Movimientos</h4>
-              <p>{estadisticasGenerales?.totales?.movimientos ?? 0}</p>
+              <p>{estadisticasGenerales?.resumen_general?.total_movimientos ?? 0}</p>
             </div>
             <div className="stat-card">
               <h4>Valor Total</h4>
-              <p>${estadisticasGenerales?.totales?.valor?.toLocaleString() ?? 0}</p>
+              <p>${estadisticasGenerales?.resumen_general?.valor_total?.toLocaleString() ?? 0}</p>
             </div>
             {estadisticasGenerales?.resumen_por_estado?.map((estado) => (
               <div key={estado.estado_conciliacion} className="stat-card">
@@ -464,41 +468,6 @@ const Cruces: React.FC = () => {
             ) : (
               "Subir Archivo"
             )}
-          </button>
-        </div>
-
-        {/* ✅ BOTONES ADICIONALES ÚTILES */}
-        <div className="acciones-adicionales" style={{display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap'}}>
-          <button
-            className="boton-secundario"
-            onClick={validarDatos}
-            style={{
-              padding: '8px 16px',
-              background: '#64748b',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            🔍 Validar Datos
-          </button>
-          
-          <button
-            className="boton-secundario"
-            onClick={consultarEstadoReferencias}
-            style={{
-              padding: '8px 16px',
-              background: '#7c3aed',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            📊 Estado Referencias
           </button>
         </div>
 

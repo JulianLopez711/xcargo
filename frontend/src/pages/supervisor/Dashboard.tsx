@@ -42,6 +42,8 @@ interface Alerta {
   prioridad: string;
 }
 
+const FECHA_INICIO = '2025-06-10';
+
 export default function DashboardSupervisor() {
   const { user } = useAuth();
   const [carriers, setCarriers] = useState<Carrier[]>([]);
@@ -178,6 +180,11 @@ if (loading) {
             </span>
           )}
         </div>
+        <div className="periodo-info">
+          <span className="periodo-badge">
+            📅 Datos desde: {new Date(FECHA_INICIO).toLocaleDateString()}
+          </span>
+        </div>
       </div>
 
       {error && (
@@ -300,7 +307,7 @@ if (loading) {
               onClick={() => window.location.href = '/supervisor/guias-pendientes'}
             >
               <span className="action-icon">📦</span>
-              <span>Guías Pendientes</span>
+              <span>Guías Pendientes ({stats.guias_pendientes})</span>
             </button>
             <button 
               className="action-btn tertiary"

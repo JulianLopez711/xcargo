@@ -232,11 +232,11 @@ export default function PagosPendientes() {
       } else {
         const stats = data.estadisticas_guias_liquidacion;
         alert(`Verificación exitosa:
-- Employee ID: ${data.employee_id}
-- Email: ${data.email_consultado}
-- Total guías: ${stats?.total_guias || 0}
-- Disponibles: ${stats?.disponibles || 0}
-- Valor disponible: $${stats?.valor_disponible?.toLocaleString() || 0}`);
+        - Employee ID: ${data.employee_id}
+        - Email: ${data.email_consultado}
+        - Total guías: ${stats?.total_guias || 0}
+        - Disponibles: ${stats?.disponibles || 0}
+        - Valor disponible: $${stats?.valor_disponible?.toLocaleString() || 0}`);
       }
     } catch (error) {
       console.error('Error verificando datos:', error);
@@ -506,10 +506,24 @@ export default function PagosPendientes() {
             <span className="resumen-label">Total pendiente:</span>
             <span className="resumen-valor">${totalGlobal.toLocaleString()}</span>
           </div>
+          <div className="resumen-info">
+            <span className="resumen-label">Bono Disponible:</span>
+            <span className="resumen-valor" style={{ 
+              color: bonosDisponibles > 0 ? "#059669" : "#6b7280" 
+            }}>
+              ${bonosDisponibles.toLocaleString()}
+            </span>
+          </div>
           <div className="resumen-stats">
             <span>{pagos.length} guías</span>
             <span>•</span>
             <span>{seleccionados.length} seleccionadas</span>
+            {bonosDisponibles > 0 && (
+              <>
+                <span>•</span>
+                <span style={{ color: "#059669" }}>{detallesBonos.length} bonos</span>
+              </>
+            )}
           </div>
         </div>
       </div>
