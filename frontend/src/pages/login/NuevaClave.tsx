@@ -52,134 +52,61 @@ export default function CambiarClave() {
       return;
     }
 
+    if (fortaleza < 3) {
+      setError("La contraseña debe ser más segura. Incluye mayúsculas, minúsculas, números y símbolos.");
+      return;
+    }
+
     setCargando(true);
 
     try {
-      // 🔧 SOLUCIÓN: Obtener código del localStorage o del servidor
-      let codigoFinal = null;
       const codigoStorage = localStorage.getItem("codigo_recuperacion");
       
-
-
-      // Verificar si hay código válido en localStorage
-      if (codigoStorage && codigoStorage !== 'null' && codigoStorage.trim() !== '') {
-        codigoFinal = codigoStorage;
-
-      } else {
-
-        
-        try {
-          const debugResponse = await fetch("https://api.x-cargo.co/auth/debug-codigos", {
-            method: 'GET',
-            headers: { 
-              'Content-Type': 'application/json'
-            }
-          });
-          
-          if (!debugResponse.ok) {
-            throw new Error('Error obteniendo códigos del servidor');
-          }
-          
-          const debugData = await debugResponse.json();
-
-          
-          if (debugData.codigos_activos && debugData.codigos_activos[correo] && debugData.codigos_activos[correo].codigo) {
-            codigoFinal = debugData.codigos_activos[correo].codigo;
-          } else {
-            throw new Error('No hay código activo en el servidor para este correo');
-          }
-        } catch (debugError) {
-          console.error('❌ Error obteniendo código del servidor:', debugError);
-          setError("No se encontró código activo. Por favor solicita un código nuevo desde 'Recuperar contraseña'.");
-          setTimeout(() => navigate("/recuperar-clave"), 2000);
-          return;
-        }
+      if (!codigoStorage) {
+        throw new Error("No hay código de verificación. Por favor solicita uno nuevo.");
       }
 
-      // 🔧 SOLUCIÓN: Construir el body correctamente
-      const requestBody = {
-        correo: correo,
-        nueva_clave: nueva,
-        ...(codigoFinal && { codigo: codigoFinal }) // Solo incluir código si existe
-      };
-
-
-
-      // 🔧 SOLUCIÓN: Headers mejorados
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json"
-      };
-
-      // Agregar token si existe (para usuarios logueados)
-      const authToken = localStorage.getItem('authToken');
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
-      }
+      const formData = new FormData();
+      formData.append("correo", correo);
+      formData.append("nueva_clave", nueva);
+      formData.append("codigo", codigoStorage);
 
       const res = await fetch("https://api.x-cargo.co/auth/cambiar-clave", {
         method: "POST",
-        headers: headers,
-        body: JSON.stringify(requestBody),
+        body: formData
       });
 
-
-
-      // 🔧 SOLUCIÓN: Manejo robusto de respuesta
       let data;
-      const responseText = await res.text();
-      
       try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('❌ Error parseando respuesta:', parseError);
-        data = { detail: responseText || 'Respuesta inválida del servidor' };
+        data = await res.json();
+      } catch (jsonError) {
+        console.error("Error al parsear respuesta:", jsonError);
+        const textoPlano = await res.text();
+        data = { detail: textoPlano || "Respuesta inválida del servidor" };
       }
-
 
       if (!res.ok) {
-        const errorMessage = data.detail || data.mensaje || `Error ${res.status}: ${res.statusText}`;
-        throw new Error(errorMessage);
+        throw new Error(data.detail || "Error cambiando la contraseña");
       }
 
-      // 🔧 SOLUCIÓN: Mensaje de éxito y limpieza
-      setMensaje(data.mensaje || "Contraseña actualizada correctamente");
+      setMensaje("Contraseña actualizada correctamente");
       
       // Limpiar localStorage
       localStorage.removeItem("correo_recuperacion");
       localStorage.removeItem("codigo_recuperacion");
-
-      // Redireccionar después de un breve delay
+      
+      // Redirigir al login después de 2 segundos
       setTimeout(() => {
-        navigate("/");
+        navigate("/login");
       }, 2000);
 
     } catch (err: any) {
-      console.error('❌ Error completo:', err);
+      console.error("❌ Error completo:", err);
+      setError(err.message || "Error al cambiar la contraseña");
       
-      // 🔧 SOLUCIÓN: Manejo de errores específicos
-      let errorMessage = 'Error inesperado al cambiar la contraseña';
-      
-      if (err.message) {
-        if (err.message.includes('código')) {
-          errorMessage = err.message;
-        } else if (err.message.includes('contraseña')) {
-          errorMessage = err.message;
-        } else if (err.message.includes('correo')) {
-          errorMessage = err.message;
-        } else {
-          errorMessage = err.message;
-        }
+      if (err.message?.includes("código")) {
+        setTimeout(() => navigate("/recuperar-clave"), 2000);
       }
-      
-      setError(errorMessage);
-      
-      // Si es error relacionado con código, redirigir después de un tiempo
-      if (errorMessage.includes('código') || errorMessage.includes('activo')) {
-        setTimeout(() => {
-          navigate("/recuperar-clave");
-        }, 3000);
-      }
-      
     } finally {
       setCargando(false);
     }

@@ -1,0 +1,220 @@
+.carrier-management-container {
+  max-width: 1400px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.carrier-management-container h1 {
+  color: #2c3e50;
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.filtros-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.filtro-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filtro-grupo label {
+  font-weight: 500;
+  color: #495057;
+}
+
+.filtro-grupo input,
+.filtro-grupo select {
+  padding: 0.75rem;
+  border: 2px solid #e9ecef;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.filtro-grupo input:focus,
+.filtro-grupo select:focus {
+  border-color: #3498db;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+/* Los estilos del loading ahora vienen del componente LoadingContainer */
+
+.mensaje {
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: center;
+  margin: 1rem 0;
+  font-weight: 500;
+}
+
+.mensaje.error {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.carriers-grid {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+}
+
+.carrier-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  padding: 1.5rem;
+  border: 1px solid #e9ecef;
+}
+
+.carrier-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #f8f9fa;
+}
+
+.carrier-header h2 {
+  color: #2c3e50;
+  margin: 0;
+}
+
+.carrier-stats {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+
+.stat-value {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.estados-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.estado-card {
+  padding: 1rem;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.estado-card.entregado { background: #d4edda; color: #155724; }
+.estado-card.en_ruta { background: #cce5ff; color: #004085; }
+.estado-card.pendiente { background: #fff3cd; color: #856404; }
+.estado-card.novedad { background: #f8d7da; color: #721c24; }
+
+.estado-nombre {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.estado-cantidad {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.guias-table-container {
+  overflow-x: auto;
+  margin-top: 1.5rem;
+}
+
+.guias-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.guias-table th,
+.guias-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.guias-table th {
+  background: #f8f9fa;
+  color: #495057;
+  font-weight: 600;
+}
+
+.guias-table tr:hover {
+  background: #f8f9fa;
+}
+
+.estado-tag {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.estado-tag.entregado { background: #d4edda; color: #155724; }
+.estado-tag.en_ruta { background: #cce5ff; color: #004085; }
+.estado-tag.pendiente { background: #fff3cd; color: #856404; }
+.estado-tag.novedad { background: #f8d7da; color: #721c24; }
+
+@media (max-width: 768px) {
+  .carrier-management-container {
+    margin: 1rem;
+    padding: 1rem;
+  }
+
+  .carriers-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .carrier-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .carrier-stats {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .guias-table {
+    font-size: 0.8rem;
+  }
+
+  .guias-table th,
+  .guias-table td {
+    padding: 0.5rem;
+  }
+}

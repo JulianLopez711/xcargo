@@ -150,7 +150,6 @@ export default function FormCrearUsuario() {
 
     try {
       // Generar ID único para el usuario
-      const id_usuario = generarIdUsuario(usuario.correo);
       console.log("📤 Enviando datos de usuario:", {
         nombre: usuario.nombre,
         correo: usuario.correo,
@@ -310,13 +309,6 @@ export default function FormCrearUsuario() {
   }, [usuario.correo]);
 
   // Generar ID único para el usuario
-  const generarIdUsuario = (correo: string): string => {
-    const timestamp = Date.now();
-    const randomStr = Math.random().toString(36).substring(2, 8);
-    const emailPart = correo.split('@')[0].substring(0, 8);
-    return `USR_${emailPart}_${randomStr}_${timestamp}`.toUpperCase();
-  };
-
   return (
     <div className="form-crear-usuario">
       <h2>Crear Nuevo Usuario</h2>

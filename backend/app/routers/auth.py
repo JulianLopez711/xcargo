@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Form, Body
+from fastapi import APIRouter, HTTPException, Form, Body, Request
 from pydantic import BaseModel
 from typing import Optional
 from google.cloud import bigquery
@@ -25,6 +25,7 @@ codigo_expiracion = {}
 
 SECRET_KEY = "supersecreto"
 ALGORITHM = "HS256"
+CODIGO_DURACION_MINUTOS = 15
 
 def cargar_codigos_desde_archivo():
     """Carga códigos desde archivo al iniciar el servidor"""
@@ -60,26 +61,69 @@ def guardar_codigos_en_archivo():
             json.dump(data, f)
         print(f"💾 Códigos guardados: {len(codigo_temporal)}")
     except Exception as e:
-        print(f"⚠️ Error guardando: {e}")
+        print(f"⚠️ Error guardando códigos: {e}")
 
 def limpiar_codigos_expirados():
     """Limpia códigos expirados automáticamente"""
-    ahora = datetime.utcnow()
-    expirados = [
-        correo for correo, expira in codigo_expiracion.items() 
-        if ahora > expira
-    ]
+    ahora = datetime.now()
+    expirados = []
+    
+    for correo, expira in codigo_expiracion.items():
+        if ahora > expira:
+            expirados.append(correo)
+            
     for correo in expirados:
         if correo in codigo_temporal:
             del codigo_temporal[correo]
-        del codigo_expiracion[correo]
+        if correo in codigo_expiracion:
+            del codigo_expiracion[correo]
     
     if expirados:
         print(f"🧹 Códigos expirados limpiados: {len(expirados)} - {expirados}")
         guardar_codigos_en_archivo()
+    
+    return len(expirados) > 0
 
-# Cargar códigos al inicializar el módulo
-cargar_codigos_desde_archivo()
+def verificar_codigo(correo: str, codigo: str, eliminar: bool = True) -> bool:
+    """Verifica si un código es válido y no ha expirado"""
+    correo = correo.lower().strip()
+    
+    # Verificar si existe un código para este correo
+    if correo not in codigo_temporal:
+        print(f"❌ Código no encontrado en memoria para {correo}")
+        return False
+    
+    # Verificar si el código ha expirado
+    if correo in codigo_expiracion:
+        ahora = datetime.now()
+        if ahora > codigo_expiracion[correo]:
+            print(f"❌ Código expirado para {correo}")
+            if eliminar:
+                limpiar_codigos_expirados()
+            return False
+    
+    # Verificar si el código coincide
+    codigo_almacenado = codigo_temporal[correo]
+    if codigo != codigo_almacenado:
+        print(f"❌ Código inválido para {correo}")
+        return False
+    
+    print(f"✅ Código verificado correctamente para {correo}")
+    
+    # Solo eliminar si se solicita
+    if eliminar:
+        eliminar_codigo(correo)
+    
+    return True
+
+def eliminar_codigo(correo: str):
+    """Elimina un código después de usarlo exitosamente"""
+    correo = correo.lower().strip()
+    if correo in codigo_temporal:
+        del codigo_temporal[correo]
+    if correo in codigo_expiracion:
+        del codigo_expiracion[correo]
+    guardar_codigos_en_archivo()
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -210,11 +254,10 @@ def login(data: LoginRequest):
     ruta_defecto = (
         ruta_rows[0]["ruta_defecto"] if ruta_rows and ruta_rows[0]["ruta_defecto"]
         else (permisos[0]["ruta"] if permisos else "/")
-    )
-
-    # 5. Generar JWT y retornar
+    )    # 5. Generar JWT y retornar
     payload = {
-        "sub": datos_usuario["correo"],
+        "sub": datos_usuario["correo"],  # Mantener sub para compatibilidad JWT
+        "correo": datos_usuario["correo"],  # Agregar correo explícitamente
         "rol": cred["rol"],
         "exp": datetime.utcnow() + timedelta(hours=12)
     }
@@ -238,140 +281,95 @@ def login(data: LoginRequest):
 
 
 @router.post("/cambiar-clave")
-def cambiar_clave(request_data: dict = Body(...)):
-    """
-    Endpoint unificado para cambio de contraseña
-    Maneja: recuperación con código, cambio normal, y primera configuración
-    """
-    # Cargar códigos por si el servidor se reinició
-    cargar_codigos_desde_archivo()
-    
-    client = bigquery.Client()
-    
+async def cambiar_clave(request: Request):
+    """Endpoint para cambiar contraseña con código de verificación"""
     try:
+        # Intentar obtener datos como JSON primero
+        try:
+            data = await request.json()
+            correo = data.get("correo")
+            nueva_clave = data.get("nueva_clave")
+            codigo = data.get("codigo")
+        except:
+            # Si no es JSON, intentar como form data
+            form = await request.form()
+            correo = form.get("correo")
+            nueva_clave = form.get("nueva_clave")
+            codigo = form.get("codigo")
         
-        # DETECTAR TIPO DE SOLICITUD
-        correo = request_data.get("correo", "").lower().strip()
-        nueva_clave = request_data.get("nueva_clave", "")
-        codigo = request_data.get("codigo")
-        
-        # DEBUG: Mostrar estado de códigos
-        print(f"🔍 DEBUG códigos:")
-        print(f"   - Correo solicitante: {correo}")
-        print(f"   - Código recibido: {codigo}")
-        print(f"   - Códigos temporales activos: {list(codigo_temporal.keys())}")
-        print(f"   - Código almacenado para este correo: {codigo_temporal.get(correo, 'NO ENCONTRADO')}")
-        print(f"   - Archivo de códigos existe: {os.path.exists(TEMP_CODES_FILE)}")
-        
-        # Mostrar información de expiración
-        if correo in codigo_expiracion:
-            print(f"   - Expiración: {codigo_expiracion[correo]}")
-            print(f"   - Tiempo actual: {datetime.utcnow()}")
-            print(f"   - ¿Expirado?: {datetime.utcnow() > codigo_expiracion[correo]}")
-        
-        # Validaciones básicas
-        if not correo or '@' not in correo:
-            raise HTTPException(status_code=400, detail="Correo válido requerido")
-        
-        if not nueva_clave or len(nueva_clave) < 8:
-            raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 8 caracteres")
-        
-        # CASO 1: Recuperación con código
-        if codigo:
-            # Limpiar códigos expirados primero
-            limpiar_codigos_expirados()
+        if not all([correo, nueva_clave, codigo]):
+            raise HTTPException(
+                status_code=422,
+                detail="Se requieren correo, nueva contraseña y código"
+            )
             
-            # Verificar que existe el código para este correo
-            if correo not in codigo_temporal:
-                print(f"❌ No hay código activo para {correo}")
-                print(f"   - Intentando recargar desde archivo...")
-                cargar_codigos_desde_archivo()
-                
-                if correo not in codigo_temporal:
-                    raise HTTPException(status_code=400, detail="No hay código activo para este correo. Solicita uno nuevo.")
-                else:
-                    print(f"✅ Código encontrado después de recargar archivo")
-            
-            # Verificar expiración específica
-            if correo in codigo_expiracion and datetime.utcnow() > codigo_expiracion[correo]:
-                print(f"❌ Código expirado para {correo}")
-                # Limpiar código expirado
-                del codigo_temporal[correo]
-                del codigo_expiracion[correo]
-                guardar_codigos_en_archivo()
-                raise HTTPException(status_code=400, detail="Código expirado. Solicita uno nuevo.")
-            
-            # Verificar coincidencia del código
-            if codigo_temporal.get(correo) != codigo:
-                print(f"❌ Código incorrecto: esperado={codigo_temporal.get(correo)}, recibido={codigo}")
-                raise HTTPException(status_code=400, detail="Código incorrecto")
-            
-            print(f"✅ Código validado correctamente para {correo}")
+        correo = correo.lower().strip()
         
-        # Verificar que el usuario existe
-        query_exists = """
-            SELECT correo, clave_defecto
-            FROM `datos-clientes-441216.Conciliaciones.credenciales`
+        print(f"🔄 Cambiando contraseña para: {correo}")
+        print(f"   - Código proporcionado: {codigo}")
+        print(f"   - Códigos activos: {list(codigo_temporal.keys())}")
+        
+        # Verificar si hay un código activo
+        if correo not in codigo_temporal:
+            raise HTTPException(
+                status_code=400,
+                detail="No hay código activo para este correo. Solicita uno nuevo."
+            )
+            
+        # Verificar el código
+        codigo_almacenado = codigo_temporal.get(correo)
+        if codigo != codigo_almacenado:
+            raise HTTPException(
+                status_code=400,
+                detail="Código inválido. Por favor verifica e intenta nuevamente."
+            )
+            
+        # Verificar que el código no haya expirado
+        if correo not in codigo_expiracion or datetime.now() > codigo_expiracion[correo]:
+            raise HTTPException(
+                status_code=400,
+                detail="El código ha expirado. Por favor solicita uno nuevo."
+            )
+            
+        # Hash de la nueva contraseña
+        hashed_password = bcrypt.hashpw(nueva_clave.encode(), bcrypt.gensalt()).decode()
+        
+        # Actualizar en BigQuery
+        client = bigquery.Client()
+        query = """
+            UPDATE `datos-clientes-441216.Conciliaciones.credenciales`
+            SET hashed_password = @password,
+                actualizado_en = CURRENT_TIMESTAMP()
             WHERE correo = @correo
-            LIMIT 1
         """
+        
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("correo", "STRING", correo)
+                bigquery.ScalarQueryParameter("password", "STRING", hashed_password),
+                bigquery.ScalarQueryParameter("correo", "STRING", correo),
             ]
         )
-        result = client.query(query_exists, job_config=job_config).result()
-        rows = list(result)
         
-        if not rows:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        result = client.query(query, job_config=job_config).result()
         
-        # Actualizar contraseña
-        nueva_hash = hash_clave(nueva_clave)
-        
-        query_insert_clave = f"""
-            INSERT INTO `datos-clientes-441216.Conciliaciones.credenciales` (
-                correo, clave, creado_en, forzar_cambio
-            )
-            VALUES (
-                @correo, @clave, CURRENT_TIMESTAMP(), FALSE
-            )
-            """
-
-        job_config_insert = bigquery.QueryJobConfig(query_parameters=[
-            bigquery.ScalarQueryParameter("correo", "STRING", correo),
-            bigquery.ScalarQueryParameter("clave", "STRING", nueva_clave),
-        ])
-
-        client.query(query_insert_clave, job_config=job_config_insert).result()
-        logger.info(f"✅ Nueva clave insertada correctamente para {correo}")
-        
-        # Eliminar código usado si existe
-        if correo in codigo_temporal:
-            del codigo_temporal[correo]
-            print(f"🧹 Código eliminado después del uso exitoso")
-        if correo in codigo_expiracion:
-            del codigo_expiracion[correo]
-        
-        # Actualizar archivo
-        guardar_codigos_en_archivo()
+        # Eliminar el código después de usarlo
+        eliminar_codigo(correo)
         
         print(f"✅ Contraseña actualizada exitosamente para: {correo}")
         return {"mensaje": "Contraseña actualizada correctamente"}
         
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"❌ Error en cambiar_clave: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Error interno del servidor")
+        print(f"❌ Error en cambiar_clave: {str(e)}")
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(
+            status_code=500,
+            detail="Error al cambiar la contraseña. Por favor intente nuevamente."
+        )
 
 @router.post("/solicitar-codigo")
-def solicitar_codigo(
-    correo: str = Form(...),
-    clave_ingresada: str = Form(...)
-):
+def solicitar_codigo(correo: str = Form(...)):
+    """Endpoint para solicitar código de recuperación de contraseña"""
     client = bigquery.Client()
     correo = correo.lower().strip()
     
@@ -381,123 +379,137 @@ def solicitar_codigo(
     # Limpiar códigos expirados
     limpiar_codigos_expirados()
     
-    # Verificar que el usuario existe
-    query_clave = """
-    SELECT clave
-    FROM `datos-clientes-441216.Conciliaciones.credenciales`
-    WHERE correo = @correo
-    ORDER BY creado_en DESC
-    LIMIT 1
-    """
-
-    job_config = bigquery.QueryJobConfig(query_parameters=[
-        bigquery.ScalarQueryParameter("correo", "STRING", correo),
-    ])
-
-    result = client.query(query_clave, job_config=job_config).result()
-    clave_registrada = next(result, None)
-
-    if not clave_registrada:
-        raise HTTPException(status_code=401, detail="Usuario no encontrado")
-
-    # Validar la clave con la ingresada
-    if clave_registrada.clave != clave_ingresada:
-        raise HTTPException(status_code=401, detail="Clave incorrecta")
-
-    # Generar código con expiración
-    codigo = ''.join(random.choices(string.digits, k=6))
-    expiracion = datetime.utcnow() + timedelta(minutes=15)
-    
-    # Guardar en memoria
-    codigo_temporal[correo] = codigo
-    codigo_expiracion[correo] = expiracion
-    
-    # Guardar en archivo para persistencia
-    guardar_codigos_en_archivo()
-    
-    print(f"📧 Código generado y guardado:")
-    print(f"   - Correo: {correo}")
-    print(f"   - Código: {codigo}")
-    print(f"   - Expira: {expiracion}")
-    print(f"   - Total códigos: {len(codigo_temporal)}")
-    print(f"   - Guardado en archivo: ✅")
-    
-    # Enviar código por email
     try:
-        enviado = enviar_codigo_verificacion(correo, codigo)
-        if not enviado:
-            print(f"⚠️ Email falló, pero código mantenido para desarrollo")
-        else:
-            print(f"✅ Email enviado exitosamente")
-    except Exception as e:
-        print(f"⚠️ Error enviando email: {e}")
-        print(f"   - Código mantenido para desarrollo")
+        # Verificar que el usuario existe en ambas tablas
+        query_usuario = """
+        SELECT u.correo, u.nombre, c.rol
+        FROM `datos-clientes-441216.Conciliaciones.usuarios` u
+        JOIN `datos-clientes-441216.Conciliaciones.credenciales` c
+        ON u.correo = c.correo
+        WHERE u.correo = @correo
+        LIMIT 1
+        """
 
-    return {
-        "mensaje": "Código enviado correctamente al correo",
-        "debug_info": f"Código guardado para {correo} (expira en 15 min)"
-    }
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("correo", "STRING", correo)
+            ]
+        )
+
+        # Ejecutar consulta
+        result = client.query(query_usuario, job_config=job_config).result()
+        usuario = next(result, None)
+
+        if not usuario:
+            print(f"❌ Usuario no encontrado: {correo}")
+            raise HTTPException(
+                status_code=404, 
+                detail="No se encontró una cuenta asociada a este correo electrónico"
+            )
+        
+        # Generar código aleatorio de 6 dígitos
+        codigo = ''.join(random.choices(string.digits, k=6))
+        
+        # Guardar código y su tiempo de expiración (15 minutos)
+        codigo_temporal[correo] = codigo
+        codigo_expiracion[correo] = datetime.now() + timedelta(minutes=15)
+        
+        # Persistir códigos en archivo
+        guardar_codigos_en_archivo()
+        
+        # Enviar correo con el código
+        enviar_codigo_verificacion(correo, codigo)
+        
+        print(f"✅ Código enviado exitosamente a: {correo}")
+        return {
+            "mensaje": "Código enviado correctamente",
+            "correo": correo,
+            "expiracion": codigo_expiracion[correo].isoformat()
+        }
+        
+    except Exception as e:
+        print(f"❌ Error en solicitar_codigo: {str(e)}")
+        if isinstance(e, HTTPException):
+            raise e
+        logger.error(f"Error enviando código: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Error al enviar el código de verificación. Por favor intente nuevamente."
+        )
 
 @router.post("/verificar-codigo")
-def verificar_codigo(data: VerificarCodigoRequest):
-    correo = data.correo.lower().strip()
-    
-    print(f"🔍 Verificando código para: {correo}")
-    print(f"   - Código recibido: {data.codigo}")
-    print(f"   - Total códigos en memoria: {len(codigo_temporal)}")
-    print(f"   - Todos los códigos: {list(codigo_temporal.keys())}")
-    print(f"   - Código almacenado para este correo: {codigo_temporal.get(correo, 'NO ENCONTRADO')}")
-    
-    # Limpiar códigos expirados
-    limpiar_codigos_expirados()
-    
-    # Verificar que existe el código
-    if correo not in codigo_temporal:
-        print(f"❌ Código no encontrado en memoria para {correo}")
-        raise HTTPException(status_code=400, detail="No hay código activo para este correo")
-    
-    # Verificar expiración específica
-    if correo in codigo_expiracion and datetime.utcnow() > codigo_expiracion[correo]:
-        print(f"❌ Código expirado para {correo}")
-        codigo_temporal.pop(correo, None)
-        codigo_expiracion.pop(correo, None)
-        guardar_codigos_en_archivo()
-        raise HTTPException(status_code=400, detail="Código expirado")
-    
-    # Verificar código
-    if codigo_temporal.get(correo) != data.codigo:
-        print(f"❌ Código incorrecto: esperado={codigo_temporal.get(correo)}, recibido={data.codigo}")
-        raise HTTPException(status_code=400, detail="Código incorrecto")
-    
-    # NO eliminar el código aquí - mantenerlo para cambiar-clave
-    print(f"✅ Código verificado correctamente para: {correo}")
-    print(f"   - Código mantenido para cambio de contraseña")
-    print(f"   - Códigos restantes: {list(codigo_temporal.keys())}")
-    
-    return {"mensaje": "Código verificado. Puedes cambiar tu contraseña."}
+async def verificar_codigo_endpoint(request: Request):
+    """Endpoint para verificar código de recuperación"""
+    try:
+        # Intentar obtener datos como JSON primero
+        try:
+            data = await request.json()
+            correo = data.get("correo")
+            codigo = data.get("codigo")
+        except:
+            # Si no es JSON, intentar como form data
+            form = await request.form()
+            correo = form.get("correo")
+            codigo = form.get("codigo")
+        
+        if not correo or not codigo:
+            raise HTTPException(
+                status_code=422,
+                detail="Se requiere correo y código"
+            )
+            
+        correo = correo.lower().strip()
+        
+        print(f"🔍 Verificando código para: {correo}")
+        print(f"   - Código recibido: {codigo}")
+        print(f"   - Total códigos en memoria: {len(codigo_temporal)}")
+        print(f"   - Todos los códigos: {list(codigo_temporal.keys())}")
+        
+        if correo in codigo_temporal:
+            print(f"   - Código almacenado para este correo: {codigo_temporal[correo]}")
+        
+        # Verificar el código sin eliminarlo
+        if not verificar_codigo(correo, codigo, eliminar=False):
+            raise HTTPException(
+                status_code=400,
+                detail="Código inválido o expirado. Por favor solicite un nuevo código."
+            )
+        
+        # Extender el tiempo de expiración por 5 minutos más para dar tiempo a cambiar la contraseña
+        if correo in codigo_expiracion:
+            codigo_expiracion[correo] = datetime.now() + timedelta(minutes=5)
+            guardar_codigos_en_archivo()
+        
+        return {
+            "mensaje": "Código verificado correctamente",
+            "correo": correo
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error en verificar_codigo_endpoint: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Error al verificar el código. Por favor intente nuevamente."
+        )
 
 @router.get("/debug-codigos")
-def debug_codigos():
-    """Debug de códigos con información del archivo - ELIMINAR EN PRODUCCIÓN"""
-    cargar_codigos_desde_archivo()  # Recargar por si acaso
+async def debug_codigos():
+    """Endpoint para verificar códigos activos (solo en desarrollo)"""
+    codigos_activos = {}
+    ahora = datetime.now()
     
-    ahora = datetime.utcnow()
-    debug_info = {}
-    
-    for correo in codigo_temporal:
-        debug_info[correo] = {
-            "codigo": codigo_temporal[correo],
-            "expira": codigo_expiracion.get(correo, "Sin expiración").isoformat() if correo in codigo_expiracion else "Sin expiración",
-            "expirado": correo in codigo_expiracion and ahora > codigo_expiracion[correo],
-            "tiempo_restante": str(codigo_expiracion[correo] - ahora) if correo in codigo_expiracion and ahora < codigo_expiracion[correo] else "Expirado"
-        }
+    for correo, codigo in codigo_temporal.items():
+        if correo in codigo_expiracion and codigo_expiracion[correo] > ahora:
+            codigos_activos[correo] = {
+                "codigo": codigo,
+                "expira": codigo_expiracion[correo].isoformat()
+            }
     
     return {
-        "tiempo_actual": ahora.isoformat(),
-        "codigos_activos": debug_info,
-        "total_codigos": len(codigo_temporal),
-        "archivo_existe": os.path.exists(TEMP_CODES_FILE),
-        "memoria_vs_archivo": "Sincronizado" if len(codigo_temporal) > 0 else "Memoria vacía"
+        "codigos_activos": codigos_activos,
+        "total_codigos": len(codigos_activos),
+        "timestamp": ahora.isoformat()
     }
 
 def obtener_datos_usuario_completos(correo: str, rol: str, client: bigquery.Client):

@@ -12,6 +12,7 @@ import RoleManagement from "../pages/admin/RoleManagement";
 import GeneralSettings from "../pages/admin/GeneralSettings";
 //master
 import DashboardMaster from "../pages/master/DashboardMaster";
+import CarrierManagement from "../pages/master/CarrierManagement";
 //import Carriers from "../pages/master/Carriers";
 //import Supervisores from "../pages/master/Supervisores";
 //import Reportes from "../pages/master/Reportes";
@@ -41,8 +42,6 @@ import FormularioPagoConductor from "../pages/conductor/RegistrarPago";
 import DashboardSupervisor from "../pages/supervisor/Dashboard";
 import ConductoresSupervisor from "../pages/supervisor/conductores";
 import PagosSupervisor from "../pages/supervisor/pagos";
-import GuiasPendientes from "../pages/supervisor/guias-pendientes";
-import GuiasEntregadas from "../pages/supervisor/guias-entregadas";
 
 // Recuperación de contraseña
 import RecuperarClave from "../pages/login/RecuperarClave";
@@ -103,8 +102,7 @@ export default function AppRoutes() {
               <RoleManagement />
             </ProtectedRoute>
           }
-        />
-        <Route
+        />        <Route
           path="/admin/configuracion"
           element={
             <ProtectedRoute requiredPermission="admin_dashboard">
@@ -112,8 +110,21 @@ export default function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin/carriers"
+          element={
+            <ProtectedRoute requiredPermission="admin_dashboard">
+              <CarrierManagement />
+            </ProtectedRoute>
+          }
+        />
       </Route>
+
+
+
       {/* MASTER - Usando permisos específicos */}
+
+
       <Route
         element={
           <ProtectedRoute requiredPermission="master_dashboard">
@@ -133,7 +144,7 @@ export default function AppRoutes() {
           path="/master/carriers"
           element={
             <ProtectedRoute requiredPermission="master_carriers">
-              <div>Gestión de Carriers</div>
+              <CarrierManagement/>
             </ProtectedRoute>
           }
         />
@@ -172,6 +183,7 @@ export default function AppRoutes() {
       </Route>
 
       {/* SUPERVISOR */}
+      {/* SUPERVISOR */}
       <Route
         element={
           <ProtectedRoute requiredPermission="supervisor_dashboard">
@@ -180,21 +192,19 @@ export default function AppRoutes() {
         }
       >
         <Route path="/supervisor/dashboard" element={<DashboardSupervisor />} />
-        <Route path="/supervisor/conductores" element={<ConductoresSupervisor />} />
-        <Route path="/supervisor/pagos" element={<PagosSupervisor />} />
         <Route
-          path="/supervisor/guias-pendientes"
+          path="/supervisor/conductores"
           element={
-            <ProtectedRoute requiredPermission="supervisor_guias">
-              <GuiasPendientes />
+            <ProtectedRoute requiredPermission="supervisor_conductores">
+              <ConductoresSupervisor />
             </ProtectedRoute>
           }
         />
         <Route
-          path="/supervisor/guias-entregadas"
+          path="/supervisor/pagos"
           element={
-            <ProtectedRoute requiredPermission="supervisor_guias">
-              <GuiasEntregadas />
+            <ProtectedRoute requiredPermission="supervisor_pagos">
+              <PagosSupervisor />
             </ProtectedRoute>
           }
         />

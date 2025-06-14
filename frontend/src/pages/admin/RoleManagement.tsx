@@ -308,16 +308,17 @@ export default function RoleManagement() {
       </div>
     );
   }
+  const renderLoading = () => (
+    <div className="role-management-container">
+      <div className="loading">
+        <div className="spinner"></div>
+        <p>Cargando roles y permisos...</p>
+      </div>
+    </div>
+  );
 
   if (estado.isLoading && !roles.length && !permisos.length) {
-    return (
-      <div className="role-management-container">
-        <div className="loading">
-          <div className="spinner"></div>
-          <p>Cargando roles y permisos...</p>
-        </div>
-      </div>
-    );
+    return renderLoading();
   }
 
   return (
@@ -347,7 +348,8 @@ export default function RoleManagement() {
         <div className="gestionar-container">
           <h2>Roles y sus Permisos</h2>
           <div className="roles-list">
-            {roles.map((rol) => (
+            {estado.isLoading && renderLoading()}
+            {!estado.isLoading && roles.map((rol) => (
               <div key={rol.id_rol} className="rol-card">
                 <h3>{rol.nombre_rol}</h3>
                 <p className="rol-descripcion">{rol.descripcion}</p>
@@ -360,6 +362,7 @@ export default function RoleManagement() {
                         id={`${rol.id_rol}-${permiso.id_permiso}`}
                         checked={rol.permisos.some(p => p.id_permiso === permiso.id_permiso)}
                         onChange={(e) => togglePermisoRol(rol.id_rol, permiso.id_permiso, e.target.checked)}
+                        disabled={estado.isLoading}
                       />
                       <label htmlFor={`${rol.id_rol}-${permiso.id_permiso}`}>
                         {permiso.nombre}

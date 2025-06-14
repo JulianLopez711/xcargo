@@ -25,9 +25,23 @@ export default function ChatBotBubble() {
   const [errorConexion, setErrorConexion] = useState(false);
   const location = useLocation();
 
-  // Obtener usuario actual del localStorage o contexto
-  const usuarioActual = JSON.parse(localStorage.getItem("user") || "{}");
-  const correoUsuario = usuarioActual.email || "conductor@xcargo.co";
+  // Obtener token y usuario actual
+  const getAuthInfo = () => {
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
+      const token = localStorage.getItem("token");
+      const email = user.email;
+
+      if (!token || !email) {
+        throw new Error("No hay sesión activa");
+      }
+
+      return { token, email };
+    } catch (error) {
+      console.error("❌ Error obteniendo información de autenticación:", error);
+      return null;
+    }
+  };
 
   // Obtener información contextual de la página actual
   const obtenerContextoPagina = () => {
@@ -76,42 +90,57 @@ export default function ChatBotBubble() {
 
   const cargarEstadoUsuario = async () => {
     try {
-      
-      // CORREGIDO: URL con barra faltante
-      const res = await fetch(
-        `https://api.x-cargo.co/asistente/estado-usuario/${encodeURIComponent(correoUsuario)}`
-      );
-      
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      const auth = getAuthInfo();
+      if (!auth) {
+        throw new Error("No hay sesión activa");
       }
-      
+
+      console.log("🔍 Cargando estado para:", auth.email);
+
+      const res = await fetch(
+        `https://api.x-cargo.co/asistente/estado-usuario/${encodeURIComponent(auth.email)}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${auth.token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP ${res.status}: ${res.statusText}`);
+      }
+
       const data = await res.json();
-      
+      console.log("📊 Datos recibidos:", data);
+
+      if (!data.resumen) {
+        throw new Error("Formato de respuesta inválido");
+      }
+
       setEstadoUsuario(data.resumen);
       setErrorConexion(false);
-      
-      // Establecer mensaje de bienvenida personalizado con datos reales
-      setMensajes([
-        {
-          tipo: "bot",
-          texto: generarMensajeBienvenida(data.resumen),
-          timestamp: new Date(),
-        },
-      ]);
-      
+
+      setMensajes([{
+        tipo: "bot",
+        texto: generarMensajeBienvenida(data.resumen),
+        timestamp: new Date(),
+      }]);
+
     } catch (error) {
       console.error("❌ Error cargando estado:", error);
       setErrorConexion(true);
-      
-      // Mensaje de bienvenida genérico cuando hay error
-      setMensajes([
-        {
-          tipo: "bot",
-          texto: "¡Hola! Soy XBot, tu asistente virtual en XCargo. 👋\n\nActualmente no puedo acceder a tus datos en tiempo real, pero aún puedo ayudarte con preguntas generales sobre el sistema.\n\n¿En qué puedo ayudarte?",
-          timestamp: new Date(),
-        },
-      ]);
+
+      setMensajes([{
+        tipo: "bot",
+        texto: `¡Hola! Soy XBot, tu asistente virtual en XCargo. 👋\n\n${
+          error instanceof Error && error.message === "No hay sesión activa"
+            ? "Por favor inicia sesión para acceder a tu información personalizada."
+            : "No puedo acceder a tus datos en este momento, pero puedo ayudarte con preguntas generales sobre el sistema."
+        }`,
+        timestamp: new Date(),
+      }]);
     }
   };
 
@@ -123,24 +152,27 @@ export default function ChatBotBubble() {
       texto: entrada,
       timestamp: new Date(),
     };
-    
+
     setMensajes((prev) => [...prev, nuevoMensaje]);
     const preguntaOriginal = entrada;
     setEntrada("");
     setCargando(true);
 
     try {
-      // Agregar token JWT en la cabecera Authorization
-      const token = usuarioActual.token || localStorage.getItem("token") || "";
+      const auth = getAuthInfo();
+      if (!auth) {
+        throw new Error("No hay sesión activa");
+      }
+
       const res = await fetch("https://api.x-cargo.co/asistente/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
+          "Authorization": `Bearer ${auth.token}`,
         },
         body: JSON.stringify({
           pregunta: preguntaOriginal,
-          correo_usuario: correoUsuario,
+          correo_usuario: auth.email,
           contexto_adicional: {
             pagina_actual: obtenerContextoPagina(),
             timestamp: new Date().toISOString(),
@@ -149,20 +181,14 @@ export default function ChatBotBubble() {
       });
 
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP ${res.status}: ${res.statusText}`);
       }
 
       const data = await res.json();
 
-      
-      // CORREGIDO: Mejor manejo de errores
       if (data.error === true) {
-        throw new Error(data.respuesta || "Error desconocido del servidor");
-      }
-      
-      // Validar que la respuesta tenga el formato esperado
-      if (!data.respuesta) {
-        throw new Error("Respuesta vacía del servidor");
+        throw new Error(data.detalle || "Error desconocido del servidor");
       }
 
       const respuestaBot: Mensaje = {
@@ -170,40 +196,23 @@ export default function ChatBotBubble() {
         texto: data.respuesta,
         timestamp: new Date(),
       };
-      
+
       setMensajes((prev) => [...prev, respuestaBot]);
-      
-      // Actualizar estado si viene en la respuesta
+
       if (data.contexto) {
         setEstadoUsuario(data.contexto);
         setErrorConexion(false);
       }
-      
+
     } catch (error) {
       console.error("❌ Error enviando mensaje:", error);
       
-      let mensajeError = "Lo siento, hubo un error al procesar tu solicitud. ";
+      setMensajes((prev) => [...prev, {
+        tipo: "bot",
+        texto: error instanceof Error ? error.message : "Error desconocido al procesar tu mensaje",
+        timestamp: new Date(),
+      }]);
       
-      if (error instanceof Error) {
-        if (error.message.includes("500")) {
-          mensajeError += "El servidor está experimentando problemas técnicos. ";
-        } else if (error.message.includes("404")) {
-          mensajeError += "El servicio no está disponible en este momento. ";
-        } else {
-          mensajeError += `Error: ${error.message}. `;
-        }
-      }
-      
-      mensajeError += "Por favor, intenta nuevamente o contacta a soporte técnico (soporte@xcargo.co).";
-      
-      setMensajes((prev) => [
-        ...prev,
-        {
-          tipo: "bot",
-          texto: mensajeError,
-          timestamp: new Date(),
-        },
-      ]);
     } finally {
       setCargando(false);
     }

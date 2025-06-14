@@ -1,0 +1,86 @@
+/* Estilos base para el contenedor de carga */
+.loading-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Prevenir interacciones durante la carga */
+.loading-prevent-interaction {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Overlay para cargas parciales */
+.loading-overlay {
+  position: relative;
+}
+
+.loading-overlay::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(4px);
+  z-index: 998;
+}
+
+/* Contenedor del logo */
+.loading-logo-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 999;
+}
+
+/* Animación del logo */
+.loading-logo.animated {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0.7;
+  }
+}
+
+/* Versión minimal del loading */
+.loading-minimal {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 999;
+}
+
+/* Texto de carga */
+.loading-text {
+  color: #666;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+
+/* Logo */
+.loading-logo {
+  max-width: 120px;
+  height: auto;
+}

@@ -75,14 +75,33 @@ export default function VerificarCodigo() {
     setMensaje("");
 
     try {
+      const formData = new FormData();
+      formData.append("correo", correo);
+      formData.append("codigo", codigoCompleto);
+
       const res = await fetch("https://api.x-cargo.co/auth/verificar-codigo", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ correo, codigo: codigoCompleto }),
+        body: formData
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Código inválido");
+      let data;
+      try {
+        data = await res.json();
+      } catch (jsonError) {
+        console.error("Error al parsear respuesta:", jsonError);
+        const textoPlano = await res.text();
+        data = { detail: textoPlano || "Respuesta inválida del servidor" };
+      }
+
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error("El correo no está registrado en el sistema");
+        } else if (res.status === 422) {
+          throw new Error("Por favor verifica el formato de los datos");
+        } else {
+          throw new Error(data.detail || "Error inesperado");
+        }
+      }
 
       // Guardar el código para el siguiente paso
       localStorage.setItem("codigo_recuperacion", codigoCompleto);
@@ -90,7 +109,8 @@ export default function VerificarCodigo() {
       setMensaje("Código verificado correctamente");
       setTimeout(() => navigate("/cambiar-clave"), 1500);
     } catch (err: any) {
-      setError(err.message);
+      console.error("Error en verificación:", err);
+      setError(err.message || "Error al verificar el código");
       // Limpiar los inputs en caso de error
       setCodigo(["", "", "", "", "", ""]);
       inputRefs.current[0]?.focus();

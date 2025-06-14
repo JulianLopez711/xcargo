@@ -32,16 +32,26 @@ export default function RecuperarClave() {
       try {
         data = await res.json();
       } catch (jsonError) {
+        console.error("Error al parsear respuesta:", jsonError);
         const textoPlano = await res.text();
         data = { detail: textoPlano || "Respuesta inválida del servidor" };
       }
 
-      if (!res.ok) throw new Error(data.detail || "Error inesperado");
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error("El correo no está registrado en el sistema");
+        } else if (res.status === 422) {
+          throw new Error("Por favor verifica el formato del correo");
+        } else {
+          throw new Error(data.detail || "Error inesperado");
+        }
+      }
 
       setMensaje("Código enviado correctamente. Revisa tu correo.");
       localStorage.setItem("correo_recuperacion", correo);
       setTimeout(() => navigate("/verificar-codigo"), 2000);
     } catch (err: any) {
+      console.error("Error en recuperación:", err);
       setError(err.message || "Error al enviar el código");
     } finally {
       setCargando(false);
