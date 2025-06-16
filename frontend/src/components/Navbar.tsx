@@ -1,16 +1,14 @@
-// ACTUALIZAR: frontend/src/components/Navbar.tsx
-import { useRef, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/authContext";
-import logo from "../assets/LogoXBlanco.png";
-import "../styles/Navbar.css";
-
+import { useNavigate } from "react-router-dom";
+import { useRef, useState, useEffect } from "react";
 import { adminRoutes } from "../routes/adminRoutes/adminRoutes";
 import { contabilidadRoutes } from "../routes/contabilidadRoutes/contabilidadRoutes";
 import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
 import { operadorRoutes } from "../routes/operadorRoutes/operadorRoutes";
 import { supervisorRoutes } from "../routes/supervisorRoutes/supervisorRoutes";
 import { masterRoutes } from "../routes/masterRoutes/masterRoutes";
+import logo from "../assets/LogoXBlanco.png";
+import "../styles/Navbar.css";
 
 
 export default function Navbar() {
@@ -47,37 +45,51 @@ export default function Navbar() {
   };
 
   useEffect(() => {
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    console.log('Usuario actual:', user);
+    console.log('Rol del usuario:', user?.role);
+    console.log('Rutas configuradas para supervisor:', supervisorRoutes);
+    const rutasDisponibles = getRutasDisponibles();
+    console.log('Rutas disponibles después del filtrado:', rutasDisponibles);
+  }, [user]);
 
   if (!user) return null;
 
   // CORREGIDO: Función para obtener rutas disponibles
   const getRutasDisponibles = () => {
     const rutasDelRol = rutasPorRol[user.role] || [];
+    console.log('Obteniendo rutas para el rol:', user.role);
+    console.log('Rutas del rol sin filtrar:', rutasDelRol);
+    console.log('Permisos del usuario:', user.permisos);
 
     // Si no hay permisos definidos o están vacíos, mostrar todas las rutas del rol
     if (!user.permisos || user.permisos.length === 0) {
+      console.log('No hay permisos definidos, mostrando todas las rutas del rol');
       return rutasDelRol;
     }
 
     // Si hay permisos, filtrar según los permisos del usuario
     const rutasFiltradas = rutasDelRol.filter((ruta) => {
-      // Si la ruta no tiene propiedad 'permission', mostrarla
+      console.log(`Verificando ruta: ${ruta.name}`);
+      console.log(`Permiso requerido: ${ruta.permission}`);
+      
       if (!ruta.permission) {
+        console.log(`La ruta ${ruta.name} no requiere permiso específico`);
         return true;
       }
 
-      // Si la ruta tiene 'permission', verificar si el usuario tiene ese permiso
       const tienePermiso = user.permisos!.some(
-        (permiso) =>
-          permiso.id === ruta.permission || permiso.nombre === ruta.permission
+        (permiso) => {
+          const permisoCorrecto = permiso.id === ruta.permission || permiso.nombre === ruta.permission;
+          console.log(`Comparando permiso ${permiso.id}/${permiso.nombre} con ${ruta.permission}: ${permisoCorrecto}`);
+          return permisoCorrecto;
+        }
       );
 
+      console.log(`Resultado final para ${ruta.name}: ${tienePermiso}`);
       return tienePermiso;
     });
 
+    console.log('Rutas filtradas final:', rutasFiltradas);
     return rutasFiltradas;
   };
 

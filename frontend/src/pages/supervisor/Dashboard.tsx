@@ -97,17 +97,8 @@ export default function DashboardSupervisor() {
       setError("Error al cargar el dashboard. Usando datos de ejemplo.");
       
       // Fallback a datos de ejemplo
-      setStats({
-        total_conductores_registrados: 15,
-        conductores_activos: 12,
-        total_guias: 156,
-        guias_pendientes: 23,
-        guias_entregadas: 133,
-        monto_pendiente: 2450000,
-        monto_entregado: 15680000,
-        promedio_valor_guia: 105000,
-        eficiencia_general: 85.3
-      });
+
+  
     } finally {
       setLoading(false);
     }
@@ -301,20 +292,6 @@ if (loading) {
             >
               <span className="action-icon">👥</span>
               <span>Ver Todos los Conductores</span>
-            </button>
-            <button 
-              className="action-btn secondary"
-              onClick={() => window.location.href = '/supervisor/guias-pendientes'}
-            >
-              <span className="action-icon">📦</span>
-              <span>Guías Pendientes ({stats.guias_pendientes})</span>
-            </button>
-            <button 
-              className="action-btn tertiary"
-              onClick={() => window.location.href = '/supervisor/resumen-carrier'}
-            >
-              <span className="action-icon">📊</span>
-              <span>Resumen del Carrier</span>
             </button>
             <button 
               className="action-btn info"

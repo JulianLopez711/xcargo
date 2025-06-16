@@ -131,7 +131,7 @@ export default function EntregasConciliadas() {
 
       // Extraer clientes únicos
       const clientes = [...new Set(data.entregas?.map((e: EntregaConciliada) => e.cliente) || [])];
-      setClientesDisponibles(clientes.sort());
+      setClientesDisponibles(clientes.sort() as string[]);
 
     } catch (error: any) {
       console.error("Error cargando entregas:", error);

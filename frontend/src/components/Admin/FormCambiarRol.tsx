@@ -109,7 +109,10 @@ export default function FormCambiarRol() {
   // Obtener detalles del usuario al seleccionar uno
   const obtenerDetallesUsuario = async (correoUsuario: string) => {
     try {
-      setCargando(true);      const res = await fetch(`https://api.x-cargo.co/admin/obtener-usuario/${correoUsuario}`, {
+      setCargando(true);
+      //Decodificar el correo
+      const correoDecodificado = decodeURIComponent(correoUsuario);
+      const res = await fetch(`https://api.x-cargo.co/admin/obtener-usuario/${correoDecodificado}`, {
         headers: getHeaders(),
       });
       if (!res.ok) throw new Error("Usuario no encontrado");
@@ -150,7 +153,8 @@ export default function FormCambiarRol() {
     setError("");
     setCargando(true);
 
-    try {      const res = await fetch("https://api.x-cargo.co/admin/cambiar-rol", {
+    try {
+      const res = await fetch("https://api.x-cargo.co/admin/cambiar-rol", {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({
@@ -161,6 +165,7 @@ export default function FormCambiarRol() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Error al cambiar rol");
       setMensaje("Rol actualizado exitosamente");
+      // Decodificar el correo antes de pasarlo a obtenerDetallesUsuario
       await obtenerDetallesUsuario(correo); // Actualizar detalles del usuario
     } catch (err: any) {
       setError(err.message);

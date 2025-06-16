@@ -165,7 +165,7 @@ async def registrar_pago_conductor(
             fecha_obj = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
             if fecha_obj > date.today():
                 raise HTTPException(status_code=400, detail="La fecha no puede ser futura")
-            elif fecha_obj <= date(2025, 6, 9):
+            elif fecha_obj <= date(2025, 6, 8):
                 raise HTTPException(status_code=400, detail="La fecha no puede ser anterior a 2025-06-09")
         except ValueError:
             raise HTTPException(status_code=400, detail="Formato de fecha inválido (YYYY-MM-DD)")
