@@ -30,6 +30,8 @@ interface ResultadoConciliacion {
     fecha_pago: string;
     valor_pago: number;
     score: number;
+    correo_conductor?: string;
+    trackings?: string[];
   }>;
 }
 
@@ -83,6 +85,30 @@ interface EstadisticasGenerales {
   }>;
 }
 
+// Nueva interfaz para el modal de conciliación manual
+interface ConciliacionManual {
+  movimiento_banco: {
+    id: string;
+    fecha: string;
+    valor: number;
+    descripcion: string;
+  };
+  sugerencias: Array<{
+    referencia: string;
+    fecha: string;
+    valor: number;
+    conductor: string;
+    score: number;
+  }>;
+}
+
+interface LoadingProgress {
+  total: number;
+  processed: number;
+  percentage: number;
+  message: string;
+}
+
 const Cruces: React.FC = () => {
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
@@ -93,6 +119,13 @@ const Cruces: React.FC = () => {
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
   const [busqueda, setBusqueda] = useState("");
   const [modalDetalle, setModalDetalle] = useState<ResultadoConciliacion | null>(null);
+  const [modalConciliacionManual, setModalConciliacionManual] = useState<ConciliacionManual | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState<LoadingProgress>({
+    total: 0,
+    processed: 0,
+    percentage: 0,
+    message: ''
+  });
 
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
@@ -103,7 +136,7 @@ const Cruces: React.FC = () => {
   // ✅ FUNCIÓN CARGAR ESTADÍSTICAS IMPLEMENTADA
   const cargarEstadisticas = async () => {
   try {
-    const response = await fetch("http://localhost:8000/conciliacion/resumen-conciliacion");
+    const response = await fetch("https://api.x-cargo.co/conciliacion/resumen-conciliacion");
     if (!response.ok) {
       throw new Error("Error al obtener estadísticas");
     }
@@ -166,7 +199,7 @@ const Cruces: React.FC = () => {
     const formData = new FormData();
     formData.append("file", archivo);
     setSubiendo(true);
-    setMensaje("📤 Subiendo archivo...");
+    updateProgress(0, 100, "Iniciando carga del archivo...");
 
     try {
       const controller = new AbortController();
@@ -181,69 +214,68 @@ const Cruces: React.FC = () => {
       clearTimeout(timeoutId);
 
       if (!res.ok) {
-        let errorMsg = "Error desconocido";
-        try {
-          const errorData = await res.json();
-          errorMsg = errorData.detail || errorData.message || `Error ${res.status}`;
-        } catch {
-          switch (res.status) {
-            case 413: errorMsg = "El archivo es demasiado grande para el servidor"; break;
-            case 400: errorMsg = "Formato de archivo inválido"; break;
-            case 500: errorMsg = "Error interno del servidor"; break;
-            default: errorMsg = `Error HTTP ${res.status}`;
-          }
-        }
-        throw new Error(errorMsg);
+        const errorText = await res.text();
+        throw new Error(errorText);
       }
 
       const result = await res.json();
       
-      // ✅ MENSAJE MEJORADO CON DETALLES DE CARGA
       if (result.movimientos_insertados > 0) {
-        setMensaje(`✅ ${result.mensaje}. Insertados: ${result.movimientos_insertados} movimientos nuevos.`);
+        updateProgress(100, 100, `✅ ${result.movimientos_insertados} movimientos procesados`);
       } else {
-        setMensaje(`ℹ️ ${result.mensaje}. No se insertaron registros nuevos (posibles duplicados detectados).`);
+        updateProgress(100, 100, "⚠️ No se encontraron movimientos nuevos");
       }
       
       setArchivo(null);
-
       const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
       if (fileInput) fileInput.value = "";
-
       cargarEstadisticas();
+      
     } catch (err: any) {
       console.error("Error en upload:", err);
       let errorMessage = "Error desconocido";
-
-      if (err.name === "AbortError") {
-        errorMessage = "La subida fue cancelada por timeout (5 minutos)";
-      } else if (err.message.includes("CORS")) {
-        errorMessage = "Error de configuración del servidor (CORS). Contacta al administrador.";
-      } else if (err.message.includes("Failed to fetch")) {
-        errorMessage = "No se pudo conectar al servidor. Verifica tu conexión.";
-      } else {
-        errorMessage = err.message;
-      }
-
+      // ... manejo de errores existente ...
       setMensaje("❌ " + errorMessage);
+      updateProgress(0, 100, "❌ Error en la carga");
     } finally {
-      setSubiendo(false);
+      setTimeout(() => {
+        setSubiendo(false);
+        setLoadingProgress({
+          total: 0,
+          processed: 0,
+          percentage: 0,
+          message: ''
+        });
+      }, 2000);
     }
   };
 
   // ✅ FUNCIÓN EJECUTAR CONCILIACIÓN CORREGIDA
  const ejecutarConciliacion = async () => {
   setProcesandoConciliacion(true);
-  setMensaje("");
+  updateProgress(0, 100, "Iniciando conciliación automática...");
 
   try {
     const res = await fetch("https://api.x-cargo.co/conciliacion/conciliacion-automatica-mejorada");
-
-    if (!res.ok) throw new Error("Error al ejecutar conciliación");
+    
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
 
     const data: ResumenConciliacionMejorado = await res.json();
+    
+    if (!data.resumen) {
+      throw new Error("Datos de conciliación inválidos");
+    }
 
-    if (!data.resumen) throw new Error("La respuesta no contiene resumen de conciliación");
+    const totalProcesados = data.resumen.total_procesados || 0;
+    const totalMovimientos = data.resumen.total_movimientos_banco || 0;
+    
+    updateProgress(
+      totalProcesados,
+      totalMovimientos,
+      `Conciliados: ${data.resumen.conciliado_exacto + data.resumen.conciliado_aproximado}`
+    );
 
     // ✅ CONVERTIR A FORMATO ESPERADO POR EL FRONTEND
     const resumen = data.resumen;
@@ -286,8 +318,17 @@ const Cruces: React.FC = () => {
   } catch (err: any) {
     console.error("Error en conciliación:", err);
     setMensaje("❌ Error ejecutando conciliación: " + err.message);
+    updateProgress(0, 100, "❌ Error en la conciliación");
   } finally {
-    setProcesandoConciliacion(false);
+    setTimeout(() => {
+      setProcesandoConciliacion(false);
+      setLoadingProgress({
+        total: 0,
+        processed: 0,
+        percentage: 0,
+        message: ''
+      });
+    }, 2000);
   }
 };
 
@@ -295,16 +336,18 @@ const Cruces: React.FC = () => {
   // ✅ FUNCIÓN MARCAR CONCILIADO MANUAL IMPLEMENTADA
   const marcarConciliadoManual = async (idBanco: string, referenciaPago?: string) => {
     try {
-      const observaciones = prompt("Observaciones (opcional):") || "Conciliado manualmente";
-
+      
+      const usuario = localStorage.getItem("correo") || "sistema@x-cargo.co";
       const res = await fetch("https://api.x-cargo.co/conciliacion/marcar-conciliado-manual", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id_banco: idBanco,
-          referencia_pago: referenciaPago || "",
-          observaciones,
-        }),
+
+      body: JSON.stringify({ 
+        id_banco: idBanco, 
+        referencia_pago: referenciaPago,
+        observaciones: "Conciliado manualmente por usuario",
+        usuario
+      }),
+
+
       });
 
       if (!res.ok) {
@@ -321,6 +364,31 @@ const Cruces: React.FC = () => {
     } catch (err: any) {
       setMensaje("❌ Error: " + err.message);
       console.error("Error en conciliación manual:", err);
+    }
+  };
+
+
+  const confirmarConciliacionManual = async (idBanco: string, referenciaPago: string) => {
+    try {
+      const res = await fetch("https://api.x-cargo.co/conciliacion/marcar-conciliado-manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          id_banco: idBanco, 
+          referencia_pago: referenciaPago,
+          observaciones: "Conciliado manualmente por usuario"
+        })
+      });
+
+      if (res.ok) {
+        setMensaje("✅ Conciliación manual realizada exitosamente");
+        cargarEstadisticas(); // Recargar datos
+        setModalConciliacionManual(null);
+      } else {
+        setMensaje("❌ Error al realizar conciliación manual");
+      }
+    } catch (err) {
+      setMensaje(`❌ Error: ${err}`);
     }
   };
 
@@ -355,6 +423,62 @@ const Cruces: React.FC = () => {
       (r.referencia_pago && r.referencia_pago.toLowerCase().includes(busqueda.toLowerCase()));
     return pasaFiltroEstado && pasaBusqueda;
   }) || [];
+
+  // Función para actualizar el progreso
+  const updateProgress = (processed: number, total: number, message: string = '') => {
+    const percentage = total > 0 ? Math.round((processed / total) * 100) : 0;
+    setLoadingProgress({
+      total,
+      processed,
+      percentage,
+      message
+    });
+  };
+
+  const styles = `
+    .loading-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 1rem;
+      z-index: 1000;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .loading-progress {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #f3f4f6;
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+      height: 24px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #1f2937;
+      font-size: 0.875rem;
+      font-weight: 500;
+      white-space: nowrap;
+      text-shadow: 0 0 2px rgba(255,255,255,0.8);
+    }
+  `;
+
+  const styleSheet = document.createElement("style");
+  styleSheet.innerHTML = styles;
+  document.head.appendChild(styleSheet);
 
   return (
     <div className="cruces-container">
@@ -788,8 +912,121 @@ const Cruces: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de conciliación manual */}
+      {modalConciliacionManual && (
+        <div className="modal-overlay" onClick={() => setModalConciliacionManual(null)}>
+          <div
+            className="modal-content conciliacion-manual"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3>Conciliación Manual</h3>
+
+            <div className="detalle-grid">
+              <div className="detalle-seccion">
+                <h4>📊 Datos del Movimiento</h4>
+                <div className="detalle-item">
+                  <strong>Fecha:</strong>{" "}
+                  {new Date(modalConciliacionManual.movimiento_banco.fecha).toLocaleDateString('es-CO')}
+                </div>
+                <div className="detalle-item">
+                  <strong>Valor:</strong> $
+                  {modalConciliacionManual.movimiento_banco.valor.toLocaleString('es-CO')}
+                </div>
+                <div className="detalle-item">
+                  <strong>Descripción:</strong> {modalConciliacionManual.movimiento_banco.descripcion}
+                </div>
+                <div className="detalle-item">
+                  <strong>ID:</strong> {modalConciliacionManual.movimiento_banco.id}
+                </div>
+              </div>
+
+              {modalConciliacionManual.sugerencias && modalConciliacionManual.sugerencias.length > 0 && (
+                <div className="detalle-seccion">
+                  <h4>🔍 Sugerencias de Conciliación</h4>
+                  <div className="sugerencias-list">
+                    {modalConciliacionManual.sugerencias.map((sugerencia, idx) => (
+                      <div key={idx} className="sugerencia-item">
+                        <div>
+                          <strong>Ref:</strong> {sugerencia.referencia}
+                        </div>
+                        <div>
+                          <strong>Fecha:</strong>{" "}
+                          {new Date(sugerencia.fecha).toLocaleDateString('es-CO')}
+                        </div>
+                        <div>
+                          <strong>Valor:</strong> $
+                          {sugerencia.valor.toLocaleString('es-CO')}
+                        </div>
+                        <div>
+                          <strong>Conductor:</strong> {sugerencia.conductor}
+                        </div>
+                        <div>
+                          <strong>Score:</strong> {sugerencia.score.toFixed(1)}
+                        </div>
+                        <button
+                          className="btn-seleccionar"
+                          onClick={() => confirmarConciliacionManual(modalConciliacionManual.movimiento_banco.id, sugerencia.referencia)}
+                        >
+                          ✅ Seleccionar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-acciones">
+              <button
+                className="btn-cerrar"
+                onClick={() => setModalConciliacionManual(null)}
+              >
+                ✕ Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {subiendo && (
+        <div className="loading-container">
+          <div className="loading-progress">
+            <div 
+              className="progress-bar" 
+              style={{ width: `${loadingProgress.percentage}%` }}
+            />
+            <div className="progress-text">
+              {loadingProgress.message || 'Procesando...'}
+              {loadingProgress.total > 0 && (
+                <span>
+                  {' '}({loadingProgress.processed}/{loadingProgress.total} - {loadingProgress.percentage}%)
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {procesandoConciliacion && (
+        <div className="loading-container">
+          <div className="loading-progress">
+            <div 
+              className="progress-bar" 
+              style={{ width: `${loadingProgress.percentage}%` }}
+            />
+            <div className="progress-text">
+              {loadingProgress.message || 'Conciliando...'}
+              {loadingProgress.percentage > 0 && (
+                <span> ({loadingProgress.percentage}%)</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default Cruces;
+
+

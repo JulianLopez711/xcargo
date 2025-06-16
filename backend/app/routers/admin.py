@@ -964,3 +964,7 @@ async def actualizar_permisos_rol(
     except Exception as e:
         logger.error(f"Error actualizando permisos: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+

@@ -1224,3 +1224,104 @@ def debug_todos_los_estados():
         
     except Exception as e:
         return {"error": str(e)}
+
+@router.get("/estadisticas")
+async def obtener_estadisticas(
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None),
+    cliente: Optional[str] = Query(None)
+):
+    """
+    Endpoint para obtener estadísticas de entregas
+    """
+    try:
+        # Construir condiciones
+        condiciones = []
+        parametros = []
+        
+        if desde:
+            condiciones.append("fecha_pago >= @fecha_desde")
+            parametros.append(bigquery.ScalarQueryParameter("fecha_desde", "DATE", desde))
+        
+        if hasta:
+            condiciones.append("fecha_pago <= @fecha_hasta")
+            parametros.append(bigquery.ScalarQueryParameter("fecha_hasta", "DATE", hasta))
+            
+        if cliente:
+            condiciones.append("COALESCE(cliente, 'Sin Cliente') = @cliente")
+            parametros.append(bigquery.ScalarQueryParameter("cliente", "STRING", cliente))
+            
+        where_clause = "WHERE " + " AND ".join(condiciones) if condiciones else ""
+        
+        query = f"""
+        SELECT
+            COUNT(*) as total_entregas,
+            COUNTIF(estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual', 'conciliado')) as entregas_conciliadas,
+            COUNTIF(estado_conciliacion = 'pendiente') as entregas_pendientes,
+            COUNTIF(estado = 'pagado') as entregas_pagadas,
+            SUM(COALESCE(valor_total_consignacion, valor, 0)) as valor_total,
+            SUM(CASE WHEN estado_conciliacion = 'pendiente' THEN COALESCE(valor_total_consignacion, valor, 0) ELSE 0 END) as valor_pendiente,
+            COUNT(DISTINCT carrier_id) as carriers_activos,
+            COUNT(DISTINCT correo) as conductores_activos
+        FROM `pagosconductor`
+        {where_clause}
+        """
+        
+        job_config = bigquery.QueryJobConfig(query_parameters=parametros)
+        query_job = client.query(query, job_config=job_config)
+        results = query_job.result()
+        
+        for row in results:
+            return {
+                "total_entregas": row.total_entregas,
+                "entregas_conciliadas": row.entregas_conciliadas,
+                "entregas_pendientes": row.entregas_pendientes,
+                "entregas_pagadas": row.entregas_pagadas,
+                "valor_total": float(row.valor_total or 0),
+                "valor_pendiente": float(row.valor_pendiente or 0),
+                "carriers_activos": row.carriers_activos,
+                "conductores_activos": row.conductores_activos
+            }
+            
+    except Exception as e:
+        logging.error(f"Error al obtener estadísticas: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al obtener estadísticas: {str(e)}"
+        )
+
+@router.get("/filtros")
+async def obtener_filtros():
+    """
+    Endpoint para obtener las opciones de filtros disponibles
+    """
+    try:
+        query = """
+        SELECT 
+            ARRAY_AGG(DISTINCT COALESCE(cliente, 'Sin Cliente') IGNORE NULLS) as clientes,
+            ARRAY_AGG(DISTINCT ciudad IGNORE NULLS) as ciudades,
+            ARRAY_AGG(DISTINCT estado IGNORE NULLS) as estados,
+            ARRAY_AGG(DISTINCT carrier IGNORE NULLS) as carriers
+        FROM `pagosconductor`
+        WHERE fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+        """
+        
+        query_job = client.query(query)
+        results = query_job.result()
+        
+        for row in results:
+            return {
+                "clientes": row.clientes or [],
+                "ciudades": row.ciudades or [],
+                "estados": row.estados or [],
+                "carriers": row.carriers or []
+            }
+            
+    except Exception as e:
+        logging.error(f"Error al obtener filtros: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al obtener filtros: {str(e)}"
+        )
+
+# ...existing code...
