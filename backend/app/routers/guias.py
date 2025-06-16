@@ -161,8 +161,10 @@ def obtener_employee_id_usuario(correo: str, client: bigquery.Client) -> Optiona
 def obtener_guias_pendientes(request: Request) -> Dict:
     """
     ✅ CORREGIDO: Endpoint principal para obtener guías pendientes de liquidación
+    Incluye guías desde el 9 de junio de 2025 tanto de guias_liquidacion como de COD_pendientes_v1
     """
     print("🔍 ===== INICIO REQUEST GUIAS PENDIENTES (CORREGIDO) =====")
+    FECHA_INICIO = "2025-06-09"  # Fecha desde la cual queremos las guías
 
     usuario = request.headers.get("usuario")
     rol = request.headers.get("rol")
@@ -183,15 +185,17 @@ def obtener_guias_pendientes(request: Request) -> Dict:
 
         print(f"✅ Employee_id encontrado para {usuario}: {employee_id}")
 
-        # ✅ QUERY CORREGIDA: Mapear correctamente los campos para el frontend
+        # ✅ QUERY MEJORADA: Combina guías de ambas tablas desde la fecha especificada
         query = """
+        WITH GuiasCombinadas AS (
+            -- Guías de guias_liquidacion
             SELECT
                 gl.tracking_number AS tracking,
                 COALESCE(gl.conductor_nombre_completo, u.Employee_Name, 'Conductor') AS conductor,
                 COALESCE(gl.cliente, 'XCargo') AS empresa,
                 gl.valor_guia AS valor,
                 gl.estado_liquidacion AS estado,
-                CAST(NULL AS STRING) AS novedad,  -- Campo requerido por frontend
+                CAST(NULL AS STRING) AS novedad,
                 gl.fecha_entrega,
                 gl.carrier,
                 gl.carrier_id,
@@ -202,20 +206,57 @@ def obtener_guias_pendientes(request: Request) -> Dict:
                 gl.employee_id,
                 gl.conductor_email,
                 gl.pago_referencia,
-                -- Generar liquidacion_id para el frontend
-                CONCAT('LIQ_', gl.tracking_number, '_', gl.employee_id) AS liquidacion_id
+                CONCAT('LIQ_', gl.tracking_number, '_', gl.employee_id) AS liquidacion_id,
+                'guias_liquidacion' as origen
             FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
             LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
                 ON u.Employee_id = gl.employee_id
-            WHERE gl.estado_liquidacion = 'pendiente'  -- Solo disponibles para pago
-              AND gl.employee_id = @employee_id
-              AND gl.valor_guia > 0  -- Solo con valor
-            ORDER BY gl.fecha_entrega DESC
+            WHERE gl.estado_liquidacion = 'pendiente'
+                AND gl.employee_id = @employee_id
+                AND gl.valor_guia > 0
+                AND DATE(gl.fecha_entrega) >= @fecha_inicio
+
+            UNION ALL
+
+            -- Guías de COD_pendientes_v1 que no están en guias_liquidacion
+            SELECT
+                cod.tracking_number AS tracking,
+                COALESCE(cod.Empleado, u.Employee_Name, 'Conductor') AS conductor,
+                COALESCE(cod.Cliente, 'XCargo') AS empresa,
+                CAST(cod.Valor AS FLOAT64) AS valor,
+                'pendiente' AS estado,
+                CAST(NULL AS STRING) AS novedad,
+                DATE(cod.Status_Date) as fecha_entrega,
+                cod.Carrier as carrier,
+                cod.carrier_id,
+                cod.Ciudad as ciudad,
+                cod.Departamento as departamento,
+                cod.Status_Big as status_big,
+                cod.Status_Date as status_date,
+                cod.Employee_id as employee_id,
+                COALESCE(u.Employee_Mail, '') as conductor_email,
+                NULL as pago_referencia,
+                CONCAT('COD_', cod.tracking_number, '_', cod.Employee_id) AS liquidacion_id,
+                'cod_pendientes' as origen
+            FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
+                ON u.Employee_id = cod.Employee_id
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
+                ON gl.tracking_number = cod.tracking_number
+            WHERE cod.Status_Big = '360 - Entregado al cliente'
+                AND cod.Employee_id = @employee_id
+                AND cod.Valor > 0
+                AND DATE(cod.Status_Date) >= @fecha_inicio
+                AND gl.tracking_number IS NULL  -- Solo las que no están en guias_liquidacion
+        )
+        SELECT * FROM GuiasCombinadas
+        ORDER BY fecha_entrega DESC
         """
 
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("employee_id", "INT64", employee_id)
+                bigquery.ScalarQueryParameter("employee_id", "INT64", employee_id),
+                bigquery.ScalarQueryParameter("fecha_inicio", "DATE", FECHA_INICIO)
             ]
         )
 
@@ -239,17 +280,25 @@ def obtener_guias_pendientes(request: Request) -> Dict:
                 "status_date": row.status_date.isoformat() if row.status_date else None,
                 "employee_id": row.employee_id,
                 "liquidacion_id": row.liquidacion_id,
-                "pago_referencia": row.pago_referencia
+                "pago_referencia": row.pago_referencia,
+                "origen": row.origen
             })
 
-        print(f"✅ Guías encontradas: {len(guias)}")
+        print(f"✅ Total de guías encontradas desde {FECHA_INICIO}: {len(guias)}")
+        print(f"✅ Guías de guias_liquidacion: {sum(1 for g in guias if g['origen'] == 'guias_liquidacion')}")
+        print(f"✅ Guías de cod_pendientes: {sum(1 for g in guias if g['origen'] == 'cod_pendientes')}")
 
         return {
             "guias": guias,
             "total": len(guias),
             "timestamp": datetime.utcnow().isoformat(),
             "employee_id": employee_id,
-            "usuario": usuario
+            "usuario": usuario,
+            "fecha_inicio": FECHA_INICIO,
+            "desglose": {
+                "guias_liquidacion": sum(1 for g in guias if g['origen'] == 'guias_liquidacion'),
+                "cod_pendientes": sum(1 for g in guias if g['origen'] == 'cod_pendientes')
+            }
         }
 
     except Exception as e:

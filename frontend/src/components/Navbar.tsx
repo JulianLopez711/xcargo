@@ -32,17 +32,6 @@ export default function Navbar() {
     master: masterRoutes,
   };
 
-  const handleClickOutside = (e: MouseEvent) => {
-    if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-      setMenuAbierto(false);
-    }
-    if (
-      mobileMenuRef.current &&
-      !mobileMenuRef.current.contains(e.target as Node)
-    ) {
-      setMobileMenuOpen(false);
-    }
-  };
 
   useEffect(() => {
     console.log('Usuario actual:', user);
