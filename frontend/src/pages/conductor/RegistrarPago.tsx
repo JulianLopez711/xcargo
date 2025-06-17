@@ -1,10 +1,26 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "../../styles/conductor/FormularioPagoConductor.css";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import ValidadorPago from "../../components/ValidadorPago";
 
 // Tipos de datos
+type Bono = {
+  id: string;
+  tipo_bono: 'SOBRANTE_PAGO';
+  valor_bono: number;
+  saldo_disponible: number;
+  referencia_pago_origen: string;
+  fecha_generacion: string;
+  estado_bono: 'ACTIVO' | 'AGOTADO' | 'VENCIDO' | 'CANCELADO';
+  descripcion?: string;
+};
+
+type BonosState = {
+  disponible: number;
+  detalles: Bono[];
+};
+
 type GuiaPago = { 
   referencia: string; 
   valor: number; 
@@ -89,31 +105,42 @@ export default function RegistrarPago() {
   const [validacionPago, setValidacionPago] = useState<any>(null);
 
   // Estados para manejo de bonos
-  const [usarBonos, setUsarBonos] = useState(false);
-  const [montoBonosUsar, setMontoBonosUsar] = useState(0);
-  const [bonosSeleccionados, setBonosSeleccionados] = useState<string[]>([]);
+  const [bonosDisponibles, setBonosDisponibles] = useState<Bono[]>([]);
+  const [saldoBonosTotal, setSaldoBonosTotal] = useState<number>(0);
+  const [usarBonos, setUsarBonos] = useState<boolean>(false);
+  const [bonoSeleccionado, setBonoSeleccionado] = useState<string | null>(null);
 
-  // 🔥 FUNCIÓN CORREGIDA: Calcular total con bonos incluidos
-  const calcularTotalConBonos = () => {
+  // Calcular el monto de bonos a usar basado en el bono seleccionado
+  const montoBonosUsar = usarBonos && bonoSeleccionado 
+    ? bonosDisponibles.find(b => b.id === bonoSeleccionado)?.saldo_disponible || 0
+    : 0;
+
+  // Función unificada para calcular totales
+  const calcularTotales = () => {
     const totalPagosEfectivo = pagosCargados.reduce((sum, p) => {
       const val = parseValorMonetario(p.datos.valor);
       return sum + (isNaN(val) ? 0 : val);
     }, 0);
     
-    const totalBonos = usarBonos ? montoBonosUsar : 0;
+    const totalBonos = usarBonos && bonoSeleccionado 
+      ? bonosDisponibles.find(b => b.id === bonoSeleccionado)?.saldo_disponible || 0
+      : 0;
+
     const totalCubierto = totalPagosEfectivo + totalBonos;
     const faltante = Math.max(0, total - totalCubierto);
+    const sobrante = Math.max(0, totalCubierto - total);
     
     return {
       totalPagosEfectivo,
       totalBonos,
       totalCubierto,
       faltante,
-      excedente: Math.max(0, totalCubierto - total)
+      sobrante
     };
   };
 
-  const totales = calcularTotalConBonos();
+  // Eliminar calcularTotalConBonos ya que está duplicado
+  const totales = calcularTotales();
 
   // 🔥 NUEVA FUNCIÓN: Manejar cambio de modo de pago
   const handleModoPagoChange = (nuevoModo: ModoPago) => {
@@ -122,8 +149,7 @@ export default function RegistrarPago() {
     // Limpiar estados según el modo seleccionado
     if (nuevoModo === 'comprobante') {
       setUsarBonos(false);
-      setBonosSeleccionados([]);
-      setMontoBonosUsar(0);
+      setBonoSeleccionado(null);
     } else if (nuevoModo === 'bono') {
       setUsarBonos(true);
       // Limpiar comprobantes si solo se van a usar bonos
@@ -145,13 +171,14 @@ export default function RegistrarPago() {
 
   // 🔥 NUEVA FUNCIÓN: Validar si se puede procesar el pago
   const puedeProcessarPago = () => {
+    const totales = calcularTotales();
     switch (modoPago) {
       case 'comprobante':
         return pagosCargados.length > 0 && totales.totalPagosEfectivo >= total;
       case 'bono':
-        return usarBonos && montoBonosUsar >= total;
+        return usarBonos && totales.totalBonos >= total;
       case 'mixto':
-        return (pagosCargados.length > 0 || (usarBonos && montoBonosUsar > 0)) && totales.totalCubierto >= total;
+        return (pagosCargados.length > 0 || (usarBonos && totales.totalBonos > 0)) && totales.totalCubierto >= total;
       default:
         return false;
     }
@@ -375,20 +402,20 @@ export default function RegistrarPago() {
 
   // Función de registro de pagos (mantener la existente)
   const registrarTodosLosPagos = async () => {
-    const totales = calcularTotalConBonos();
+    const totales = calcularTotales();
 
     if (totales.faltante > 0) {
-      if (usarBonos && bonosSeleccionados.length > 0) {
+      if (usarBonos && bonoSeleccionado && bonoSeleccionado.length > 0) {
         const usar = confirm(`Faltan $${totales.faltante.toLocaleString()}. ¿Deseas aplicar tus bonos disponibles?`);
         if (usar) {
           const bonosData = {
-            bonos_utilizados: bonosSeleccionados.map(bonoId => {
+            bonos_utilizados: Array.isArray(bonoSeleccionado) ? bonoSeleccionado.map((bonoId: any) => {
               const bono = bonos?.detalles.find(b => b.id === bonoId);
               return {
                 bono_id: bonoId,
                 valor_utilizado: bono?.saldo_disponible || 0
               };
-            }),
+            }) : [],
             total_bonos: montoBonosUsar,
             guias: guias.map(g => ({
               referencia: g.referencia,
@@ -426,17 +453,17 @@ export default function RegistrarPago() {
 
     try {
       let referenciaBonos = null;
-      if (usarBonos && bonosSeleccionados.length > 0) {
+      if (usarBonos && bonoSeleccionado && bonoSeleccionado.length > 0) {
         console.log("🎯 Aplicando bonos...");
         
         const bonosData = {
-          bonos_utilizados: bonosSeleccionados.map(bonoId => {
+          bonos_utilizados: Array.isArray(bonoSeleccionado) ? bonoSeleccionado.map((bonoId: string) => {
             const bono = bonos?.detalles.find(b => b.id === bonoId);
             return {
               bono_id: bonoId,
               valor_utilizado: bono?.saldo_disponible || 0
             };
-          }),
+          }) : [],
           total_bonos: montoBonosUsar,
           guias: guias.map(g => ({
             referencia: g.referencia,
@@ -564,94 +591,260 @@ export default function RegistrarPago() {
     return "#ef4444";
   };
 
-  const toggleBono = (bonoId: string, valorBono: number) => {
-    setBonosSeleccionados(prev => {
-      let nuevosSeleccionados;
-      if (prev.includes(bonoId)) {
-        nuevosSeleccionados = prev.filter(id => id !== bonoId);
-        setMontoBonosUsar(prevMonto => prevMonto - valorBono);
-      } else {
-        nuevosSeleccionados = [...prev, bonoId];
-        setMontoBonosUsar(prevMonto => prevMonto + valorBono);
-      }
-      return nuevosSeleccionados;
-    });
+  const toggleBono = (bonoId: string) => {
+    const bonoAUsar = bonosDisponibles.find(b => b.id === bonoId);
+    if (!bonoAUsar) return;
+
+    if (bonoSeleccionado === bonoId) {
+      setBonoSeleccionado(null);
+      setUsarBonos(false);
+    } else {
+      setBonoSeleccionado(bonoId);
+      setUsarBonos(true);
+    }
   };
+
+  // Función para manejar la selección de bonos
+  const handleSeleccionBono = (bonoId: string) => {
+    if (bonoSeleccionado === bonoId) {
+      setBonoSeleccionado(null);
+      setUsarBonos(false);
+    } else {
+      const bonoAUsar = bonosDisponibles.find(b => b.id === bonoId);
+      if (bonoAUsar) {
+        setBonoSeleccionado(bonoId);
+        setUsarBonos(true);
+      }
+    }
+  };
+
+  // Función para registrar un pago con manejo de bonos
+  const registrarPago = async () => {
+    if (cargando) return;
+    setCargando(true);
+
+    try {
+      const totales = calcularTotales();
+
+      // Si hay faltante y no se están usando bonos disponibles
+      if (totales.faltante > 0 && !usarBonos) {
+        const usarBonosDisponibles = window.confirm(
+          `Falta cubrir $${totales.faltante.toLocaleString()}. ` +
+          `Tienes $${saldoBonosTotal.toLocaleString()} en bonos disponibles. ` +
+          `¿Deseas usarlos?`
+        );
+        if (usarBonosDisponibles) {
+          setUsarBonos(true);
+          return;
+        }
+      }
+
+      // Si el pago es insuficiente
+      if (totales.faltante > 0) {
+        alert(`El monto total pagado ($${totales.totalCubierto.toLocaleString()}) ` +
+              `es menor al valor requerido ($${total.toLocaleString()})`);
+        return;
+      }
+
+      // Preparar datos del pago
+      const formData = new FormData();
+      
+      // Agregar archivos de comprobantes
+      pagosCargados.forEach((pago, index) => {
+        formData.append(`comprobantes`, pago.archivo);
+        formData.append(`datos_pago_${index}`, JSON.stringify(pago.datos));
+      });
+
+      // Agregar información de bonos si se están usando
+      if (usarBonos && bonoSeleccionado) {
+        formData.append('bono_usado', bonoSeleccionado);
+        const bonoAplicado = bonosDisponibles.find(b => b.id === bonoSeleccionado);
+        if (bonoAplicado) {
+          formData.append('valor_bono_usado', bonoAplicado.saldo_disponible.toString());
+        }
+      }
+
+      // Agregar guías y totales
+      formData.append('guias', JSON.stringify(guias));
+      formData.append('total_efectivo', totales.totalPagosEfectivo.toString());
+      formData.append('total_bonos', totales.totalBonos.toString());
+      formData.append('sobrante', totales.sobrante.toString());
+
+      // Enviar al backend
+      const response = await fetch('https://api.x-cargo.co/pagos/registrar-conductor', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem("token") || ""}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Error registrando el pago');
+      }
+
+      const result = await response.json();
+
+      // Si se generó un nuevo bono por sobrante
+      if (result.bono_generado) {
+        alert(`¡Pago registrado exitosamente!\n\n` +
+              `Se ha generado un bono por $${result.bono_generado.valor_bono.toLocaleString()} ` +
+              `que podrás usar en tus próximos pagos.`);
+      } else {
+        alert('¡Pago registrado exitosamente!');
+      }
+
+      navigate('/conductor/pagos');
+
+    } catch (error: any) {
+      console.error('❌ Error registrando pago:', error);
+      alert(`Error: ${error.message}`);
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  // Cargar bonos disponibles al inicio
+  useEffect(() => {
+    const cargarBonos = async () => {
+      try {
+        const response = await fetch('https://api.x-cargo.co/pagos/bonos-disponibles', {
+          headers: {
+            'Authorization': `Bearer ${getToken()}`
+          }
+        });
+        
+        if (!response.ok) throw new Error('Error cargando bonos');
+        
+        const data = await response.json();
+        setBonosDisponibles(data.bonos || []);
+        setSaldoBonosTotal(data.total_disponible || 0);
+      } catch (error) {
+        console.error('Error cargando bonos:', error);
+      }
+    };
+
+    cargarBonos();
+  }, []);
 
   return (
     <div className="registrar-pago">
-      <h1>Registrar Pago</h1>
-
+      <h1>Registrar Pago</h1>      {/* Resumen de guías */}
       <div className="tabla-guias">
-        <h2>Guías seleccionadas</h2>
+        <h2>Guías a Pagar</h2>
         <table>
           <thead>
             <tr>
-              <th>#</th>
               <th>Referencia</th>
               <th>Valor</th>
             </tr>
           </thead>
           <tbody>
-            {guias.map((g: GuiaPago, idx: number) => (
-              <tr key={idx}>
-                <td>{idx + 1}</td>
-                <td>{g.referencia}</td>
-                <td>${g.valor.toLocaleString()}</td>
+            {guias.map((guia) => (
+              <tr key={guia.referencia}>
+                <td>{guia.referencia}</td>
+                <td>${guia.valor.toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr>
+              <td><strong>Total a Pagar:</strong></td>
+              <td><strong>${total.toLocaleString()}</strong></td>
+            </tr>
+          </tfoot>
         </table>
-        
-        <div className="resumen-pago">
-          <div className="linea">
-            <span>Total guías:</span>
-            <strong>${total.toLocaleString()}</strong>
+      </div>      {/* Sección de Bonos Disponibles */}
+      {saldoBonosTotal > 0 && (
+        <div className="seccion-bonos">
+          <h3>💰 Bonos Disponibles</h3>
+          <div className="bonos-disponibles-pago">
+            <div className="bonos-header-pago">
+              <span>Saldo total en bonos: ${saldoBonosTotal.toLocaleString()}</span>
+            </div>
+            
+            <div className="bonos-lista">
+              {bonosDisponibles.map((bono) => (
+                <div 
+                  key={bono.id} 
+                  className={`bono-checkbox ${bonoSeleccionado === bono.id ? 'seleccionado' : ''}`}
+                  onClick={() => handleSeleccionBono(bono.id)}
+                >
+                  <input
+                    type="radio"
+                    name="bonoSeleccionado"
+                    checked={bonoSeleccionado === bono.id}
+                    onChange={() => handleSeleccionBono(bono.id)}
+                  />
+                  <div className="bono-info-seleccion">
+                    <div className="bono-tipo-sel">
+                      {bono.tipo_bono}
+                    </div>
+                    <div className="bono-valor-sel">
+                      ${bono.saldo_disponible.toLocaleString()}
+                    </div>
+                    <div className="bono-desc-sel">
+                      Generado: {new Date(bono.fecha_generacion).toLocaleDateString()}
+                      {bono.descripcion && <span> - {bono.descripcion}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {bonoSeleccionado && (
+              <div className="bonos-seleccionados-resumen">
+                <strong>Bono Seleccionado: ${montoBonosUsar.toLocaleString()}</strong>
+                {montoBonosUsar >= total ? (
+                  <div style={{ color: '#059669', marginTop: '0.5rem' }}>
+                    ✅ Cubre el total requerido
+                  </div>
+                ) : (
+                  <div style={{ color: '#dc2626', marginTop: '0.5rem' }}>
+                    ⚠️ Falta ${(total - montoBonosUsar).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          
-          {(pagosCargados.length > 0 || usarBonos) && (
-            <div className="desglose-pago" style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "#f8fafc", borderRadius: "8px" }}>
-              <h4 style={{ margin: "0 0 0.5rem 0", color: "#1f2937" }}>Desglose del pago:</h4>
-              
-              {pagosCargados.length > 0 && (
-                <div className="linea-desglose">
-                  <span>Pagos en efectivo/transferencia:</span>
-                  <span>${totales.totalPagosEfectivo.toLocaleString()}</span>
+        </div>
+      )}      {/* Resumen de Pago */}
+      <div className="resumen-total-con-bonos">
+        <h3>💳 Resumen de Pago</h3>
+        {(() => {
+          const totales = calcularTotales();
+          return (
+            <div className="resumen-desglose">
+              <div className="linea-resumen">
+                <span>Total Pagos en Efectivo:</span>
+                <span>${totales.totalPagosEfectivo.toLocaleString()}</span>
+              </div>
+              {totales.totalBonos > 0 && (
+                <div className="linea-resumen bonos-aplicados">
+                  <span className="texto-bono">Total Bonos Aplicados:</span>
+                  <span className="texto-bono">${totales.totalBonos.toLocaleString()}</span>
                 </div>
               )}
-              
-              {usarBonos && totales.totalBonos > 0 && (
-                <div className="linea-desglose">
-                  <span>Bonos aplicados:</span>
-                  <span>${totales.totalBonos.toLocaleString()}</span>
-                </div>
-              )}
-              
-              <hr style={{ margin: "0.5rem 0", border: "1px solid #e5e7eb" }} />
-              
-              <div className="linea-desglose" style={{ fontWeight: "bold" }}>
-                <span>Total cubierto:</span>
+              <hr className="divisor-resumen" />
+              <div className="linea-resumen total-final">
+                <span>Total Cubierto:</span>
                 <span>${totales.totalCubierto.toLocaleString()}</span>
               </div>
-              
-              {totales.faltante > 0 ? (
-                <div className="linea-desglose" style={{ color: "#dc2626" }}>
-                  <span>Faltante:</span>
-                  <span>${totales.faltante.toLocaleString()}</span>
+              {totales.faltante > 0 && (
+                <div className="linea-resumen faltante">
+                  <span className="texto-faltante">Faltante:</span>
+                  <span className="texto-faltante">${totales.faltante.toLocaleString()}</span>
                 </div>
-              ) : totales.excedente > 0 ? (
-                <div className="linea-desglose" style={{ color: "#059669" }}>
-                  <span>Excedente:</span>
-                  <span>${totales.excedente.toLocaleString()}</span>
-                </div>
-              ) : (
-                <div className="linea-desglose" style={{ color: "#059669" }}>
-                  <span>✅ Pago completo</span>
+              )}
+              {totales.sobrante > 0 && (
+                <div className="linea-resumen exito">
+                  <span className="texto-exito">Sobrante (se convertirá en bono):</span>
+                  <span className="texto-exito">${totales.sobrante.toLocaleString()}</span>
                 </div>
               )}
             </div>
-          )}
-        </div>
+          );
+        })()}
       </div>
 
       {/* 🔥 NUEVO: Selector de modo de pago */}
@@ -797,8 +990,8 @@ export default function RegistrarPago() {
                   <label className="bono-checkbox">
                     <input
                       type="checkbox"
-                      checked={bonosSeleccionados.includes(bono.id)}
-                      onChange={() => toggleBono(bono.id, bono.saldo_disponible)}
+                      checked={bonoSeleccionado ? bonoSeleccionado.includes(bono.id) : false}
+                      onChange={() => toggleBono(bono.id)}
                     />
                     <div className="bono-info-seleccion">
                       <span className="bono-tipo-sel">{bono.tipo}</span>
@@ -809,7 +1002,7 @@ export default function RegistrarPago() {
                 </div>
               ))}
               
-              {bonosSeleccionados.length > 0 && (
+              {bonoSeleccionado && bonoSeleccionado.length > 0 && (
                 <div className="bonos-seleccionados-resumen">
                   <strong>Bonos seleccionados: ${montoBonosUsar.toLocaleString()}</strong>
                   {modoPago === 'bono' && montoBonosUsar < total && (
@@ -897,7 +1090,7 @@ export default function RegistrarPago() {
                 case 'comprobante':
                   return `✅ Registrar pago con comprobante (${totales.totalPagosEfectivo.toLocaleString()})`;
                 case 'bono':
-                  return `✅ Registrar pago con bonos (${montoBonosUsar.toLocaleString()})`;
+                  return `✅ Registrar pago con bonos (${totales.totalBonos.toLocaleString()})`;
                 case 'mixto':
                   return `✅ Registrar pago mixto (${totales.totalCubierto.toLocaleString()})`;
                 default:
@@ -945,16 +1138,7 @@ export default function RegistrarPago() {
                 <h4 style={{ margin: "0 0 0.5rem 0", color: getConfianzaColor(validacionIA.score_confianza) }}>
                   🤖 Validación IA: {validacionIA.score_confianza}% de confianza
                 </h4>
-                {validacionIA.errores_detectados && Array.isArray(validacionIA.errores_detectados) && validacionIA.errores_detectados.length > 0 && (
-                  <div style={{ marginTop: "0.5rem" }}>
-                    <strong style={{ color: "#dc2626" }}>⚠️ Errores detectados:</strong>
-                    <ul style={{ margin: "0.25rem 0", paddingLeft: "1.5rem", fontSize: "0.85rem" }}>
-                      {validacionIA.errores_detectados.map((error: string, idx: number) => (
-                        <li key={idx} style={{ color: "#dc2626" }}>{error}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                
                 {validacionIA.sugerencias && Array.isArray(validacionIA.sugerencias) && validacionIA.sugerencias.length > 0 && (
                   <div style={{ marginTop: "0.5rem" }}>
                     <strong style={{ color: "#059669" }}>💡 Sugerencias:</strong>
@@ -1090,7 +1274,37 @@ export default function RegistrarPago() {
             </p>
           )}
         </div>
-      )}
+      )}      {/* Botones de acción */}
+      <div className="acciones" style={{
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: '1rem',
+        marginTop: '2rem'
+      }}>
+        <button 
+          className="boton-secundario"
+          onClick={() => navigate('/conductor/pagos')}
+          disabled={cargando}
+          style={{
+            backgroundColor: '#6b7280',
+            color: 'white',
+            padding: '0.75rem 1.5rem',
+            borderRadius: '0.5rem',
+            border: 'none',
+            cursor: cargando ? 'not-allowed' : 'pointer',
+            opacity: cargando ? 0.6 : 1
+          }}
+        >
+          Cancelar
+        </button>
+        <button
+          className="boton-registrar"
+          onClick={registrarPago}
+          disabled={cargando || calcularTotales().faltante > 0}
+        >
+          {cargando ? 'Procesando...' : 'Registrar Pago'}
+        </button>
+      </div>
 
       {cargando && <LoadingSpinner size="medium" />}
     </div>

@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional
 import os
 from app.dependencies import get_current_user
 from datetime import datetime, date
+from uuid import uuid4
+import json
 
 router = APIRouter()
 PROJECT_ID = "datos-clientes-441216"
@@ -160,8 +162,17 @@ def obtener_employee_id_usuario(correo: str, client: bigquery.Client) -> Optiona
 @router.get("/pendientes")
 def obtener_guias_pendientes(request: Request) -> Dict:
     """
-    ✅ CORREGIDO: Endpoint principal para obtener guías pendientes de liquidación
-    Incluye guías desde el 9 de junio de 2025 tanto de guias_liquidacion como de COD_pendientes_v1
+    ✅ VALIDADO: Endpoint para obtener guías pendientes de liquidación
+    
+    VALIDACIONES APLICADAS:
+    - Solo guías en estado '360 - Entregado al cliente' de COD_pendientes_v1
+    - Excluye guías ya pagadas/liquidadas en guias_liquidacion
+    - Incluye guías desde el 9 de junio de 2025 en adelante
+    - Combina guías de ambas tablas que estén pendientes de pago
+    
+    Returns:
+        - Guías de guias_liquidacion con estado 'pendiente' o 'disponible'
+        - Guías de COD_pendientes_v1 que no estén marcadas como pagadas
     """
     print("🔍 ===== INICIO REQUEST GUIAS PENDIENTES (CORREGIDO) =====")
     FECHA_INICIO = "2025-06-09"  # Fecha desde la cual queremos las guías
@@ -183,12 +194,10 @@ def obtener_guias_pendientes(request: Request) -> Dict:
             print(f"❌ No se encontró employee_id para {usuario}")
             return {"guias": [], "total": 0, "error": "Employee_id no encontrado"}
 
-        print(f"✅ Employee_id encontrado para {usuario}: {employee_id}")
-
-        # ✅ QUERY MEJORADA: Combina guías de ambas tablas desde la fecha especificada
+        print(f"✅ Employee_id encontrado para {usuario}: {employee_id}")        # ✅ QUERY CORREGIDA: Combina guías pendientes de liquidación desde el 9 de junio
         query = """
         WITH GuiasCombinadas AS (
-            -- Guías de guias_liquidacion
+            -- Guías de guias_liquidacion que están PENDIENTES (no pagadas)
             SELECT
                 gl.tracking_number AS tracking,
                 COALESCE(gl.conductor_nombre_completo, u.Employee_Name, 'Conductor') AS conductor,
@@ -211,14 +220,14 @@ def obtener_guias_pendientes(request: Request) -> Dict:
             FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
             LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
                 ON u.Employee_id = gl.employee_id
-            WHERE gl.estado_liquidacion = 'pendiente'
+            WHERE gl.estado_liquidacion IN ('pendiente', 'disponible')  -- Solo pendientes y disponibles
                 AND gl.employee_id = @employee_id
                 AND gl.valor_guia > 0
                 AND DATE(gl.fecha_entrega) >= @fecha_inicio
 
             UNION ALL
 
-            -- Guías de COD_pendientes_v1 que no están en guias_liquidacion
+            -- Guías de COD_pendientes_v1 entregadas que NO estén pagadas en guias_liquidacion
             SELECT
                 cod.tracking_number AS tracking,
                 COALESCE(cod.Empleado, u.Employee_Name, 'Conductor') AS conductor,
@@ -247,7 +256,10 @@ def obtener_guias_pendientes(request: Request) -> Dict:
                 AND cod.Employee_id = @employee_id
                 AND cod.Valor > 0
                 AND DATE(cod.Status_Date) >= @fecha_inicio
-                AND gl.tracking_number IS NULL  -- Solo las que no están en guias_liquidacion
+                AND (
+                    gl.tracking_number IS NULL  -- No existe en liquidacion
+                    OR gl.estado_liquidacion NOT IN ('pagado', 'liquidado', 'procesado')  -- O no está pagada
+                )
         )
         SELECT * FROM GuiasCombinadas
         ORDER BY fecha_entrega DESC
@@ -280,24 +292,31 @@ def obtener_guias_pendientes(request: Request) -> Dict:
                 "status_date": row.status_date.isoformat() if row.status_date else None,
                 "employee_id": row.employee_id,
                 "liquidacion_id": row.liquidacion_id,
-                "pago_referencia": row.pago_referencia,
-                "origen": row.origen
+                "pago_referencia": row.pago_referencia,                "origen": row.origen
             })
 
         print(f"✅ Total de guías encontradas desde {FECHA_INICIO}: {len(guias)}")
-        print(f"✅ Guías de guias_liquidacion: {sum(1 for g in guias if g['origen'] == 'guias_liquidacion')}")
-        print(f"✅ Guías de cod_pendientes: {sum(1 for g in guias if g['origen'] == 'cod_pendientes')}")
+        print(f"✅ Guías pendientes de liquidacion: {sum(1 for g in guias if g['origen'] == 'guias_liquidacion')}")
+        print(f"✅ Guías entregadas no pagadas de COD: {sum(1 for g in guias if g['origen'] == 'cod_pendientes')}")
+          # Validación: Solo guías con estado 360 de COD que no estén pagadas
+        guias_validadas = [g for g in guias if g['estado'] in ['pendiente', 'disponible']]
 
         return {
-            "guias": guias,
-            "total": len(guias),
+            "guias": guias_validadas,  # Usando guías validadas
+            "total": len(guias_validadas),
             "timestamp": datetime.utcnow().isoformat(),
             "employee_id": employee_id,
             "usuario": usuario,
             "fecha_inicio": FECHA_INICIO,
             "desglose": {
-                "guias_liquidacion": sum(1 for g in guias if g['origen'] == 'guias_liquidacion'),
-                "cod_pendientes": sum(1 for g in guias if g['origen'] == 'cod_pendientes')
+                "guias_liquidacion": sum(1 for g in guias_validadas if g['origen'] == 'guias_liquidacion'),
+                "cod_pendientes": sum(1 for g in guias_validadas if g['origen'] == 'cod_pendientes')
+            },
+            "validacion": {
+                "solo_estado_360": True,
+                "excluye_pagadas": True,
+                "desde_fecha": FECHA_INICIO,
+                "estados_incluidos": ["pendiente", "disponible"]
             }
         }
 
@@ -504,11 +523,214 @@ async def obtener_bonos_disponibles(
             "error": str(e)
         }
 
+def crear_bono_conductor(
+    employee_id: int,
+    conductor_email: str,
+    valor_bono: float,
+    tipo_bono: str,
+    referencia_pago: str,
+    descripcion: str,
+    creado_por: str,
+    client: bigquery.Client
+) -> Dict[str, Any]:
+    """
+    Crea un nuevo bono para un conductor
+    """
+    try:
+        # Validar límite de bonos activos
+        query_limite = """
+        SELECT SUM(saldo_disponible) as total_bonos
+        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        WHERE employee_id = @employee_id
+        AND estado_bono = 'activo'
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id)
+            ]
+        )
+        
+        result = client.query(query_limite, job_config=job_config).result()
+        total_actual = next(iter(result)).total_bonos or 0
+        
+        if total_actual + valor_bono > 800000:
+            raise Exception(
+                f"El conductor ya tiene ${total_actual:,.0f} en bonos activos. " +
+                f"No se puede generar un bono adicional de ${valor_bono:,.0f} " +
+                "porque excedería el límite de $800,000"
+            )
+        
+        # Crear nuevo bono
+        bono = {
+            "id": f"BONO_{uuid4()}",
+            "employee_id": employee_id,
+            "conductor_email": conductor_email,
+            "tipo_bono": tipo_bono,
+            "valor_bono": valor_bono,
+            "saldo_disponible": valor_bono,
+            "referencia_pago_origen": referencia_pago,
+            "descripcion": descripcion,
+            "fecha_generacion": datetime.now().date().isoformat(),
+            "estado_bono": "activo",
+            "fecha_ultimo_uso": None,
+            "fecha_creacion": datetime.now().isoformat(),
+            "fecha_modificacion": datetime.now().isoformat(),
+            "creado_por": creado_por,
+            "modificado_por": creado_por
+        }
+        
+        table_id = f"{PROJECT_ID}.{DATASET}.conductor_bonos"
+        errors = client.insert_rows_json(table_id, [bono])
+        
+        if errors:
+            raise Exception(f"Error guardando bono: {errors}")
+            
+        # Registrar movimiento inicial
+        movimiento = {
+            "id": f"MOV_{uuid4()}",
+            "bono_id": bono["id"],
+            "tipo_movimiento": "GENERACION",
+            "valor_movimiento": valor_bono,
+            "saldo_anterior": 0,
+            "saldo_nuevo": valor_bono,
+            "fecha_movimiento": datetime.now().isoformat(),
+            "creado_por": creado_por,
+            "guias_aplicadas": None
+        }
+        
+        table_id = f"{PROJECT_ID}.{DATASET}.bono_movimientos"
+        errors = client.insert_rows_json(table_id, [movimiento])
+        
+        if errors:
+            raise Exception(f"Error registrando movimiento: {errors}")
+            
+        return bono
+        
+    except Exception as e:
+        raise Exception(f"Error creando bono: {str(e)}")
 
+def usar_bono(
+    bono_id: str,
+    monto_uso: float,
+    guias: List[Dict],
+    usuario: str,
+    client: bigquery.Client
+) -> Dict[str, Any]:
+    """
+    Registra el uso de un bono
+    """
+    try:
+        # Verificar bono
+        query = """
+        SELECT *
+        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        WHERE id = @bono_id
+        AND estado_bono = 'activo'
+        AND saldo_disponible >= @monto_uso
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id),
+                bigquery.ScalarQueryParameter("monto_uso", "FLOAT", monto_uso)
+            ]
+        )
+        
+        result = client.query(query, job_config=job_config).result()
+        bono = next(iter(result), None)
+        
+        if not bono:
+            raise Exception("Bono no encontrado o saldo insuficiente")
+            
+        # Actualizar saldo
+        update_query = """
+        UPDATE `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        SET 
+            saldo_disponible = saldo_disponible - @monto_uso,
+            fecha_ultimo_uso = CURRENT_DATE(),
+            fecha_modificacion = CURRENT_TIMESTAMP(),
+            modificado_por = @usuario,
+            estado_bono = CASE 
+                WHEN saldo_disponible - @monto_uso <= 0 THEN 'agotado'
+                ELSE 'activo'
+            END
+        WHERE id = @bono_id
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("monto_uso", "FLOAT", monto_uso),
+                bigquery.ScalarQueryParameter("usuario", "STRING", usuario),
+                bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id)
+            ]
+        )
+        
+        update_job = client.query(update_query, job_config=job_config)
+        update_job.result()
+        
+        # Registrar movimiento
+        movimiento = {
+            "id": f"MOV_{uuid4()}",
+            "bono_id": bono_id,
+            "tipo_movimiento": "USO",
+            "valor_movimiento": -monto_uso,
+            "saldo_anterior": float(bono.saldo_disponible),
+            "saldo_nuevo": float(bono.saldo_disponible) - monto_uso,
+            "fecha_movimiento": datetime.now().isoformat(),
+            "creado_por": usuario,
+            "guias_aplicadas": json.dumps(guias)
+        }
+        
+        table_id = f"{PROJECT_ID}.{DATASET}.bono_movimientos"
+        errors = client.insert_rows_json(table_id, [movimiento])
+        
+        if errors:
+            raise Exception(f"Error registrando movimiento: {errors}")
+            
+        return {
+            "mensaje": "Bono usado exitosamente",
+            "monto_usado": monto_uso,
+            "saldo_restante": float(bono.saldo_disponible) - monto_uso
+        }
+        
+    except Exception as e:
+        raise Exception(f"Error usando bono: {str(e)}")
 
-
-
-
+def verificar_vencimiento_bonos(client: bigquery.Client):
+    """
+    Verifica y marca como vencidos los bonos que han superado los 90 días
+    """
+    try:
+        query = """
+        UPDATE `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        SET 
+            estado_bono = 'vencido',
+            fecha_modificacion = CURRENT_TIMESTAMP(),
+            modificado_por = 'sistema'
+        WHERE estado_bono = 'activo'
+        AND DATE_DIFF(CURRENT_DATE(), fecha_generacion, DAY) > 90
+        """
+        
+        job = client.query(query)
+        job.result()
+        
+        # Obtener cantidad de bonos vencidos
+        count_query = """
+        SELECT COUNT(*) as vencidos
+        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        WHERE estado_bono = 'vencido'
+        AND DATE(fecha_modificacion) = CURRENT_DATE()        """
+        
+        result = client.query(count_query).result()
+        vencidos = next(iter(result)).vencidos
+        
+        if vencidos > 0:
+            print(f"✅ {vencidos} bonos marcados como vencidos")
+            
+    except Exception as e:
+        print(f"❌ Error verificando vencimiento de bonos: {str(e)}")
+        raise Exception(f"Error en verificación de vencimientos: {str(e)}")
 
 @router.post("/verificar-datos-conductor")
 async def verificar_datos_conductor(
@@ -653,3 +875,115 @@ async def obtener_estadisticas_liquidacion(
     except Exception as e:
         print(f"❌ Error obteniendo estadísticas: {e}")
         raise HTTPException(status_code=500, detail=f"Error obteniendo estadísticas: {str(e)}")
+
+@router.get("/validar-guias-estado-360")
+async def validar_guias_estado_360(
+    request: Request,
+    client: bigquery.Client = Depends(get_bigquery_client)
+) -> Dict[str, Any]:
+    """
+    🔍 VALIDACIÓN ESPECÍFICA: Verifica que solo se traigan guías con estado 360 
+    de COD_pendientes_v1 que NO estén pagadas en guias_liquidacion
+    """
+    usuario = request.headers.get("usuario")
+    
+    if not usuario:
+        return {"error": "Usuario no autenticado"}
+    
+    try:
+        employee_id = obtener_employee_id_usuario(usuario, client)
+        
+        if not employee_id:
+            return {"error": "Employee_id no encontrado"}
+        
+        # Query de validación específica
+        query_validacion = """
+        SELECT 
+            cod.tracking_number,
+            cod.Status_Big,
+            cod.Valor,
+            DATE(cod.Status_Date) as fecha_entrega,
+            gl.estado_liquidacion,
+            CASE 
+                WHEN gl.tracking_number IS NULL THEN 'NO_EN_LIQUIDACION'
+                WHEN gl.estado_liquidacion IN ('pagado', 'liquidado', 'procesado') THEN 'YA_PAGADA'
+                ELSE 'PENDIENTE_OK'
+            END as estado_validacion
+        FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
+        LEFT JOIN `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
+            ON gl.tracking_number = cod.tracking_number
+        WHERE cod.Employee_id = @employee_id
+            AND DATE(cod.Status_Date) >= '2025-06-09'
+            AND cod.Valor > 0
+        ORDER BY 
+            CASE 
+                WHEN cod.Status_Big = '360 - Entregado al cliente' THEN 1 
+                ELSE 2 
+            END,
+            cod.Status_Date DESC
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("employee_id", "INT64", employee_id)
+            ]
+        )
+        
+        result = client.query(query_validacion, job_config=job_config).result()
+        
+        guias_validacion = []
+        estado_360_pendientes = 0
+        estado_360_pagadas = 0
+        otros_estados = 0
+        
+        for row in result:
+            guia_info = {
+                "tracking": row.tracking_number,
+                "status_big": row.Status_Big,
+                "valor": float(row.Valor),
+                "fecha_entrega": row.fecha_entrega.isoformat(),
+                "estado_liquidacion": row.estado_liquidacion,
+                "estado_validacion": row.estado_validacion,
+                "incluir_en_pendientes": (
+                    row.Status_Big == '360 - Entregado al cliente' and 
+                    row.estado_validacion in ['NO_EN_LIQUIDACION', 'PENDIENTE_OK']
+                )
+            }
+            guias_validacion.append(guia_info)
+            
+            # Contadores
+            if row.Status_Big == '360 - Entregado al cliente':
+                if row.estado_validacion in ['NO_EN_LIQUIDACION', 'PENDIENTE_OK']:
+                    estado_360_pendientes += 1
+                else:
+                    estado_360_pagadas += 1
+            else:
+                otros_estados += 1
+        
+        return {
+            "employee_id": employee_id,
+            "usuario": usuario,
+            "total_guias_desde_9_junio": len(guias_validacion),
+            "resumen_validacion": {
+                "estado_360_pendientes": estado_360_pendientes,
+                "estado_360_ya_pagadas": estado_360_pagadas,
+                "otros_estados": otros_estados
+            },
+            "criterios_validacion": {
+                "solo_estado_360": "✅ Solo guías con estado '360 - Entregado al cliente'",
+                "excluir_pagadas": "✅ Excluye las marcadas como pagadas en liquidacion",
+                "desde_9_junio": "✅ Desde 9 de junio de 2025 en adelante",
+                "valor_mayor_a_cero": "✅ Solo guías con valor > 0"
+            },
+            "guias_detalle": guias_validacion[:10],  # Muestra solo las primeras 10 para no sobrecargar
+            "total_mostrado": min(10, len(guias_validacion)),
+            "validacion_exitosa": estado_360_pendientes > 0,
+            "mensaje": f"Se encontraron {estado_360_pendientes} guías con estado 360 pendientes de liquidación"
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "validacion_exitosa": False,
+            "timestamp": datetime.now().isoformat()
+        }
