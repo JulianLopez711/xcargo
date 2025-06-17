@@ -40,7 +40,7 @@ export default function GuiasPendientes() {
       const token = user?.token || localStorage.getItem("token") || "";
       
       const response = await fetch(
-        `https://api.x-cargo.co/supervisor/guias-pendientes?limit=${limit}&offset=${page * limit}${filtroConductor ? `&conductor=${filtroConductor}` : ''}`,
+        `http://127.0.0.1:8000/supervisor/guias-pendientes?limit=${limit}&offset=${page * limit}${filtroConductor ? `&conductor=${filtroConductor}` : ''}`,
         {
           headers: {
             "Authorization": `Bearer ${token}`,

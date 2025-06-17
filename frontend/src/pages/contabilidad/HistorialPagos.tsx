@@ -71,7 +71,7 @@ export default function HistorialPagos() {
       params.append("limite", limite.toString());
 
       const response = await fetch(
-        `https://api.x-cargo.co/pagos/historial?${params.toString()}`,
+        `http://127.0.0.1:8000/pagos/historial?${params.toString()}`,
         {
           method: 'GET',
           headers: {

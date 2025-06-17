@@ -33,22 +33,12 @@ export default function Navbar() {
   };
 
 
-  useEffect(() => {
-    console.log('Usuario actual:', user);
-    console.log('Rol del usuario:', user?.role);
-    console.log('Rutas configuradas para supervisor:', supervisorRoutes);
-    const rutasDisponibles = getRutasDisponibles();
-    console.log('Rutas disponibles después del filtrado:', rutasDisponibles);
-  }, [user]);
-
   if (!user) return null;
 
   // CORREGIDO: Función para obtener rutas disponibles
   const getRutasDisponibles = () => {
     const rutasDelRol = rutasPorRol[user.role] || [];
-    console.log('Obteniendo rutas para el rol:', user.role);
-    console.log('Rutas del rol sin filtrar:', rutasDelRol);
-    console.log('Permisos del usuario:', user.permisos);
+ 
 
     // Si no hay permisos definidos o están vacíos, mostrar todas las rutas del rol
     if (!user.permisos || user.permisos.length === 0) {
@@ -58,8 +48,7 @@ export default function Navbar() {
 
     // Si hay permisos, filtrar según los permisos del usuario
     const rutasFiltradas = rutasDelRol.filter((ruta) => {
-      console.log(`Verificando ruta: ${ruta.name}`);
-      console.log(`Permiso requerido: ${ruta.permission}`);
+      
       
       if (!ruta.permission) {
         console.log(`La ruta ${ruta.name} no requiere permiso específico`);
@@ -69,16 +58,14 @@ export default function Navbar() {
       const tienePermiso = user.permisos!.some(
         (permiso) => {
           const permisoCorrecto = permiso.id === ruta.permission || permiso.nombre === ruta.permission;
-          console.log(`Comparando permiso ${permiso.id}/${permiso.nombre} con ${ruta.permission}: ${permisoCorrecto}`);
           return permisoCorrecto;
         }
       );
 
-      console.log(`Resultado final para ${ruta.name}: ${tienePermiso}`);
       return tienePermiso;
     });
 
-    console.log('Rutas filtradas final:', rutasFiltradas);
+
     return rutasFiltradas;
   };
 

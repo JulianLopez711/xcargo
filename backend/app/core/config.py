@@ -29,7 +29,7 @@ else:
 # Variables de configuración
 GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "app/credentials/datos-clientes-xxxx.json")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "https://api.x-cargo.co")
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://127.0.0.1:8000")
 
 # 🔍 Debug: Verificar qué se cargó
 print(f"🔑 OPENAI_API_KEY: {'✅ Configurada' if OPENAI_API_KEY else '❌ No encontrada'}")

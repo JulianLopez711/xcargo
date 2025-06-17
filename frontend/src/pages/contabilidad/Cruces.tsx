@@ -136,7 +136,7 @@ const Cruces: React.FC = () => {
   // ✅ FUNCIÓN CARGAR ESTADÍSTICAS IMPLEMENTADA
   const cargarEstadisticas = async () => {
   try {
-    const response = await fetch("https://api.x-cargo.co/conciliacion/resumen-conciliacion");
+    const response = await fetch("http://127.0.0.1:8000/conciliacion/resumen-conciliacion");
     if (!response.ok) {
       throw new Error("Error al obtener estadísticas");
     }
@@ -205,7 +205,7 @@ const Cruces: React.FC = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
-      const res = await fetch("https://api.x-cargo.co/conciliacion/cargar-banco-excel", {
+      const res = await fetch("http://127.0.0.1:8000/conciliacion/cargar-banco-excel", {
         method: "POST",
         body: formData,
         signal: controller.signal,
@@ -256,7 +256,7 @@ const Cruces: React.FC = () => {
   updateProgress(0, 100, "Iniciando conciliación automática...");
 
   try {
-    const res = await fetch("https://api.x-cargo.co/conciliacion/conciliacion-automatica-mejorada");
+    const res = await fetch("http://127.0.0.1:8000/conciliacion/conciliacion-automatica-mejorada");
     
     if (!res.ok) {
       throw new Error(await res.text());
@@ -332,22 +332,21 @@ const Cruces: React.FC = () => {
   }
 };
 
-
   // ✅ FUNCIÓN MARCAR CONCILIADO MANUAL IMPLEMENTADA
   const marcarConciliadoManual = async (idBanco: string, referenciaPago?: string) => {
     try {
-      
       const usuario = localStorage.getItem("correo") || "sistema@x-cargo.co";
-      const res = await fetch("https://api.x-cargo.co/conciliacion/marcar-conciliado-manual", {
-
-      body: JSON.stringify({ 
-        id_banco: idBanco, 
-        referencia_pago: referenciaPago,
-        observaciones: "Conciliado manualmente por usuario",
-        usuario
-      }),
-
-
+      const res = await fetch("http://127.0.0.1:8000/conciliacion/marcar-conciliado-manual", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          id_banco: idBanco, 
+          referencia_pago: referenciaPago,
+          observaciones: "Conciliado manualmente por usuario",
+          usuario
+        }),
       });
 
       if (!res.ok) {
@@ -370,7 +369,7 @@ const Cruces: React.FC = () => {
 
   const confirmarConciliacionManual = async (idBanco: string, referenciaPago: string) => {
     try {
-      const res = await fetch("https://api.x-cargo.co/conciliacion/marcar-conciliado-manual", {
+      const res = await fetch("http://127.0.0.1:8000/conciliacion/marcar-conciliado-manual", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 

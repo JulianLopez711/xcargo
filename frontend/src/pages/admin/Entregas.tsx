@@ -100,7 +100,7 @@ export default function EntregasAdmin() {
       if (filtroValorMin) params.append('valor_min', filtroValorMin);
       if (filtroValorMax) params.append('valor_max', filtroValorMax);
 
-      const response = await fetch(`https://api.x-cargo.co/admin/entregas?${params.toString()}`, {
+      const response = await fetch(`http://127.0.0.1:8000/admin/entregas?${params.toString()}`, {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "admin"
@@ -176,7 +176,7 @@ export default function EntregasAdmin() {
 
   const cargarEstadisticas = async () => {
     try {
-      const response = await fetch(`https://api.x-cargo.co/admin/estadisticas-entregas`, {
+      const response = await fetch(`http://127.0.0.1:8000/admin/estadisticas-entregas`, {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "admin"
@@ -206,7 +206,7 @@ export default function EntregasAdmin() {
 
   const cargarFiltros = async () => {
     try {
-      const response = await fetch(`https://api.x-cargo.co/admin/filtros-entregas`, {
+      const response = await fetch(`http://127.0.0.1:8000/admin/filtros-entregas`, {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "admin"
@@ -241,7 +241,7 @@ export default function EntregasAdmin() {
       if (filtroFechaInicio) params.append('fecha_inicio', filtroFechaInicio);
       if (filtroFechaFin) params.append('fecha_fin', filtroFechaFin);
 
-      const response = await fetch(`https://api.x-cargo.co/admin/exportar-entregas?${params.toString()}`, {
+      const response = await fetch(`http://127.0.0.1:8000/admin/exportar-entregas?${params.toString()}`, {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "admin"
