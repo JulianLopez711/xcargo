@@ -1,6 +1,6 @@
 import { useAuth } from "../context/authContext";
 import { useNavigate } from "react-router-dom";
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState } from "react";
 import { adminRoutes } from "../routes/adminRoutes/adminRoutes";
 import { contabilidadRoutes } from "../routes/contabilidadRoutes/contabilidadRoutes";
 import { conductorRoutes } from "../routes/conductorRoutes/conductorRoutes";
@@ -42,7 +42,7 @@ export default function Navbar() {
 
     // Si no hay permisos definidos o están vacíos, mostrar todas las rutas del rol
     if (!user.permisos || user.permisos.length === 0) {
-      console.log('No hay permisos definidos, mostrando todas las rutas del rol');
+      
       return rutasDelRol;
     }
 
@@ -51,7 +51,7 @@ export default function Navbar() {
       
       
       if (!ruta.permission) {
-        console.log(`La ruta ${ruta.name} no requiere permiso específico`);
+        
         return true;
       }
 

@@ -49,9 +49,8 @@ export default function PagoEntregas() {
 
   // Estados específicos para mejor type safety
   // (Eliminado: definición duplicada de PasoEstado)
-
   const [estado, setEstado] = useState<EstadoProceso>({
-    paso: "formulario" as PasoEstado,
+    paso: "formulario",
     mensaje: "",
     progreso: 0,
   });
@@ -61,9 +60,8 @@ export default function PagoEntregas() {
 
   // Verificar si llegamos con datos válidos
   useEffect(() => {
-    if (entregas.length === 0) {
-      setEstado({
-        paso: "error" as PasoEstado,
+    if (entregas.length === 0) {      setEstado({
+        paso: "error",
         mensaje: "No se encontraron entregas para procesar",
         progreso: 0,
       });
@@ -148,10 +146,8 @@ export default function PagoEntregas() {
   const registrarPago = async () => {
     if (!validarFormulario()) {
       return;
-    }
-
-    setEstado({
-      paso: "procesando" as PasoEstado,
+    }    setEstado({
+      paso: "procesando",
       mensaje: "Validando datos y preparando el pago...",
       progreso: 10,
     });
@@ -182,26 +178,22 @@ export default function PagoEntregas() {
         cliente: entrega.cliente,
       }));
 
-      formData.append("guias", JSON.stringify(guiasData));
-
-      setEstado({
-        paso: "procesando" as PasoEstado,
+      formData.append("guias", JSON.stringify(guiasData));      setEstado({
+        paso: "procesando",
         mensaje: "Enviando pago al servidor...",
         progreso: 50,
       });
 
       // Enviar al servidor
       const response = await fetch(
-        "http://127.0.0.1:8000/pagos/registrar-conductor",
+        "https://api.x-cargo.co/pagos/registrar-conductor",
         {
           method: "POST",
           body: formData,
           signal: AbortSignal.timeout(60000), // 60 segundos timeout
         }
-      );
-
-      setEstado({
-        paso: "procesando" as PasoEstado,
+      );      setEstado({
+        paso: "procesando",
         mensaje: "Procesando respuesta del servidor...",
         progreso: 80,
       });
@@ -211,10 +203,8 @@ export default function PagoEntregas() {
         throw new Error(
           errorData.detail || `Error ${response.status}: ${response.statusText}`
         );
-      }
-
-      setEstado({
-        paso: "completado" as PasoEstado,
+      }      setEstado({
+        paso: "completado",
         mensaje: `✅ Pago registrado exitosamente. Referencia: ${formulario.referencia}`,
         progreso: 100,
       });
@@ -245,10 +235,8 @@ export default function PagoEntregas() {
         mensajeError = "La operación tardó demasiado tiempo";
       } else {
         mensajeError = error.message;
-      }
-
-      setEstado({
-        paso: "error" as PasoEstado,
+      }      setEstado({
+        paso: "error",
         mensaje: `❌ Error al registrar el pago: ${mensajeError}`,
         progreso: 0,
       });
@@ -273,7 +261,7 @@ export default function PagoEntregas() {
       formData.append("comprobante", formulario.comprobante);
 
       const response = await fetch(
-        "http://127.0.0.1:8000/enviar-confirmacion-email/",
+        "https://api.x-cargo.co/enviar-confirmacion-email/",
         {
           method: "POST",
           body: formData,
@@ -297,9 +285,8 @@ export default function PagoEntregas() {
     navigate(-1);
   };
 
-  const reiniciarFormulario = () => {
-    setEstado({
-      paso: "formulario" as PasoEstado,
+  const reiniciarFormulario = () => {    setEstado({
+      paso: "formulario",
       mensaje: "",
       progreso: 0,
     });
@@ -331,16 +318,17 @@ export default function PagoEntregas() {
   }
 
   return (
-    <div className="pago-entregas-page">
-      {/* Header */}
+    <div className="pago-entregas-page">      {/* Header */}
       <div className="page-header">
         <button onClick={volverAtras} className="btn-volver">
           ← Volver
         </button>
-        <h2 className="page-title">💰 Registrar Pago de Entregas</h2>
-        <p className="page-subtitle">
-          Registra el comprobante de pago para las entregas seleccionadas
-        </p>
+        <div className="header-content">
+          <h2 className="page-title">💰 Registrar Pago de Entregas</h2>
+          <p className="page-subtitle">
+            Registra el comprobante de pago para las entregas seleccionadas
+          </p>
+        </div>
       </div>
 
       {/* Progreso */}
@@ -579,26 +567,29 @@ export default function PagoEntregas() {
                   onChange={handleFileChange}
                   accept=".jpg,.jpeg,.png,.webp,.pdf"
                   className="upload-input"
-                />
-                <label htmlFor="comprobante" className="upload-label">
+                />                <label htmlFor="comprobante" className="upload-label">
                   {formulario.comprobante ? (
                     <div className="archivo-seleccionado">
-                      <span className="archivo-icono">📄</span>
-                      <span className="archivo-nombre">
-                        {formulario.comprobante.name}
+                      <span className="archivo-icono">
+                        {formulario.comprobante.type.includes('pdf') ? '📄' : '🖼️'}
                       </span>
-                      <span className="archivo-tamaño">
-                        (
-                        {(formulario.comprobante.size / (1024 * 1024)).toFixed(
-                          2
-                        )}
-                        MB)
+                      <div className="archivo-info">
+                        <span className="archivo-nombre">
+                          {formulario.comprobante.name}
+                        </span>
+                        <span className="archivo-tamaño">
+                          {(formulario.comprobante.size / (1024 * 1024)).toFixed(2)} MB
+                        </span>
+                      </div>
+                      <span className="archivo-cambiar">
+                        🔄 Cambiar archivo
                       </span>
                     </div>
                   ) : (
                     <div className="upload-placeholder">
                       <span className="upload-icono">📎</span>
-                      <span>Haz clic para seleccionar el comprobante</span>
+                      <span className="upload-texto">Haz clic para seleccionar el comprobante</span>
+                      <span className="upload-ayuda">JPG, PNG, WEBP o PDF • Max 10MB</span>
                     </div>
                   )}
                 </label>
@@ -607,27 +598,29 @@ export default function PagoEntregas() {
               {errores.comprobante && (
                 <span className="campo-error">{errores.comprobante}</span>
               )}
-            </div>
-
-            {/* Acciones */}
-            <div className="formulario-acciones">
-              <button
-                onClick={volverAtras}
-                className="btn-cancelar"
-                disabled={estado.paso === "procesando"}
-              >
-                ← Cancelar
-              </button>
-              <button
-                onClick={registrarPago}
-                className="btn-registrar"
-                disabled={estado.paso === "procesando"}
-              >
-                {estado.paso === "procesando"
-                  ? "⏳ Procesando..."
-                  : "✅ Registrar Pago"}
-              </button>
-            </div>
+            </div>          <div className="formulario-acciones">
+            <button
+              onClick={volverAtras}
+              className="btn-cancelar"
+              disabled={estado.paso !== "formulario"}
+            >
+              ← Cancelar
+            </button>
+            <button
+              onClick={registrarPago}
+              className="btn-registrar"
+              disabled={estado.paso !== "formulario"}
+            >
+              {(estado.paso as string) === "procesando" ? (
+                <>
+                  <div className="loading-spinner" style={{ width: '20px', height: '20px', display: 'inline-block', marginRight: '8px' }}></div>
+                  Procesando...
+                </>
+              ) : (
+                "✅ Registrar Pago"
+              )}
+            </button>
+          </div>
           </div>
         </>
       )}

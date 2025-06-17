@@ -4,18 +4,20 @@ import "../../styles/contabilidad/HistorialPagos.css";
 
 interface PagoHistorial {
   referencia_pago: string;
-  valor: number;
+  valor: number | undefined;
   fecha: string;
   entidad: string;
   estado: string;
   tipo: string;
-  imagen: string;
+  imagen?: string;
   novedades?: string;
   num_guias: number;
   correo_conductor: string;
   fecha_creacion?: string;
   fecha_modificacion?: string;
   modificado_por?: string;
+  tracking?: string;
+  fecha_registro?: string;
 }
 
 interface FiltrosHistorial {
@@ -71,7 +73,7 @@ export default function HistorialPagos() {
       params.append("limite", limite.toString());
 
       const response = await fetch(
-        `http://127.0.0.1:8000/pagos/historial?${params.toString()}`,
+        `https://api.x-cargo.co/pagos/historial?${params.toString()}`,
         {
           method: 'GET',
           headers: {
@@ -139,7 +141,7 @@ export default function HistorialPagos() {
       return;
     }
 
-    const totalValor = historial.reduce((sum, pago) => sum + pago.valor, 0);
+    const totalValor = historial.reduce((sum, pago) => sum + (pago.valor || 0), 0);
     const valorPromedio = totalValor / historial.length;
 
     // Estadísticas por estado
@@ -221,8 +223,12 @@ export default function HistorialPagos() {
     }
     setImagenSeleccionada(src);
   };
-
   const getEstadoColor = (estado: string): string => {
+    // Validar que estado existe y es string
+    if (!estado || typeof estado !== 'string') {
+      return '#6b7280'; // Color gris por defecto
+    }
+    
     const colores: { [key: string]: string } = {
       'pagado': '#3b82f6',
       'aprobado': '#22c55e',
@@ -231,8 +237,12 @@ export default function HistorialPagos() {
     };
     return colores[estado.toLowerCase()] || '#6b7280';
   };
-
   const getEstadoTexto = (estado: string): string => {
+    // Validar que estado existe y es string
+    if (!estado || typeof estado !== 'string') {
+      return '❓ Sin estado';
+    }
+    
     const textos: { [key: string]: string } = {
       'pagado': '💳 Pagado',
       'aprobado': '✅ Aprobado',
@@ -241,9 +251,9 @@ export default function HistorialPagos() {
     };
     return textos[estado.toLowerCase()] || estado;
   };
-
-  const formatearMoneda = (valor: number): string => {
-    return valor.toLocaleString('es-ES', {
+  const formatearMoneda = (valor: number | undefined | null): string => {
+    const valorNumerico = Number(valor) || 0;
+    return valorNumerico.toLocaleString('es-ES', {
       style: 'currency',
       currency: 'COP',
       minimumFractionDigits: 0,
@@ -252,10 +262,16 @@ export default function HistorialPagos() {
   };
 
   // Obtener estados únicos para el filtro
-  const estadosUnicos = Array.from(new Set(pagos.map(p => p.estado))).sort();
-  const entidadesUnicas = Array.from(new Set(pagos.map(p => p.entidad))).filter(e => e).sort();
-
-  // Paginación de datos
+  const estadosUnicos = Array.from(new Set(
+    pagos
+      .map(p => p.estado)
+      .filter(estado => estado !== null && estado !== undefined && estado !== '')
+  )).sort();
+  const entidadesUnicas = Array.from(new Set(
+    pagos
+      .map(p => p.entidad)
+      .filter(entidad => entidad !== null && entidad !== undefined && entidad !== '')
+  )).sort();  // Paginación de datos
   const inicio = (paginaActual - 1) * limite;
   const pagosPaginados = pagos.slice(inicio, inicio + limite);
 
@@ -476,10 +492,9 @@ export default function HistorialPagos() {
                     </td>
                     
                   
-                    
-                    <td className="comprobante-cell">
+                      <td className="comprobante-cell">
                       <button
-                        onClick={() => verImagen(pago.imagen)}
+                        onClick={() => pago.imagen && verImagen(pago.imagen)}
                         className="btn-ver-comprobante"
                         disabled={!pago.imagen}
                       >

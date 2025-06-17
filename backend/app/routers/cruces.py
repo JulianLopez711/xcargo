@@ -35,93 +35,84 @@ class EstadisticasCruces(BaseModel):
 
 @router.get("/obtener-cruces", response_model=List[CruceResponse])
 def obtener_cruces_bancarios(
-    estado: Optional[str] = Query(None, description="Filtrar por estado: todos, conciliado, pendiente, diferencia"),
+     estado: Optional[str] = Query(None, description="Filtrar por estado"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(100, description="Límite de registros")
 ):
     """
-    Obtiene cruces bancarios con filtros avanzados
-    
-    🎯 **BENEFICIO**: Vista consolidada de todos los cruces con filtros inteligentes
+    VERSIÓN CORREGIDA: Obtiene cruces bancarios con validación
     """
     client = bigquery.Client()
     
     try:
-        # Construir query base con filtros dinámicos
-        where_conditions = ["1=1"]  # Condición base siempre verdadera
+        # Construir query con validaciones
+        where_conditions = ["1=1"]
+        query_params = []
         
         if estado and estado != "todos":
             if estado == "conciliado":
-                where_conditions.append("estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')")
+                where_conditions.append("bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')")
             elif estado == "pendiente":
-                where_conditions.append("estado_conciliacion = 'pendiente'")
-            elif estado == "diferencia":
-                where_conditions.append("estado_conciliacion IN ('diferencia_valor', 'diferencia_fecha', 'multiple_match')")
+                where_conditions.append("bm.estado_conciliacion = 'pendiente'")
+            elif estado in ["diferencia_valor", "diferencia_fecha", "sin_match"]:
+                where_conditions.append("bm.estado_conciliacion = @estado_filtro")
+                query_params.append(bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado))
         
         if fecha_desde:
-            where_conditions.append(f"fecha >= DATE('{fecha_desde}')")
+            where_conditions.append("DATE(bm.fecha) >= @fecha_desde")
+            query_params.append(bigquery.ScalarQueryParameter("fecha_desde", "DATE", fecha_desde))
         
         if fecha_hasta:
-            where_conditions.append(f"fecha <= DATE('{fecha_hasta}')")
+            where_conditions.append("DATE(bm.fecha) <= @fecha_hasta")
+            query_params.append(bigquery.ScalarQueryParameter("fecha_hasta", "DATE", fecha_hasta))
         
         where_clause = " AND ".join(where_conditions)
         
-        # Query principal con JOIN optimizado
+        # Query principal CORREGIDA
         query = f"""
-        WITH banco_con_pagos AS (
-            SELECT 
-                bm.id,
-                bm.fecha,
-                bm.valor_banco,
-                bm.descripcion,
-                bm.estado_conciliacion,
-                bm.confianza_match,
-                bm.observaciones,
-                -- Datos del pago asociado (si existe)
-                pc.referencia_pago,
-                pc.fecha_pago,
-                pc.valor as valor_pago,
-                pc.tracking,
-                -- Calcular diferencias
-                ABS(bm.valor_banco - COALESCE(pc.valor, 0)) as diferencia_valor,
-                ABS(DATE_DIFF(bm.fecha, pc.fecha_pago, DAY)) as diferencia_dias
-            FROM `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
-            LEFT JOIN `datos-clientes-441216.Conciliaciones.pagosconductor` pc
-                ON bm.id = pc.id_banco_asociado  -- Asumiendo que existe esta relación
-            WHERE {where_clause}
-        )
         SELECT 
-            id as id_banco,
-            FORMAT_DATE('%Y-%m-%d', fecha) as fecha_banco,
-            valor_banco,
-            descripcion as descripcion_banco,
-            estado_conciliacion,
-            COALESCE(confianza_match, 0) as confianza_match,
-            referencia_pago,
-            FORMAT_DATE('%Y-%m-%d', fecha_pago) as fecha_pago,
-            valor_pago,
-            tracking,
-            CASE 
-                WHEN observaciones IS NOT NULL AND observaciones != '' THEN observaciones
-                WHEN diferencia_valor > 0 THEN CONCAT('Diferencia valor: 
-                , FORMAT('%,.0f', diferencia_valor))
-                WHEN diferencia_dias > 0 THEN CONCAT('Diferencia días: ', diferencia_dias)
-                ELSE 'Sin observaciones'
-            END as observaciones
-        FROM banco_con_pagos
-        ORDER BY fecha DESC, valor_banco DESC
-        LIMIT {limit}
+            bm.id as id_banco,
+            FORMAT_DATE('%Y-%m-%d', bm.fecha) as fecha_banco,
+            bm.valor_banco,
+            bm.descripcion as descripcion_banco,
+            COALESCE(bm.estado_conciliacion, 'pendiente') as estado_conciliacion,
+            COALESCE(bm.confianza_match, 0) as confianza_match,
+            pc.referencia_pago,
+            FORMAT_DATE('%Y-%m-%d', pc.fecha_pago) as fecha_pago,
+            COALESCE(pc.valor_total_consignacion, pc.valor) as valor_pago,
+            pc.tracking,
+            COALESCE(bm.observaciones, '') as observaciones
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
+        LEFT JOIN `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            ON bm.referencia_pago_asociada = pc.referencia_pago
+        WHERE {where_clause}
+        ORDER BY bm.fecha DESC, bm.valor_banco DESC
+        LIMIT @limit_param
         """
         
-        logger.info(f"Ejecutando query de cruces con filtros: estado={estado}, fecha_desde={fecha_desde}, fecha_hasta={fecha_hasta}")
+        query_params.append(bigquery.ScalarQueryParameter("limit_param", "INT64", limit))
         
-        # Ejecutar query
-        results = client.query(query).result()
-        cruces = [dict(row) for row in results]
+        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
+        results = client.query(query, job_config=job_config).result()
+        
+        cruces = []
+        for row in results:
+            cruces.append({
+                "id_banco": row["id_banco"],
+                "fecha_banco": row["fecha_banco"],
+                "valor_banco": float(row["valor_banco"]),
+                "descripcion_banco": row["descripcion_banco"],
+                "estado_conciliacion": row["estado_conciliacion"],
+                "confianza_match": int(row["confianza_match"]),
+                "referencia_pago": row["referencia_pago"],
+                "fecha_pago": row["fecha_pago"],
+                "valor_pago": float(row["valor_pago"]) if row["valor_pago"] else None,
+                "tracking": row["tracking"],
+                "observaciones": row["observaciones"]
+            })
         
         logger.info(f"Se encontraron {len(cruces)} cruces bancarios")
-        
         return cruces
         
     except Exception as e:

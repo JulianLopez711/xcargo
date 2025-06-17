@@ -99,7 +99,7 @@ export default function PagosContabilidad() {
         }
       }
 
-      const response = await fetch(`http://127.0.0.1:8000/pagos/pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -196,7 +196,7 @@ export default function PagosContabilidad() {
 
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const response = await fetch(`http://127.0.0.1:8000/pagos/detalles-pago/${referenciaPago}`);
+      const response = await fetch(`https://api.x-cargo.co/pagos/detalles-pago/${referenciaPago}`);
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -208,44 +208,6 @@ export default function PagosContabilidad() {
     } catch (err: any) {
       console.error("Error cargando detalles:", err);
       alert(`Error al cargar detalles del pago: ${err.message}`);
-    }
-  };
-
-  const aprobarPago = async (referenciaPago: string) => {
-    if (procesando) return;
-    
-    const confirmacion = window.confirm(`¿Está seguro de aprobar el pago ${referenciaPago}?`);
-    if (!confirmacion) return;
-
-    setProcesando(referenciaPago);
-
-    try {
-      const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
-      
-      const response = await fetch("http://127.0.0.1:8000/pagos/aprobar-pago", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          referencia_pago: referenciaPago,
-          modificado_por: user.email,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Error desconocido");
-      }
-
-      const result = await response.json();
-      
-      alert(`✅ Pago aprobado correctamente. ${result.total_guias || 0} guías liberadas.`);
-      await obtenerPagos(paginaActual);
-      
-    } catch (error: any) {
-      console.error("Error aprobando pago:", error);
-      alert(`❌ Error al aprobar el pago: ${error.message}`);
-    } finally {
-      setProcesando(null);
     }
   };
 
@@ -261,7 +223,7 @@ export default function PagosContabilidad() {
     try {
       const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
       
-      const response = await fetch("http://127.0.0.1:8000/pagos/rechazar-pago", {
+      const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -449,7 +411,7 @@ export default function PagosContabilidad() {
                   <td>${p.valor.toLocaleString()}</td>
                   <td>{p.num_guias}</td>
                   <td>{p.fecha}</td>
-                  <td>{p.entidad}</td>
+                  <td>{}</td>
                   <td>{p.tipo}</td>
                   <td style={{
                     color: p.estado_conciliacion === "rechazado" ? "crimson" :
@@ -484,14 +446,6 @@ export default function PagosContabilidad() {
                     )}
                   </td>
                   <td>
-                    <button
-                      onClick={() => aprobarPago(p.referencia_pago)}
-                      className="boton-aprobar"
-                      disabled={p.estado_conciliacion === "aprobado" || procesando === p.referencia_pago}
-                    >
-                      {procesando === p.referencia_pago ? "Procesando..." : 
-                       p.estado_conciliacion === "aprobado" ? "Aprobado" : "Aprobar"}
-                    </button>
                     <button
                       onClick={() => {
                         setRefPagoSeleccionada(p.referencia_pago);

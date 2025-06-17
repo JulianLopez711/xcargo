@@ -111,7 +111,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
         os.chmod(ruta_local, 0o644)
         
         # URL para acceso
-        comprobante_url = f"http://127.0.0.1:8000/static/{nombre_archivo}"
+        comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
         logger.info(f"🔗 URL generada: {comprobante_url}")
         
         return comprobante_url
@@ -1056,7 +1056,7 @@ def obtener_pagos_pendientes_contabilidad(
                 "timestamp": datetime.now().isoformat()
             }
         )
-@router.post("/pagos/aprobar-pago")
+@router.post("/aprobar-pago")
 def aprobar_pago(payload: dict):
     """
     Aprueba un pago cambiando su estado a conciliado_manual
@@ -1332,25 +1332,24 @@ async def obtener_historial_pagos(
     Obtiene el historial de pagos con filtros opcionales
     """
     try:
-        client = get_bigquery_client()        # Construir la consulta base
+        client = get_bigquery_client()
+        
+        # Construir la consulta base simplificada
         query = """
         SELECT 
-            pc.id_string,
-            pc.referencia_pago,
-            pc.fecha_pago,
-            pc.hora_pago,
-            pc.correo as correo_conductor,
-            pc.cliente,
-            pc.tipo,
-            pc.entidad,
-            COALESCE(pc.valor_total_consignacion, pc.valor) as valor_pago,
-            pc.estado_conciliacion,
-            pc.fecha_registro,
-            pc.tracking,
-            COUNT(gl.pago_referencia) as num_guias
-        FROM `{project}.{dataset}.pagosconductor` pc
-        LEFT JOIN `{project}.{dataset}.guias_liquidacion` gl 
-            ON pc.referencia_pago = gl.pago_referencia
+            referencia_pago,
+            fecha_pago,
+            hora_pago,
+            correo as correo_conductor,
+            cliente,
+            tipo,
+            entidad,
+            COALESCE(valor_total_consignacion, valor) as valor_pago,
+            estado_conciliacion,
+            creado_en as fecha_registro,
+            tracking,
+            COUNT(*) OVER (PARTITION BY referencia_pago) as num_guias
+        FROM `{project}.{dataset}.pagosconductor`
         WHERE 1=1
         """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
         
@@ -1358,26 +1357,24 @@ async def obtener_historial_pagos(
         query_params = []
         
         if fecha_inicio:
-            query += " AND DATE(pc.fecha_pago) >= @fecha_inicio"
+            query += " AND DATE(fecha_pago) >= @fecha_inicio"
             query_params.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio))
         
         if fecha_fin:
-            query += " AND DATE(pc.fecha_pago) <= @fecha_fin"
+            query += " AND DATE(fecha_pago) <= @fecha_fin"
             query_params.append(bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin))
         
         if estado:
-            query += " AND pc.estado_conciliacion = @estado"
+            query += " AND estado_conciliacion = @estado"
             query_params.append(bigquery.ScalarQueryParameter("estado", "STRING", estado))
         
         if conductor:
-            query += " AND LOWER(pc.correo) LIKE @conductor"
-            query_params.append(bigquery.ScalarQueryParameter("conductor", "STRING", f"%{conductor.lower()}%"))        # Agregar agrupación, ordenación y límites
+            query += " AND LOWER(correo) LIKE @conductor"
+            query_params.append(bigquery.ScalarQueryParameter("conductor", "STRING", f"%{conductor.lower()}%"))
+        
+        # Agregar ordenación y límites
         query += """
-        GROUP BY 
-            pc.id_string, pc.referencia_pago, pc.fecha_pago, pc.hora_pago,
-            pc.correo, pc.cliente, pc.tipo, pc.entidad, pc.valor_total_consignacion,
-            pc.valor, pc.estado_conciliacion, pc.fecha_registro, pc.tracking
-        ORDER BY pc.fecha_pago DESC, pc.hora_pago DESC
+        ORDER BY fecha_pago DESC, hora_pago DESC, creado_en DESC
         LIMIT @limite
         OFFSET @offset
         """
@@ -1387,56 +1384,61 @@ async def obtener_historial_pagos(
             bigquery.ScalarQueryParameter("offset", "INT64", offset)
         ])
         
+        logger.info(f"Ejecutando consulta de historial con límite={limite}, offset={offset}")
+        
         # Ejecutar consulta
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
         results = client.query(query, job_config=job_config).result()        # Convertir resultados
         historial = []
         for row in results:
             pago = {
-                "id": row.id_string,
-                "referencia_pago": row.referencia_pago,
-                "fecha_pago": row.fecha_pago.isoformat() if row.fecha_pago else None,
-                "hora_pago": row.hora_pago,
-                "correo_conductor": row.correo_conductor,
-                "cliente": row.cliente,
-                "tipo": row.tipo,
-                "entidad": row.entidad,
-                "valor_pago": float(row.valor_pago) if row.valor_pago else 0,
-                "estado_conciliacion": row.estado_conciliacion,
+                "referencia_pago": row.referencia_pago or "",
+                "fecha": row.fecha_pago.isoformat() if row.fecha_pago else None,
+                "hora_pago": str(row.hora_pago) if row.hora_pago else "",
+                "correo_conductor": row.correo_conductor or "",
+                "cliente": row.cliente or "",
+                "tipo": row.tipo or "",
+                "entidad": row.entidad or "",
+                "valor": float(row.valor_pago) if row.valor_pago else 0.0,
+                "estado": row.estado_conciliacion or "pendiente",
                 "fecha_registro": row.fecha_registro.isoformat() if row.fecha_registro else None,
-                "tracking": row.tracking,
-                "num_guias": int(row.num_guias) if row.num_guias else 0
+                "tracking": row.tracking or "",
+                "num_guias": int(row.num_guias) if row.num_guias else 0,
+                "imagen": "",  # Agregar campo imagen vacío por compatibilidad
+                "novedades": ""  # Agregar campo novedades vacío por compatibilidad
             }
             historial.append(pago)
         
-        # Obtener conteo total para paginación
+        # Obtener conteo total para paginación - consulta simplificada
         count_query = """
-        SELECT COUNT(DISTINCT pc.id_string) as total
-        FROM `{project}.{dataset}.pagosconductor` pc
+        SELECT COUNT(DISTINCT referencia_pago) as total
+        FROM `{project}.{dataset}.pagosconductor`
         WHERE 1=1
         """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
         
         # Aplicar los mismos filtros para el conteo
         count_params = []
         if fecha_inicio:
-            count_query += " AND DATE(pc.fecha_pago) >= @fecha_inicio"
+            count_query += " AND DATE(fecha_pago) >= @fecha_inicio"
             count_params.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio))
         
         if fecha_fin:
-            count_query += " AND DATE(pc.fecha_pago) <= @fecha_fin"
+            count_query += " AND DATE(fecha_pago) <= @fecha_fin"
             count_params.append(bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin))
         
         if estado:
-            count_query += " AND pc.estado_conciliacion = @estado"
+            count_query += " AND estado_conciliacion = @estado"
             count_params.append(bigquery.ScalarQueryParameter("estado", "STRING", estado))
         
         if conductor:
-            count_query += " AND LOWER(pc.correo) LIKE @conductor"
+            count_query += " AND LOWER(correo) LIKE @conductor"
             count_params.append(bigquery.ScalarQueryParameter("conductor", "STRING", f"%{conductor.lower()}%"))
         
         count_job_config = bigquery.QueryJobConfig(query_parameters=count_params)
-        count_result = list(client.query(count_query, count_job_config=count_job_config).result())
+        count_result = list(client.query(count_query, job_config=count_job_config).result())
         total_registros = count_result[0].total if count_result else 0
+        
+        logger.info(f"✅ Historial obtenido: {len(historial)} registros de {total_registros} totales")
         
         return {
             "historial": historial,
@@ -1447,8 +1449,8 @@ async def obtener_historial_pagos(
         }
         
     except Exception as e:
-        logger.error(f"Error obteniendo historial de pagos: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Error obteniendo historial de pagos: {e}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=500,
             detail=f"Error interno del servidor: {str(e)}"

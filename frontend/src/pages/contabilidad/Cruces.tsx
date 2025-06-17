@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 import "../../styles/contabilidad/Cruces.css";
 
 interface ResultadoConciliacion {
@@ -39,15 +39,15 @@ interface ResultadoConciliacion {
 interface ResumenConciliacionMejorado {
   resumen: {
     total_movimientos_banco: number;
-    total_pagos_iniciales: number;           
-    total_procesados: number;                
-    referencias_unicas_utilizadas: number;   
+    total_pagos_iniciales: number;
+    total_procesados: number;
+    referencias_unicas_utilizadas: number;
     conciliado_exacto: number;
     conciliado_aproximado: number;
-    sin_match: number;                      
+    sin_match: number;
   };
   resultados: ResultadoConciliacion[];
-  referencias_usadas: string[];              
+  referencias_usadas: string[];
   fecha_conciliacion: string;
 }
 
@@ -55,13 +55,13 @@ interface ResumenConciliacionMejorado {
 interface ResumenConciliacion {
   resumen: {
     total_movimientos_banco: number;
-    total_pagos_conductores: number;           
+    total_pagos_conductores: number;
     conciliado_exacto: number;
     conciliado_aproximado: number;
     multiple_match: number;
     diferencia_valor: number;
     diferencia_fecha: number;
-    sin_match: number;                      
+    sin_match: number;
   };
   resultados: ResultadoConciliacion[];
   fecha_conciliacion: string;
@@ -114,17 +114,21 @@ const Cruces: React.FC = () => {
   const [subiendo, setSubiendo] = useState(false);
   const [mensaje, setMensaje] = useState("");
   const [procesandoConciliacion, setProcesandoConciliacion] = useState(false);
-  const [resultadoConciliacion, setResultadoConciliacion] = useState<ResumenConciliacion | null>(null);
-  const [estadisticasGenerales, setEstadisticasGenerales] = useState<EstadisticasGenerales | null>(null);
+  const [resultadoConciliacion, setResultadoConciliacion] =
+    useState<ResumenConciliacion | null>(null);
+  const [estadisticasGenerales, setEstadisticasGenerales] =
+    useState<EstadisticasGenerales | null>(null);
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
   const [busqueda, setBusqueda] = useState("");
-  const [modalDetalle, setModalDetalle] = useState<ResultadoConciliacion | null>(null);
-  const [modalConciliacionManual, setModalConciliacionManual] = useState<ConciliacionManual | null>(null);
+  const [modalDetalle, setModalDetalle] =
+    useState<ResultadoConciliacion | null>(null);
+  const [modalConciliacionManual, setModalConciliacionManual] =
+    useState<ConciliacionManual | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgress>({
     total: 0,
     processed: 0,
     percentage: 0,
-    message: ''
+    message: "",
   });
 
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -135,39 +139,38 @@ const Cruces: React.FC = () => {
 
   // ✅ FUNCIÓN CARGAR ESTADÍSTICAS IMPLEMENTADA
   const cargarEstadisticas = async () => {
-  try {
-    const response = await fetch("http://127.0.0.1:8000/conciliacion/resumen-conciliacion");
-    if (!response.ok) {
-      throw new Error("Error al obtener estadísticas");
+    try {
+      const response = await fetch(
+        "https://api.x-cargo.co/conciliacion/resumen-conciliacion"
+      );
+      if (!response.ok) {
+        throw new Error("Error al obtener estadísticas");
+      }
+
+      const data = await response.json();
+
+      // Validar que data tenga la estructura esperada
+      if (!data || !data.resumen_por_estado) {
+        throw new Error("Respuesta inválida del servidor");
+      }
+
+      // Procesar los datos con validación
+      const estadisticas = {
+        resumen_general: data.resumen_general || {
+          total_movimientos: 0,
+          conciliados: 0,
+          pendientes: 0,
+          valor_total: 0,
+        },
+        resumen_por_estado: data.resumen_por_estado || [],
+      };
+
+      setEstadisticasGenerales(estadisticas);
+    } catch (err: any) {
+      console.error("Error cargando estadísticas:", err);
+      setMensaje(`❌ Error: ${err.message}`);
     }
-    
-    const data = await response.json();
-    
-    // Validar que data tenga la estructura esperada
-    if (!data || !data.resumen_por_estado) {
-      throw new Error("Respuesta inválida del servidor");
-    }
-
-    // Procesar los datos con validación
-    const estadisticas = {
-      resumen_general: data.resumen_general || {
-        total_movimientos: 0,
-        conciliados: 0,
-        pendientes: 0,
-        valor_total: 0
-      },
-      resumen_por_estado: data.resumen_por_estado || []
-    };
-
-    setEstadisticasGenerales(estadisticas);
-    
-  } catch (err: any) {
-    console.error("Error cargando estadísticas:", err);
-    setMensaje(`❌ Error: ${err.message}`);
-  }
-};
-
-
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -179,7 +182,11 @@ const Cruces: React.FC = () => {
       }
 
       if (file.size > MAX_FILE_SIZE) {
-        setMensaje(`❌ El archivo es demasiado grande. Máximo permitido: ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+        setMensaje(
+          `❌ El archivo es demasiado grande. Máximo permitido: ${
+            MAX_FILE_SIZE / (1024 * 1024)
+          }MB`
+        );
         return;
       }
 
@@ -205,11 +212,14 @@ const Cruces: React.FC = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
-      const res = await fetch("http://127.0.0.1:8000/conciliacion/cargar-banco-excel", {
-        method: "POST",
-        body: formData,
-        signal: controller.signal,
-      });
+      const res = await fetch(
+        "https://api.x-cargo.co/conciliacion/cargar-banco-excel",
+        {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        }
+      );
 
       clearTimeout(timeoutId);
 
@@ -219,18 +229,23 @@ const Cruces: React.FC = () => {
       }
 
       const result = await res.json();
-      
+
       if (result.movimientos_insertados > 0) {
-        updateProgress(100, 100, `✅ ${result.movimientos_insertados} movimientos procesados`);
+        updateProgress(
+          100,
+          100,
+          `✅ ${result.movimientos_insertados} movimientos procesados`
+        );
       } else {
         updateProgress(100, 100, "⚠️ No se encontraron movimientos nuevos");
       }
-      
+
       setArchivo(null);
-      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      const fileInput = document.querySelector(
+        'input[type="file"]'
+      ) as HTMLInputElement;
       if (fileInput) fileInput.value = "";
       cargarEstadisticas();
-      
     } catch (err: any) {
       console.error("Error en upload:", err);
       let errorMessage = "Error desconocido";
@@ -244,110 +259,122 @@ const Cruces: React.FC = () => {
           total: 0,
           processed: 0,
           percentage: 0,
-          message: ''
+          message: "",
         });
       }, 2000);
     }
   };
 
   // ✅ FUNCIÓN EJECUTAR CONCILIACIÓN CORREGIDA
- const ejecutarConciliacion = async () => {
-  setProcesandoConciliacion(true);
-  updateProgress(0, 100, "Iniciando conciliación automática...");
+  const ejecutarConciliacion = async () => {
+    setProcesandoConciliacion(true);
+    updateProgress(0, 100, "Iniciando conciliación automática...");
 
-  try {
-    const res = await fetch("http://127.0.0.1:8000/conciliacion/conciliacion-automatica-mejorada");
-    
-    if (!res.ok) {
-      throw new Error(await res.text());
+    try {
+      const res = await fetch(
+        "https://api.x-cargo.co/conciliacion/conciliacion-automatica-mejorada"
+      );
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const data: ResumenConciliacionMejorado = await res.json();
+
+      if (!data.resumen) {
+        throw new Error("Datos de conciliación inválidos");
+      }
+
+      const totalProcesados = data.resumen.total_procesados || 0;
+      const totalMovimientos = data.resumen.total_movimientos_banco || 0;
+
+      updateProgress(
+        totalProcesados,
+        totalMovimientos,
+        `Conciliados: ${
+          data.resumen.conciliado_exacto + data.resumen.conciliado_aproximado
+        }`
+      );
+
+      // ✅ CONVERTIR A FORMATO ESPERADO POR EL FRONTEND
+      const resumen = data.resumen;
+
+      const dataConvertida: ResumenConciliacion = {
+        resumen: {
+          total_movimientos_banco: resumen.total_movimientos_banco ?? 0,
+          total_pagos_conductores: resumen.total_pagos_iniciales ?? 0,
+          conciliado_exacto: resumen.conciliado_exacto ?? 0,
+          conciliado_aproximado: resumen.conciliado_aproximado ?? 0,
+          multiple_match: 0,
+          diferencia_valor: 0,
+          diferencia_fecha: 0,
+          sin_match: resumen.sin_match ?? 0,
+        },
+        resultados: data.resultados ?? [],
+        fecha_conciliacion: data.fecha_conciliacion ?? "",
+      };
+
+      setResultadoConciliacion(dataConvertida);
+
+      // ✅ MENSAJE MEJORADO CON DATOS DEL ENDPOINT NUEVO
+      const totalConciliados =
+        (resumen.conciliado_exacto ?? 0) + (resumen.conciliado_aproximado ?? 0);
+      const porcentajeConciliado =
+        (resumen.total_movimientos_banco ?? 0) > 0
+          ? Math.round(
+              (totalConciliados / resumen.total_movimientos_banco!) * 100
+            )
+          : 0;
+
+      setMensaje(
+        `✅ Conciliación completada. ` +
+          `Procesados: ${resumen.total_procesados ?? 0} movimientos. ` +
+          `Conciliados: ${totalConciliados} (${porcentajeConciliado}%). ` +
+          `Referencias únicas usadas: ${
+            resumen.referencias_unicas_utilizadas ?? 0
+          }.`
+      );
+
+      cargarEstadisticas();
+    } catch (err: any) {
+      console.error("Error en conciliación:", err);
+      setMensaje("❌ Error ejecutando conciliación: " + err.message);
+      updateProgress(0, 100, "❌ Error en la conciliación");
+    } finally {
+      setTimeout(() => {
+        setProcesandoConciliacion(false);
+        setLoadingProgress({
+          total: 0,
+          processed: 0,
+          percentage: 0,
+          message: "",
+        });
+      }, 2000);
     }
-
-    const data: ResumenConciliacionMejorado = await res.json();
-    
-    if (!data.resumen) {
-      throw new Error("Datos de conciliación inválidos");
-    }
-
-    const totalProcesados = data.resumen.total_procesados || 0;
-    const totalMovimientos = data.resumen.total_movimientos_banco || 0;
-    
-    updateProgress(
-      totalProcesados,
-      totalMovimientos,
-      `Conciliados: ${data.resumen.conciliado_exacto + data.resumen.conciliado_aproximado}`
-    );
-
-    // ✅ CONVERTIR A FORMATO ESPERADO POR EL FRONTEND
-    const resumen = data.resumen;
-
-    const dataConvertida: ResumenConciliacion = {
-      resumen: {
-        total_movimientos_banco: resumen.total_movimientos_banco ?? 0,
-        total_pagos_conductores: resumen.total_pagos_iniciales ?? 0,
-        conciliado_exacto: resumen.conciliado_exacto ?? 0,
-        conciliado_aproximado: resumen.conciliado_aproximado ?? 0,
-        multiple_match: 0,
-        diferencia_valor: 0,
-        diferencia_fecha: 0,
-        sin_match: resumen.sin_match ?? 0
-      },
-      resultados: data.resultados ?? [],
-      fecha_conciliacion: data.fecha_conciliacion ?? ""
-    };
-
-    setResultadoConciliacion(dataConvertida);
-
-    // ✅ MENSAJE MEJORADO CON DATOS DEL ENDPOINT NUEVO
-    const totalConciliados =
-      (resumen.conciliado_exacto ?? 0) + (resumen.conciliado_aproximado ?? 0);
-    const porcentajeConciliado =
-      (resumen.total_movimientos_banco ?? 0) > 0
-        ? Math.round(
-            (totalConciliados / resumen.total_movimientos_banco!) * 100
-          )
-        : 0;
-
-    setMensaje(
-      `✅ Conciliación completada. ` +
-        `Procesados: ${resumen.total_procesados ?? 0} movimientos. ` +
-        `Conciliados: ${totalConciliados} (${porcentajeConciliado}%). ` +
-        `Referencias únicas usadas: ${resumen.referencias_unicas_utilizadas ?? 0}.`
-    );
-
-    cargarEstadisticas();
-  } catch (err: any) {
-    console.error("Error en conciliación:", err);
-    setMensaje("❌ Error ejecutando conciliación: " + err.message);
-    updateProgress(0, 100, "❌ Error en la conciliación");
-  } finally {
-    setTimeout(() => {
-      setProcesandoConciliacion(false);
-      setLoadingProgress({
-        total: 0,
-        processed: 0,
-        percentage: 0,
-        message: ''
-      });
-    }, 2000);
-  }
-};
+  };
 
   // ✅ FUNCIÓN MARCAR CONCILIADO MANUAL IMPLEMENTADA
-  const marcarConciliadoManual = async (idBanco: string, referenciaPago?: string) => {
+  const marcarConciliadoManual = async (
+    idBanco: string,
+    referenciaPago?: string
+  ) => {
     try {
       const usuario = localStorage.getItem("correo") || "sistema@x-cargo.co";
-      const res = await fetch("http://127.0.0.1:8000/conciliacion/marcar-conciliado-manual", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          id_banco: idBanco, 
-          referencia_pago: referenciaPago,
-          observaciones: "Conciliado manualmente por usuario",
-          usuario
-        }),
-      });
+      const res = await fetch(
+        "https://api.x-cargo.co/conciliacion/marcar-conciliado-manual",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            id_banco: idBanco,
+            referencia_pago: referenciaPago,
+            observaciones: "Conciliado manualmente por usuario",
+            usuario,
+          }),
+        }
+      );
 
       if (!res.ok) {
         const error = await res.json();
@@ -355,29 +382,33 @@ const Cruces: React.FC = () => {
       }
 
       setMensaje("✅ Conciliación manual completada");
-      
+
       // Recargar datos
       await cargarEstadisticas();
       await ejecutarConciliacion(); // Actualizar resultados completos
-      
     } catch (err: any) {
       setMensaje("❌ Error: " + err.message);
       console.error("Error en conciliación manual:", err);
     }
   };
 
-
-  const confirmarConciliacionManual = async (idBanco: string, referenciaPago: string) => {
+  const confirmarConciliacionManual = async (
+    idBanco: string,
+    referenciaPago: string
+  ) => {
     try {
-      const res = await fetch("http://127.0.0.1:8000/conciliacion/marcar-conciliado-manual", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          id_banco: idBanco, 
-          referencia_pago: referenciaPago,
-          observaciones: "Conciliado manualmente por usuario"
-        })
-      });
+      const res = await fetch(
+        "https://api.x-cargo.co/conciliacion/marcar-conciliado-manual",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id_banco: idBanco,
+            referencia_pago: referenciaPago,
+            observaciones: "Conciliado manualmente por usuario",
+          }),
+        }
+      );
 
       if (res.ok) {
         setMensaje("✅ Conciliación manual realizada exitosamente");
@@ -415,22 +446,30 @@ const Cruces: React.FC = () => {
     return textos[estado as keyof typeof textos] || estado;
   };
 
-  const resultadosFiltrados = resultadoConciliacion?.resultados.filter((r) => {
-    const pasaFiltroEstado = filtroEstado === "todos" || r.estado_match === filtroEstado;
-    const pasaBusqueda = busqueda === "" || 
-      r.descripcion_banco.toLowerCase().includes(busqueda.toLowerCase()) ||
-      (r.referencia_pago && r.referencia_pago.toLowerCase().includes(busqueda.toLowerCase()));
-    return pasaFiltroEstado && pasaBusqueda;
-  }) || [];
+  const resultadosFiltrados =
+    resultadoConciliacion?.resultados.filter((r) => {
+      const pasaFiltroEstado =
+        filtroEstado === "todos" || r.estado_match === filtroEstado;
+      const pasaBusqueda =
+        busqueda === "" ||
+        r.descripcion_banco.toLowerCase().includes(busqueda.toLowerCase()) ||
+        (r.referencia_pago &&
+          r.referencia_pago.toLowerCase().includes(busqueda.toLowerCase()));
+      return pasaFiltroEstado && pasaBusqueda;
+    }) || [];
 
   // Función para actualizar el progreso
-  const updateProgress = (processed: number, total: number, message: string = '') => {
+  const updateProgress = (
+    processed: number,
+    total: number,
+    message: string = ""
+  ) => {
     const percentage = total > 0 ? Math.round((processed / total) * 100) : 0;
     setLoadingProgress({
       total,
       processed,
       percentage,
-      message
+      message,
     });
   };
 
@@ -482,7 +521,6 @@ const Cruces: React.FC = () => {
   return (
     <div className="cruces-container">
       <h2 className="titulo">Conciliación Bancaria Inteligente</h2>
-
       {/* Estadísticas generales */}
       {estadisticasGenerales && (
         <div className="estadisticas-panel">
@@ -490,15 +528,23 @@ const Cruces: React.FC = () => {
           <div className="estadisticas-grid">
             <div className="stat-card">
               <h4>Total Movimientos</h4>
-              <p>{estadisticasGenerales?.resumen_general?.total_movimientos ?? 0}</p>
+              <p>
+                {estadisticasGenerales?.resumen_general?.total_movimientos ?? 0}
+              </p>
             </div>
             <div className="stat-card">
               <h4>Valor Total</h4>
-              <p>${estadisticasGenerales?.resumen_general?.valor_total?.toLocaleString() ?? 0}</p>
+              <p>
+                $
+                {estadisticasGenerales?.resumen_general?.valor_total?.toLocaleString() ??
+                  0}
+              </p>
             </div>
             {estadisticasGenerales?.resumen_por_estado?.map((estado) => (
               <div key={estado.estado_conciliacion} className="stat-card">
-                <h4>{estado.estado_conciliacion.replace("_", " ").toUpperCase()}</h4>
+                <h4>
+                  {estado.estado_conciliacion.replace("_", " ").toUpperCase()}
+                </h4>
                 <p>{estado.cantidad} mov.</p>
                 <small>${estado.valor_total.toLocaleString()}</small>
               </div>
@@ -506,7 +552,6 @@ const Cruces: React.FC = () => {
           </div>
         </div>
       )}
-
       {/* Carga de archivo */}
       <div className="carga-csv">
         <h3>📁 Cargar Archivo del Banco</h3>
@@ -524,7 +569,9 @@ const Cruces: React.FC = () => {
             {archivo && (
               <div className="file-info">
                 <span className="file-name">📄 {archivo.name}</span>
-                <span className="file-size">({(archivo.size / (1024 * 1024)).toFixed(2)}MB)</span>
+                <span className="file-size">
+                  ({(archivo.size / (1024 * 1024)).toFixed(2)}MB)
+                </span>
               </div>
             )}
           </div>
@@ -553,56 +600,77 @@ const Cruces: React.FC = () => {
             ? "🔄 Procesando..."
             : "🤖 Ejecutar Conciliación Automática"}
         </button>
+        <button
+            className="boton-conciliar-manual"
+            /* onClick={() => ejecutarConciliacion(true)} */
+            disabled={procesandoConciliacion}
+          >
+            🛠 Ver Pagos No Conciliados (Manual)
+          </button>
+
         {mensaje && (
           <div
             className={`mensaje-estado ${
               mensaje.includes("✅")
                 ? "success"
-                : mensaje.includes("📤") || mensaje.includes("📄") || mensaje.includes("🔍") || mensaje.includes("ℹ️")
+                : mensaje.includes("📤") ||
+                  mensaje.includes("📄") ||
+                  mensaje.includes("🔍") ||
+                  mensaje.includes("ℹ️")
                 ? "info"
                 : "error"
             }`}
             style={{
-              whiteSpace: 'pre-line', // Para mostrar saltos de línea en problemas
-              maxHeight: '120px',
-              overflowY: 'auto'
+              whiteSpace: "pre-line", // Para mostrar saltos de línea en problemas
+              maxHeight: "120px",
+              overflowY: "auto",
             }}
           >
             {mensaje}
           </div>
         )}
       </div>
-
-      {/* Resultados de conciliación */}
-      {resultadoConciliacion && (
-        <div className="resultados-conciliacion">
+      {resultadosFiltrados.length > 0 ? (
+        <div>
           <h3>📊 Resultados de Conciliación</h3>
 
           {/* Resumen de resultados */}
           <div className="resumen-resultados">
             <div className="resumen-grid">
               <div className="resumen-item success">
-                <span className="numero">{resultadoConciliacion?.resumen?.conciliado_exacto ?? 0}</span>
+                <span className="numero">
+                  {resultadoConciliacion?.resumen?.conciliado_exacto ?? 0}
+                </span>
                 <span className="etiqueta">Exactos</span>
               </div>
               <div className="resumen-item info">
-                <span className="numero">{resultadoConciliacion?.resumen?.conciliado_aproximado ?? 0}</span>
+                <span className="numero">
+                  {resultadoConciliacion?.resumen?.conciliado_aproximado ?? 0}
+                </span>
                 <span className="etiqueta">Aproximados</span>
               </div>
               <div className="resumen-item warning">
-                <span className="numero">{resultadoConciliacion?.resumen?.multiple_match ?? 0}</span>
+                <span className="numero">
+                  {resultadoConciliacion?.resumen?.multiple_match ?? 0}
+                </span>
                 <span className="etiqueta">Múltiples</span>
               </div>
               <div className="resumen-item error">
-                <span className="numero">{resultadoConciliacion?.resumen?.diferencia_valor ?? 0}</span>
+                <span className="numero">
+                  {resultadoConciliacion?.resumen?.diferencia_valor ?? 0}
+                </span>
                 <span className="etiqueta">Dif. Valor</span>
               </div>
               <div className="resumen-item error">
-                <span className="numero">{resultadoConciliacion?.resumen?.diferencia_fecha ?? 0}</span>
+                <span className="numero">
+                  {resultadoConciliacion?.resumen?.diferencia_fecha ?? 0}
+                </span>
                 <span className="etiqueta">Dif. Fecha</span>
               </div>
               <div className="resumen-item neutral">
-                <span className="numero">{resultadoConciliacion?.resumen?.sin_match ?? 0}</span>
+                <span className="numero">
+                  {resultadoConciliacion?.resumen?.sin_match ?? 0}
+                </span>
                 <span className="etiqueta">Sin Match</span>
               </div>
             </div>
@@ -610,19 +678,26 @@ const Cruces: React.FC = () => {
 
           {/* Filtros y búsqueda */}
           <div className="filtros-conciliacion">
-            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ minWidth: '300px' }}>
+            <div
+              style={{
+                display: "flex",
+                gap: "1rem",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ minWidth: "300px" }}>
                 <input
                   type="text"
                   placeholder="Buscar por descripción o referencia..."
                   value={busqueda}
                   onChange={(e) => setBusqueda(e.target.value)}
                   style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '14px'
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: "6px",
+                    fontSize: "14px",
                   }}
                 />
               </div>
@@ -634,7 +709,9 @@ const Cruces: React.FC = () => {
                 >
                   <option value="todos">Todos</option>
                   <option value="conciliado_exacto">Conciliado Exacto</option>
-                  <option value="conciliado_aproximado">Conciliado Aproximado</option>
+                  <option value="conciliado_aproximado">
+                    Conciliado Aproximado
+                  </option>
                   <option value="multiple_match">Múltiples Matches</option>
                   <option value="diferencia_valor">Diferencia Valor</option>
                   <option value="diferencia_fecha">Diferencia Fecha</option>
@@ -643,7 +720,8 @@ const Cruces: React.FC = () => {
               </label>
             </div>
             <span className="contador-filtro">
-              Mostrando {resultadosFiltrados.length} de {resultadoConciliacion.resultados.length}
+              Mostrando {resultadosFiltrados.length} de{" "}
+              {resultadoConciliacion?.resultados.length ?? 0}
             </span>
           </div>
 
@@ -667,16 +745,24 @@ const Cruces: React.FC = () => {
                   <tr
                     key={idx}
                     style={{
-                      borderLeft: `4px solid ${getEstadoColor(resultado.estado_match)}`,
+                      borderLeft: `4px solid ${getEstadoColor(
+                        resultado.estado_match
+                      )}`,
                     }}
                   >
-                    <td>{new Date(resultado.fecha_banco).toLocaleDateString('es-CO')}</td>
-                    <td>${resultado.valor_banco.toLocaleString('es-CO')}</td>
+                    <td>
+                      {new Date(resultado.fecha_banco).toLocaleDateString(
+                        "es-CO"
+                      )}
+                    </td>
+                    <td>${resultado.valor_banco.toLocaleString("es-CO")}</td>
                     <td>
                       <span
                         className="estado-badge"
                         style={{
-                          backgroundColor: getEstadoColor(resultado.estado_match),
+                          backgroundColor: getEstadoColor(
+                            resultado.estado_match
+                          ),
                         }}
                       >
                         {getEstadoTexto(resultado.estado_match)}
@@ -703,16 +789,19 @@ const Cruces: React.FC = () => {
                     </td>
                     <td>{resultado.referencia_pago || "-"}</td>
                     <td>
-                      {resultado.diferencia_valor && resultado.diferencia_valor > 0 && (
-                        <div className="diferencia">
-                          💰 ${resultado.diferencia_valor.toLocaleString('es-CO')}
-                        </div>
-                      )}
-                      {resultado.diferencia_dias && resultado.diferencia_dias > 0 && (
-                        <div className="diferencia">
-                          📅 {resultado.diferencia_dias} día(s)
-                        </div>
-                      )}
+                      {resultado.diferencia_valor &&
+                        resultado.diferencia_valor > 0 && (
+                          <div className="diferencia">
+                            💰 $
+                            {resultado.diferencia_valor.toLocaleString("es-CO")}
+                          </div>
+                        )}
+                      {resultado.diferencia_dias &&
+                        resultado.diferencia_dias > 0 && (
+                          <div className="diferencia">
+                            📅 {resultado.diferencia_dias} día(s)
+                          </div>
+                        )}
                     </td>
                     <td>
                       <div className="observaciones">
@@ -739,12 +828,35 @@ const Cruces: React.FC = () => {
                           resultado.estado_match === "diferencia_fecha") && (
                           <button
                             className="btn-conciliar-manual"
-                            onClick={() =>
-                              marcarConciliadoManual(
-                                resultado.id_banco,
-                                resultado.referencia_pago
-                              )
-                            }
+                            onClick={() => {
+                              if (
+                                resultado.matches_posibles &&
+                                resultado.matches_posibles.length > 0
+                              ) {
+                                setModalConciliacionManual({
+                                  movimiento_banco: {
+                                    id: resultado.id_banco,
+                                    fecha: resultado.fecha_banco,
+                                    valor: resultado.valor_banco,
+                                    descripcion: resultado.descripcion_banco,
+                                  },
+                                  sugerencias: resultado.matches_posibles.map(
+                                    (m) => ({
+                                      referencia: m.referencia_pago,
+                                      fecha: m.fecha_pago,
+                                      valor: m.valor_pago,
+                                      conductor: m.correo_conductor || "",
+                                      score: m.score,
+                                    })
+                                  ),
+                                });
+                              } else {
+                                marcarConciliadoManual(
+                                  resultado.id_banco,
+                                  resultado.referencia_pago
+                                );
+                              }
+                            }}
                           >
                             ✅ Conciliar
                           </button>
@@ -754,11 +866,15 @@ const Cruces: React.FC = () => {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table>{" "}
           </div>
         </div>
+      ) : (
+        <div style={{ textAlign: "center", padding: "1rem", color: "#666" }}>
+          ⚠️ No hay resultados para mostrar. Verifica si los datos del banco
+          coinciden con algún pago.
+        </div>
       )}
-
       {/* Modal de detalle */}
       {modalDetalle && (
         <div className="modal-overlay" onClick={() => setModalDetalle(null)}>
@@ -773,11 +889,13 @@ const Cruces: React.FC = () => {
                 <h4>📊 Datos del Banco</h4>
                 <div className="detalle-item">
                   <strong>Fecha:</strong>{" "}
-                  {new Date(modalDetalle.fecha_banco).toLocaleDateString('es-CO')}
+                  {new Date(modalDetalle.fecha_banco).toLocaleDateString(
+                    "es-CO"
+                  )}
                 </div>
                 <div className="detalle-item">
                   <strong>Valor:</strong> $
-                  {modalDetalle.valor_banco.toLocaleString('es-CO')}
+                  {modalDetalle.valor_banco.toLocaleString("es-CO")}
                 </div>
                 <div className="detalle-item">
                   <strong>Descripción:</strong> {modalDetalle.descripcion_banco}
@@ -796,11 +914,13 @@ const Cruces: React.FC = () => {
                   <div className="detalle-item">
                     <strong>Fecha:</strong>{" "}
                     {modalDetalle.fecha_pago &&
-                      new Date(modalDetalle.fecha_pago).toLocaleDateString('es-CO')}
+                      new Date(modalDetalle.fecha_pago).toLocaleDateString(
+                        "es-CO"
+                      )}
                   </div>
                   <div className="detalle-item">
                     <strong>Valor:</strong> $
-                    {modalDetalle.valor_pago?.toLocaleString('es-CO')}
+                    {modalDetalle.valor_pago?.toLocaleString("es-CO")}
                   </div>
                   <div className="detalle-item">
                     <strong>Entidad:</strong> {modalDetalle.entidad_pago}
@@ -838,11 +958,13 @@ const Cruces: React.FC = () => {
                           </div>
                           <div>
                             <strong>Fecha:</strong>{" "}
-                            {new Date(match.fecha_pago).toLocaleDateString('es-CO')}
+                            {new Date(match.fecha_pago).toLocaleDateString(
+                              "es-CO"
+                            )}
                           </div>
                           <div>
                             <strong>Valor:</strong> $
-                            {match.valor_pago.toLocaleString('es-CO')}
+                            {match.valor_pago.toLocaleString("es-CO")}
                           </div>
                           <div>
                             <strong>Score:</strong> {match.score.toFixed(1)}
@@ -866,17 +988,20 @@ const Cruces: React.FC = () => {
                 <div className="detalle-item">
                   <strong>Confianza:</strong> {modalDetalle.confianza}%
                 </div>
-                {modalDetalle.diferencia_valor && modalDetalle.diferencia_valor > 0 && (
-                  <div className="detalle-item">
-                    <strong>Diferencia en Valor:</strong> $
-                    {modalDetalle.diferencia_valor.toLocaleString('es-CO')}
-                  </div>
-                )}
-                {modalDetalle.diferencia_dias && modalDetalle.diferencia_dias > 0 && (
-                  <div className="detalle-item">
-                    <strong>Diferencia en Días:</strong> {modalDetalle.diferencia_dias} día(s)
-                  </div>
-                )}
+                {modalDetalle.diferencia_valor &&
+                  modalDetalle.diferencia_valor > 0 && (
+                    <div className="detalle-item">
+                      <strong>Diferencia en Valor:</strong> $
+                      {modalDetalle.diferencia_valor.toLocaleString("es-CO")}
+                    </div>
+                  )}
+                {modalDetalle.diferencia_dias &&
+                  modalDetalle.diferencia_dias > 0 && (
+                    <div className="detalle-item">
+                      <strong>Diferencia en Días:</strong>{" "}
+                      {modalDetalle.diferencia_dias} día(s)
+                    </div>
+                  )}
                 <div className="detalle-item">
                   <strong>Observaciones:</strong> {modalDetalle.observaciones}
                 </div>
@@ -911,10 +1036,12 @@ const Cruces: React.FC = () => {
           </div>
         </div>
       )}
-
       {/* Modal de conciliación manual */}
       {modalConciliacionManual && (
-        <div className="modal-overlay" onClick={() => setModalConciliacionManual(null)}>
+        <div
+          className="modal-overlay"
+          onClick={() => setModalConciliacionManual(null)}
+        >
           <div
             className="modal-content conciliacion-manual"
             onClick={(e) => e.stopPropagation()}
@@ -926,54 +1053,71 @@ const Cruces: React.FC = () => {
                 <h4>📊 Datos del Movimiento</h4>
                 <div className="detalle-item">
                   <strong>Fecha:</strong>{" "}
-                  {new Date(modalConciliacionManual.movimiento_banco.fecha).toLocaleDateString('es-CO')}
+                  {new Date(
+                    modalConciliacionManual.movimiento_banco.fecha
+                  ).toLocaleDateString("es-CO")}
                 </div>
                 <div className="detalle-item">
                   <strong>Valor:</strong> $
-                  {modalConciliacionManual.movimiento_banco.valor.toLocaleString('es-CO')}
+                  {modalConciliacionManual.movimiento_banco.valor.toLocaleString(
+                    "es-CO"
+                  )}
                 </div>
                 <div className="detalle-item">
-                  <strong>Descripción:</strong> {modalConciliacionManual.movimiento_banco.descripcion}
+                  <strong>Descripción:</strong>{" "}
+                  {modalConciliacionManual.movimiento_banco.descripcion}
                 </div>
                 <div className="detalle-item">
-                  <strong>ID:</strong> {modalConciliacionManual.movimiento_banco.id}
+                  <strong>ID:</strong>{" "}
+                  {modalConciliacionManual.movimiento_banco.id}
                 </div>
               </div>
 
-              {modalConciliacionManual.sugerencias && modalConciliacionManual.sugerencias.length > 0 && (
-                <div className="detalle-seccion">
-                  <h4>🔍 Sugerencias de Conciliación</h4>
-                  <div className="sugerencias-list">
-                    {modalConciliacionManual.sugerencias.map((sugerencia, idx) => (
-                      <div key={idx} className="sugerencia-item">
-                        <div>
-                          <strong>Ref:</strong> {sugerencia.referencia}
-                        </div>
-                        <div>
-                          <strong>Fecha:</strong>{" "}
-                          {new Date(sugerencia.fecha).toLocaleDateString('es-CO')}
-                        </div>
-                        <div>
-                          <strong>Valor:</strong> $
-                          {sugerencia.valor.toLocaleString('es-CO')}
-                        </div>
-                        <div>
-                          <strong>Conductor:</strong> {sugerencia.conductor}
-                        </div>
-                        <div>
-                          <strong>Score:</strong> {sugerencia.score.toFixed(1)}
-                        </div>
-                        <button
-                          className="btn-seleccionar"
-                          onClick={() => confirmarConciliacionManual(modalConciliacionManual.movimiento_banco.id, sugerencia.referencia)}
-                        >
-                          ✅ Seleccionar
-                        </button>
-                      </div>
-                    ))}
+              {modalConciliacionManual.sugerencias &&
+                modalConciliacionManual.sugerencias.length > 0 && (
+                  <div className="detalle-seccion">
+                    <h4>🔍 Sugerencias de Conciliación</h4>
+                    <div className="sugerencias-list">
+                      {modalConciliacionManual.sugerencias.map(
+                        (sugerencia, idx) => (
+                          <div key={idx} className="sugerencia-item">
+                            <div>
+                              <strong>Ref:</strong> {sugerencia.referencia}
+                            </div>
+                            <div>
+                              <strong>Fecha:</strong>{" "}
+                              {new Date(sugerencia.fecha).toLocaleDateString(
+                                "es-CO"
+                              )}
+                            </div>
+                            <div>
+                              <strong>Valor:</strong> $
+                              {sugerencia.valor.toLocaleString("es-CO")}
+                            </div>
+                            <div>
+                              <strong>Conductor:</strong> {sugerencia.conductor}
+                            </div>
+                            <div>
+                              <strong>Score:</strong>{" "}
+                              {sugerencia.score.toFixed(1)}
+                            </div>
+                            <button
+                              className="btn-seleccionar"
+                              onClick={() =>
+                                confirmarConciliacionManual(
+                                  modalConciliacionManual.movimiento_banco.id,
+                                  sugerencia.referencia
+                                )
+                              }
+                            >
+                              ✅ Seleccionar
+                            </button>
+                          </div>
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
             </div>
             <div className="modal-acciones">
               <button
@@ -986,35 +1130,37 @@ const Cruces: React.FC = () => {
           </div>
         </div>
       )}
-
       {subiendo && (
         <div className="loading-container">
           <div className="loading-progress">
-            <div 
-              className="progress-bar" 
+            <div
+              className="progress-bar"
               style={{ width: `${loadingProgress.percentage}%` }}
             />
             <div className="progress-text">
-              {loadingProgress.message || 'Procesando...'}
+              {loadingProgress.message || "Procesando..."}
               {loadingProgress.total > 0 && (
                 <span>
-                  {' '}({loadingProgress.processed}/{loadingProgress.total} - {loadingProgress.percentage}%)
+                  {" "}
+                  ({loadingProgress.processed}/{loadingProgress.total} -{" "}
+                  {loadingProgress.percentage}%)
                 </span>
               )}
             </div>
           </div>
         </div>
-      )}
-
+      )}{" "}
       {procesandoConciliacion && (
         <div className="loading-container">
           <div className="loading-progress">
-            <div 
-              className="progress-bar" 
-              style={{ width: `${loadingProgress.percentage}%` }}
-            />
+            <div className="progress-track">
+              <div
+                className="progress-bar"
+                style={{ width: `${loadingProgress.percentage}%` }}
+              />
+            </div>
             <div className="progress-text">
-              {loadingProgress.message || 'Conciliando...'}
+              {loadingProgress.message || "Conciliando..."}
               {loadingProgress.percentage > 0 && (
                 <span> ({loadingProgress.percentage}%)</span>
               )}
@@ -1027,5 +1173,3 @@ const Cruces: React.FC = () => {
 };
 
 export default Cruces;
-
-

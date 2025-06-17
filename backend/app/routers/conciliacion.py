@@ -750,7 +750,7 @@ def conciliar_pago_automaticamente(
                 SET 
                     estado_conciliacion = @estado,
                     referencia_pago_asociada = @referencia,
-                    fecha_conciliacion = CURRENT_TIMESTAMP()
+                    fecha_conciliacion = CURRENT_DATE()
                 WHERE id = @id_banco
                 """
                 
@@ -772,7 +772,7 @@ def conciliar_pago_automaticamente(
                 SET 
                     estado_conciliacion = @estado,
                     movimiento_banco_id = @id_banco,
-                    fecha_conciliacion = CURRENT_TIMESTAMP(),
+                    fecha_conciliacion = CURRENT_DATE(),
                     confianza_conciliacion = @confianza
                 WHERE id_string = @id_pago
                 """
@@ -800,180 +800,110 @@ def conciliar_pago_automaticamente(
 
 @router.get("/conciliacion-automatica-mejorada")
 async def conciliacion_automatica_mejorada():
-    """
-    Endpoint de conciliación automática mejorada
-    """
     client = bigquery.Client()
-    try:
-        # 1. Obtener pagos pendientes de conciliar
-        query_pagos = """
-        SELECT 
-            id_string,
-            referencia,
-            CAST(fecha_pago AS STRING) as fecha_pago,
-            COALESCE(tipo, '') as tipo,
-            COALESCE(valor_total_consignacion, valor) as valor_pago,
-            tracking,
-            entidad,
-            estado_conciliacion
+    margen_error = 100  # pesos permitidos de diferencia
+
+    # 1. Obtener pagos pendientes con referencia
+    query_pagos = """
+        SELECT referencia_pago, valor, fecha_pago, id_string
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
         WHERE estado_conciliacion = 'pendiente_conciliacion'
-        AND fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
-        """
-        
-        pagos = list(client.query(query_pagos).result())
-        
-        total_procesados = 0
-        conciliados_exactos = 0
-        conciliados_aproximados = 0
-        referencias_usadas = set()
-        resultados = []
+          AND referencia_pago IS NOT NULL
+    """
+    pagos_rows = list(client.query(query_pagos).result())
+    
+    # Agrupar por referencia_pago
+    pagos_por_referencia = defaultdict(list)
+    for row in pagos_rows:
+        pagos_por_referencia[row.referencia_pago].append(row)
 
-        print(f"\n🔄 Procesando {len(pagos)} pagos pendientes...")
+    # 2. Obtener movimientos bancarios pendientes
+    query_banco = """
+        SELECT id, fecha, valor_banco, tipo
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        WHERE estado_conciliacion = 'pendiente'
+    """
+    banco_rows = list(client.query(query_banco).result())
 
-        # 2. Para cada pago, intentar conciliar
-        for pago in pagos:
-            # Usar referencia si existe, si no usar id_string
-            id_pago = pago.referencia if pago.referencia else pago.id_string
-            
-            # Buscar movimientos bancarios correspondientes
-            query_banco = """
-            SELECT 
-                id,
-                descripcion,
-                valor_banco,
-                fecha,
-                CASE 
-                    WHEN LOWER(descripcion) LIKE '%' || @tracking || '%' THEN 100
-                    WHEN ABS(valor_banco - @valor) < 1 THEN 90
-                    WHEN ABS(valor_banco - @valor) <= 100 THEN 80
-                    ELSE 0
-                END as score_base,
-                CASE
-                    WHEN LOWER(descripcion) LIKE '%nequi%' AND LOWER(@tipo) = 'nequi' THEN 20
-                    WHEN LOWER(descripcion) LIKE '%consignacion%' AND LOWER(@tipo) = 'consignacion' THEN 20
-                    WHEN LOWER(descripcion) LIKE '%transferencia%' AND LOWER(@tipo) = 'transferencia' THEN 20
-                    ELSE 0
-                END as score_tipo
-            FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-            WHERE fecha = @fecha
-              AND ABS(valor_banco - @valor) <= 100
-              AND estado_conciliacion = 'pendiente'
+    resultados = []
+    referencias_usadas = set()
+    resumen = {
+        "total_movimientos_banco": len(banco_rows),
+        "total_pagos_iniciales": len(pagos_rows),
+        "conciliado_exacto": 0,
+        "sin_match": 0,
+    }
+
+    for referencia, pagos in pagos_por_referencia.items():
+        valor_total = sum(pago.valor for pago in pagos)
+        fecha_pago = pagos[0].fecha_pago
+
+        match = next((
+            movimiento for movimiento in banco_rows
+            if abs(movimiento.valor_banco - valor_total) <= margen_error
+            and str(movimiento.fecha) == str(fecha_pago)
+        ), None)
+
+        if match:
+            # ✅ Conciliado exitosamente
+            resumen["conciliado_exacto"] += 1
+            referencias_usadas.add(referencia)
+
+            resultados.append({
+                "referencia_pago": referencia,
+                "valor_banco": match.valor_banco,
+                "fecha_banco": match.fecha,
+                "estado_match": "conciliado_exacto",
+                "confianza": 100,
+                "observaciones": f"Match exacto por referencia {referencia}",
+                "diferencia_valor": abs(match.valor_banco - valor_total),
+                "diferencia_dias": 0,
+                "id_banco": match.id,
+                "num_matches_posibles": 1,
+            })
+
+            # Marcar conciliado en base de datos
+            update_query = f"""
+                UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+                SET estado_conciliacion = 'conciliado_automatico',
+                    fecha_conciliacion = CURRENT_DATE(),
+                    id_banco_asociado = '{match.id}',
+                    confianza_conciliacion = 100
+                WHERE referencia_pago = '{referencia}'
             """
+            client.query(update_query).result()
 
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("fecha", "DATE", pago.fecha_pago),
-                    bigquery.ScalarQueryParameter("valor", "FLOAT", float(pago.valor_pago)),
-                    bigquery.ScalarQueryParameter("tracking", "STRING", pago.tracking or ""),
-                    bigquery.ScalarQueryParameter("tipo", "STRING", pago.tipo.lower())
-                ]
-            )
+            update_mov = f"""
+                UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
+                SET estado_conciliacion = 'conciliado_exacto',
+                    referencia_pago_asociada = '{referencia}',
+                    confianza_match = 100,
+                    conciliado_en = CURRENT_TIMESTAMP()
+                WHERE id = '{match.id}'
+            """
+            client.query(update_mov).result()
+        else:
+            # ❌ Sin match
+            resumen["sin_match"] += 1
+            resultados.append({
+                "referencia_pago": referencia,
+                "valor_banco": valor_total,
+                "fecha_banco": fecha_pago,
+                "estado_match": "sin_match",
+                "confianza": 0,
+                "observaciones": f"No se encontró match para la referencia {referencia}",
+                "diferencia_valor": None,
+                "diferencia_dias": None,
+                "id_banco": None,
+                "num_matches_posibles": 0,
+            })
 
-            movimientos = list(client.query(query_banco, job_config=job_config).result())
-            
-            total_procesados += 1
-            
-            # Procesar el mejor match si existe
-            if movimientos:
-                movimiento = max(movimientos, key=lambda m: m.score_base + m.score_tipo)
-                score_total = movimiento.score_base + movimiento.score_tipo
-                es_match_exacto = score_total >= 90
-
-                if es_match_exacto or score_total >= 80:
-                    # Actualizar movimiento banco
-                    query_update_banco = """
-                    UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
-                    SET 
-                        estado_conciliacion = @estado,
-                        referencia_pago_asociada = @referencia,
-                        conciliado_en = CURRENT_TIMESTAMP(),
-                        conciliado_por = 'sistema',                        confianza_match = CAST(@confianza AS NUMERIC),
-                        match_manual = FALSE
-                    WHERE id = @id_banco
-                    """
-                    
-                    client.query(
-                        query_update_banco,
-                        job_config=bigquery.QueryJobConfig(
-                            query_parameters=[
-                                bigquery.ScalarQueryParameter("estado", "STRING", 
-                                    "conciliado_exacto" if es_match_exacto else "conciliado_aproximado"),
-                                bigquery.ScalarQueryParameter("referencia", "STRING", id_pago),
-                                bigquery.ScalarQueryParameter("id_banco", "STRING", movimiento.id),
-                                bigquery.ScalarQueryParameter("confianza", "FLOAT", score_total)
-                            ]
-                        )
-                    ).result()
-
-                    # Actualizar pago conductor
-                    query_update_pago = """
-                    UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
-                    SET 
-                        estado_conciliacion = @estado,
-                        id_banco_asociado = @id_banco,
-                        fecha_conciliacion = CURRENT_DATE(),
-                        modificado_en = CURRENT_TIMESTAMP(),
-                        modificado_por = 'sistema',
-                        confianza_conciliacion = CAST(@confianza AS NUMERIC),
-                        observaciones_conciliacion = CONCAT('Conciliación automática con score: ', CAST(@confianza as STRING)),
-                        conciliado = TRUE
-                    WHERE id_string = @id_string
-                    """
-                    
-                    client.query(
-                        query_update_pago,
-                        job_config=bigquery.QueryJobConfig(
-                            query_parameters=[
-                                bigquery.ScalarQueryParameter("estado", "STRING", 
-                                    "conciliado_exacto" if es_match_exacto else "conciliado_aproximado"),
-                                bigquery.ScalarQueryParameter("id_banco", "STRING", movimiento.id),
-                                bigquery.ScalarQueryParameter("id_string", "STRING", pago.id_string),
-                                bigquery.ScalarQueryParameter("confianza", "FLOAT", score_total)
-                            ]
-                        )
-                    ).result()
-
-                    if es_match_exacto:
-                        conciliados_exactos += 1
-                    else:
-                        conciliados_aproximados += 1
-
-                    referencias_usadas.add(id_pago)
-
-            # Imprimir progreso cada 10 pagos
-            if total_procesados % 10 == 0:
-                print(f"✓ Procesados: {total_procesados}/{len(pagos)} | Conciliados: {conciliados_exactos + conciliados_aproximados}")
-
-        # 3. Obtener el resumen final
-        print(f"\n✅ Conciliación completada:")
-        print(f"   - Total procesados: {total_procesados}")
-        print(f"   - Conciliados exactos: {conciliados_exactos}")
-        print(f"   - Conciliados aproximados: {conciliados_aproximados}")
-        
-        return {
-            "resumen": {
-                "total_movimientos_banco": total_procesados,
-                "total_pagos_iniciales": len(pagos),
-                "total_procesados": total_procesados,
-                "referencias_unicas_utilizadas": len(referencias_usadas),
-                "conciliado_exacto": conciliados_exactos,
-                "conciliado_aproximado": conciliados_aproximados,
-                "sin_match": total_procesados - (conciliados_exactos + conciliados_aproximados)
-            },
-            "resultados": resultados,
-            "referencias_usadas": list(referencias_usadas),
-            "fecha_conciliacion": datetime.utcnow().isoformat()
-        }
-
-    except Exception as e:
-        print(f"❌ Error en conciliación automática: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error en conciliación automática: {str(e)}"
-        )
-
-# ========== NUEVO ENDPOINT PARA MARCAR CONCILIADO MANUAL ==========
+    return {
+        "resumen": resumen,
+        "resultados": resultados,
+        "referencias_usadas": list(referencias_usadas),
+        "fecha_conciliacion": datetime.now().isoformat()
+    }
 
 class EstadoConciliacion(str):
     PENDIENTE = "pendiente"
