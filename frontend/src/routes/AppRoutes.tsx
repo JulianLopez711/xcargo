@@ -216,11 +216,10 @@ export default function AppRoutes() {
               <PagosGuiasPendientes />
             </ProtectedRoute>
           }
-        />
-        <Route
+        />        <Route
           path="/supervisor/registrar-pago"
           element={
-            <ProtectedRoute requiredPermission="supervisor_pagos">
+            <ProtectedRoute requiredPermission="supervisor_guias">
               <RegistrarPagoSupervisor />
             </ProtectedRoute>
           }
