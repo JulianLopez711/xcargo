@@ -311,42 +311,68 @@ async def get_dashboard_supervisor(current_user = Depends(verificar_supervisor))
 
 @router.get("/guias-pendientes")
 async def get_guias_pendientes_supervisor(
-    limit: int = Query(50, description="Límite de resultados"),
-    offset: int = Query(0, description="Desplazamiento para paginación"),
-    conductor: Optional[str] = Query(None, description="Filtrar por conductor específico"),
+    limit: int = Query(50),
+    offset: int = Query(0),
+    conductor: Optional[str] = Query(None),
+    tracking: Optional[str] = Query(None),
+    cliente: Optional[str] = Query(None),
+    ciudad: Optional[str] = Query(None),
+    fecha: Optional[str] = Query(None),  # formato YYYY-MM-DD
+    estado_liquidacion: Optional[str] = Query(None, description="pendiente, pagado"),
     current_user = Depends(verificar_supervisor)
 ):
     """
-    Obtiene todas las guías pendientes de los carriers del supervisor
+    Lista las guías pendientes de los carriers supervisados
+    Estados de liquidación basados en tabla pagosconductor:
+    - pendiente: Guías sin pago registrado
+    - pagado: Guías con pago registrado en pagosconductor
     """
     try:
         client = bigquery.Client()
-        # CORRECCIÓN: Obtener correo correctamente desde el JWT
         user_email = current_user.get("correo") or current_user.get("sub")
         carrier_ids = obtener_carrier_id_supervisor(user_email, client)
         
         if not carrier_ids:
             return {"guias": [], "total": 0, "mensaje": "No hay carriers asignados"}
-        
+
         carrier_ids_str = ','.join(map(str, carrier_ids))
-        
-        # Construir condiciones WHERE
         where_conditions = [
             f"cp.carrier_id IN ({carrier_ids_str})",
             "cp.Valor > 0",
-            "cp.Status_Big NOT LIKE '%360%'",
-            "cp.Status_Big NOT LIKE '%Entregado%'"
+            "cp.Status_Big = '360 - Entregado al cliente'"
         ]
-        
-        query_params = []
-        
+
+        query_params = []        # Filtro por estado de liquidación (basado en pagosconductor existente)
+        if estado_liquidacion:
+            if estado_liquidacion.lower() == "pendiente":
+                # Guías sin pago registrado
+                where_conditions.append("pc.tracking IS NULL")
+            elif estado_liquidacion.lower() == "pagado":
+                # Guías con pago registrado
+                where_conditions.append("pc.tracking IS NOT NULL")
+
         if conductor:
             where_conditions.append("LOWER(ub.Employee_Name) LIKE LOWER(@conductor)")
             query_params.append(bigquery.ScalarQueryParameter("conductor", "STRING", f"%{conductor}%"))
-        
+
+        if tracking:
+            where_conditions.append("LOWER(cp.tracking_number) LIKE LOWER(@tracking)")
+            query_params.append(bigquery.ScalarQueryParameter("tracking", "STRING", f"%{tracking}%"))
+
+        if cliente:
+            where_conditions.append("LOWER(cp.Cliente) LIKE LOWER(@cliente)")
+            query_params.append(bigquery.ScalarQueryParameter("cliente", "STRING", f"%{cliente}%"))
+
+        if ciudad:
+            where_conditions.append("LOWER(cp.Ciudad) LIKE LOWER(@ciudad)")
+            query_params.append(bigquery.ScalarQueryParameter("ciudad", "STRING", f"%{ciudad}%"))
+
+        if fecha:
+            where_conditions.append("DATE(cp.Status_Date) = DATE(@fecha)")
+            query_params.append(bigquery.ScalarQueryParameter("fecha", "DATE", fecha))
+
         where_clause = " AND ".join(where_conditions)
-        
-        # Consulta principal
+
         query = f"""
         SELECT 
             cp.tracking_number,
@@ -359,24 +385,33 @@ async def get_guias_pendientes_supervisor(
             cp.Carrier,
             ub.Employee_Name as conductor_nombre,
             ub.Employee_Mail as conductor_email,
-            ub.Employee_Phone as conductor_telefono
+            ub.Employee_Phone as conductor_telefono,
+            CASE 
+                WHEN pc.tracking IS NOT NULL THEN 'pagado'
+                ELSE 'pendiente'
+            END as estado_liquidacion,
+            CASE 
+                WHEN pc.tracking IS NOT NULL THEN 'pagado'
+                ELSE 'pendiente'
+            END as estado_display
         FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cp
         LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` ub 
             ON cp.Employee_id = ub.Employee_id
+        LEFT JOIN `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            ON cp.tracking_number = pc.tracking
         WHERE {where_clause}
         ORDER BY cp.Status_Date DESC
         LIMIT @limit OFFSET @offset
         """
-        
-        # Agregar parámetros de paginación
+
         query_params.extend([
-            bigquery.ScalarQueryParameter("limit", "INTEGER", limit),
-            bigquery.ScalarQueryParameter("offset", "INTEGER", offset)
+            bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            bigquery.ScalarQueryParameter("offset", "INT64", offset)
         ])
-        
+
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
         result = client.query(query, job_config=job_config).result()
-        
+
         guias = []
         for row in result:
             guias.append({
@@ -388,27 +423,27 @@ async def get_guias_pendientes_supervisor(
                 "fecha": str(row.Status_Date) if row.Status_Date else "",
                 "estado": row.Status_Big or "Sin estado",
                 "carrier": row.Carrier or "",
-                "conductor": {
+                "estado_liquidacion": row.estado_liquidacion or "pendiente",
+                "estado_display": row.estado_display or "pendiente",                "conductor": {
                     "nombre": row.conductor_nombre or "Sin asignar",
                     "email": row.conductor_email or "",
                     "telefono": row.conductor_telefono or ""
                 }
             })
-        
-        # Contar total para paginación
+
         count_query = f"""
         SELECT COUNT(*) as total
         FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cp
         LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` ub 
             ON cp.Employee_id = ub.Employee_id
+        LEFT JOIN `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+            ON cp.tracking_number = pc.tracking
         WHERE {where_clause}
         """
-        
-        count_params = [p for p in query_params if p.name != "limit" and p.name != "offset"]
-        count_job_config = bigquery.QueryJobConfig(query_parameters=count_params)
-        count_result = client.query(count_query, job_config=count_job_config).result()
-        total = list(count_result)[0].total
-        
+
+        count_config = bigquery.QueryJobConfig(query_parameters=query_params[:-2])
+        total = list(client.query(count_query, job_config=count_config).result())[0].total
+
         return {
             "guias": guias,
             "total": int(total),
@@ -416,12 +451,11 @@ async def get_guias_pendientes_supervisor(
             "total_paginas": (int(total) + limit - 1) // limit,
             "carriers_supervisados": carrier_ids
         }
-        
+
     except Exception as e:
-        print(f"Error obteniendo guías pendientes supervisor: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+        print(f"Error obteniendo guías pendientes: {e}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {e}")
+
 
 @router.get("/conductores")
 async def get_conductores_supervisor(current_user = Depends(verificar_supervisor)):
@@ -588,7 +622,7 @@ async def get_guias_entregadas_supervisor(
         query_params = []
 
         if conductor:
-            where_conditions.append("LOWER(ub.Employee_Name) LIKE LOWER(@conductor)")
+            where_conditions.append("LOWER(ub.Employee_Name) LIKE LOWER(@conductor) ")
             query_params.append(bigquery.ScalarQueryParameter("conductor", "STRING", f"%{conductor}%"))
 
         where_clause = " AND ".join(where_conditions)
@@ -610,6 +644,7 @@ async def get_guias_entregadas_supervisor(
         LEFT JOIN `{PROJECT_ID}.{DATASET}.usuarios_BIG` ub 
             ON cp.Employee_id = ub.Employee_id
         WHERE {where_clause}
+        
         ORDER BY cp.Status_Date DESC
         LIMIT @limit OFFSET @offset
         """
@@ -688,15 +723,15 @@ async def obtener_pagos_conductor(current_user = Depends(verificar_supervisor)):
         """
         
         resultados = client.query(query).result()
-        
-        # Agrupar pagos por referencia
+          # Agrupar pagos por referencia
         pagos_agrupados = {}
         for row in resultados:
             ref = row.referencia_pago
             if ref not in pagos_agrupados:
                 pagos_agrupados[ref] = {
                     "referencia_pago": ref,
-                    "valor": float(row.valor or 0),
+                    "valor": float(row.valor_total_consignacion or 0),
+                    "valor_total_consignacion": float(row.valor_total_consignacion or 0),
                     "fecha": str(row.fecha_pago),
                     "entidad": row.entidad,
                     "estado": row.estado,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../context/authContext";
-import "../../styles/supervisor/Pagos.css";
+import "../../styles/supervisor/GuiasPendientes.css";
 import "../../styles/supervisor/cargando.css";
 import LogoXcargo from "../../../public/icons/Logo192.png";
 
@@ -36,7 +36,7 @@ export default function GuiasEntregadas() {
       const token = user?.token || localStorage.getItem("token") || "";
       
       const response = await fetch(
-        `https://api.x-cargo.co/supervisor/guias-entregadas?limit=${limit}&offset=${page * limit}${filtroConductor ? `&conductor=${filtroConductor}` : ''}`,
+        `http://127.0.0.1:8000/supervisor/guias-entregadas?limit=${limit}&offset=${page * limit}${filtroConductor ? `&conductor=${filtroConductor}` : ''}`,
         {
           headers: {
             "Authorization": `Bearer ${token}`,
@@ -81,13 +81,15 @@ export default function GuiasEntregadas() {
       </div>
     );
   }
-
   return (
-    <div className="guias-entregadas">
+    <div className="guias-pendientes">
       <div className="page-header">
         <h1>Guías Entregadas</h1>
         <div className="header-info">
-          <span className="fecha-badge">
+          <span className="total-badge">
+            📦 Total: {total} guías entregadas
+          </span>
+          <span className="total-badge">
             📅 Desde: 2025-06-09
           </span>
         </div>
@@ -103,7 +105,7 @@ export default function GuiasEntregadas() {
         <div className="filters">
           <input
             type="text"
-            placeholder="Buscar por conductor..."
+            placeholder="🔍 Buscar por conductor..."
             value={filtroConductor}
             onChange={(e) => setFiltroConductor(e.target.value)}
             className="search-input"
@@ -134,20 +136,29 @@ export default function GuiasEntregadas() {
             </div>
             <div className="table-cell">
               <span className="cliente">{guia.cliente}</span>
+            </div>            <div className="table-cell">
+              <div className="conductor-info">
+                <span className="conductor-nombre">{guia.conductor.nombre}</span>
+                <span className="conductor-email">{guia.conductor.email}</span>
+              </div>
             </div>
             <div className="table-cell">
-              <span className="conductor">{guia.conductor.nombre}</span>
-              <span className="conductor-email">{guia.conductor.email}</span>
-            </div>
-            <div className="table-cell">
-              <span className="ciudad">{guia.ciudad}</span>
-              <span className="departamento">{guia.departamento}</span>
+              <div className="ubicacion">
+                <span className="ciudad">{guia.ciudad}</span>
+                <span className="departamento">{guia.departamento}</span>
+              </div>
             </div>
             <div className="table-cell">
               <span className="valor">{formatCurrency(guia.valor)}</span>
             </div>
             <div className="table-cell">
-              <span className="fecha">{new Date(guia.fecha).toLocaleDateString()}</span>
+              <span className="fecha">
+                {new Date(guia.fecha).toLocaleDateString('es-CO', {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric'
+                })}
+              </span>
             </div>
           </div>
         ))}
@@ -155,7 +166,7 @@ export default function GuiasEntregadas() {
 
       {guias.length === 0 && !loading && (
         <div className="empty-state">
-          <p>No se encontraron guías entregadas</p>
+          <p>📦 No se encontraron guías entregadas</p>
         </div>
       )}
 

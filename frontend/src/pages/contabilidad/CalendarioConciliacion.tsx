@@ -18,7 +18,7 @@ const meses = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ];
 
-const API_URL = "https://api.x-cargo.co"; // Cambia aquí si tu backend está en localhost
+const API_URL = "http://127.0.0.1:8000"; // Cambia aquí si tu backend está en localhost
 
 export default function CalendarioConciliacion() {
   const [datos, setDatos] = useState<DiaConciliacion[]>([]);

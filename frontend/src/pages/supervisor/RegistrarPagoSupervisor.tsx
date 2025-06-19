@@ -1,4 +1,7 @@
-// src/pages/supervisor/Pagos.tsx
+const truncateText = (text: string, maxLength: number) => {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+  };// src/pages/supervisor/Pagos.tsx
 import { useEffect, useState } from "react";
 import { useAuth } from "../../context/authContext";
 import "../../styles/supervisor/Pagos.css";
@@ -133,11 +136,11 @@ export default function PagosSupervisor() {
     }).format(amount);
   };
 
-  const truncateText = (text: string, maxLength: number) => {
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength) + '...';
-  };
-
+  const truncateReference = (ref: string) => {
+    // Para referencias, mostrar máximo 25 caracteres (más espacio disponible)
+    if (ref.length <= 25) return ref;
+    return ref.substring(0, 22) + '...';
+  };;
 
   if (loading) {
     return (
@@ -229,206 +232,66 @@ export default function PagosSupervisor() {
 
       {/* Tabla de pagos */}
       <div className="pagos-table">
-        <div 
-          className="table-header"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '300px 200px 120px 100px 120px 150px 140px',
-            backgroundColor: '#f8fafc',
-            borderBottom: '2px solid #e2e8f0'
-          }}
-        >
-          <div className="header-cell" style={{ padding: '1rem 0.75rem', fontWeight: '600' }}>Referencia</div>
-          <div className="header-cell" style={{ padding: '1rem 0.75rem', fontWeight: '600' }}>Conductor</div>
-          <div className="header-cell" style={{ padding: '1rem 0.75rem', fontWeight: '600' }}>Valor</div>
-          <div className="header-cell" style={{ padding: '1rem 0.75rem', fontWeight: '600' }}>Fecha</div>
-          <div className="header-cell" style={{ padding: '1rem 0.75rem', fontWeight: '600' }}>Estado</div>
-          <div className="header-cell" style={{ padding: '1rem 0.75rem', fontWeight: '600' }}>Guías</div>
-          <div className="header-cell" style={{ padding: '1rem 0.75rem', fontWeight: '600' }}>Acciones</div>
+        <div className="table-header">
+          <div className="header-cell">Referencia</div>
+          <div className="header-cell">Conductor</div>
+          <div className="header-cell">Valor</div>
+          <div className="header-cell">Fecha</div>
+          <div className="header-cell">Estado</div>
+          <div className="header-cell">Guías</div>
+          <div className="header-cell">Acciones</div>
         </div>
         
         {pagosFiltrados.map((pago) => (
-          <div 
-            key={pago.referencia_pago} 
-            className="table-row"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '300px 200px 120px 100px 120px 150px 140px',
-              borderBottom: '1px solid #f1f5f9'
-            }}
-          >
-            <div 
-              className="table-cell"
-              style={{
-                padding: '1rem 0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                overflow: 'hidden',
-                width: '300px'
-              }}
-            >
-              <span 
-                className="referencia" 
-                title={pago.referencia_pago}
-                style={{
-                  fontFamily: 'Courier New, monospace',
-                  fontWeight: '600',
-                  color: '#1e293b',
-                  background: '#f1f5f9',
-                  padding: '0.375rem 0.75rem',
-                  borderRadius: '6px',
-                  fontSize: '0.85rem',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  display: 'block',
-                  maxWidth: '280px'
-                }}
-              >
-                {pago.referencia_pago}
+          <div key={pago.referencia_pago} className="table-row">
+            <div className="table-cell">
+              <span className="referencia" title={pago.referencia_pago}>
+                {truncateReference(pago.referencia_pago)}
               </span>
             </div>
             
-            <div 
-              className="table-cell"
-              style={{
-                padding: '1rem 0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                overflow: 'hidden',
-                width: '200px'
-              }}
-            >
-              <span 
-                className="conductor-nombre" 
-                title={pago.nombre_conductor || pago.correo_conductor}
-                style={{
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxWidth: '180px'
-                }}
-              >
-                {pago.nombre_conductor || pago.correo_conductor}
+            <div className="table-cell">
+              <span className="conductor-nombre" title={pago.nombre_conductor || pago.correo_conductor}>
+                {truncateText(pago.nombre_conductor || pago.correo_conductor, 20)}
               </span>
             </div>
             
-            <div 
-              className="table-cell"
-              style={{
-                padding: '1rem 0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                width: '120px'
-              }}
-            >
-              <span className="valor" style={{ fontWeight: '700', color: '#10b981' }}>
+            <div className="table-cell">
+              <span className="valor">
                 {formatCurrency(pago.valor_total_consignacion || pago.valor)}
               </span>
             </div>
             
-            <div 
-              className="table-cell"
-              style={{
-                padding: '1rem 0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                width: '100px'
-              }}
-            >
-              <span className="fecha" style={{ fontSize: '0.85rem' }}>
+            <div className="table-cell">
+              <span className="fecha">
                 {new Date(pago.fecha).toLocaleDateString('es-CO')}
               </span>
             </div>
             
-            <div 
-              className="table-cell"
-              style={{
-                padding: '1rem 0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                width: '120px'
-              }}
-            >
-              <span 
-                className={`estado-badge ${pago.estado_conciliacion.toLowerCase()}`}
-                style={{
-                  padding: '0.375rem 0.75rem',
-                  borderRadius: '9999px',
-                  fontSize: '0.75rem',
-                  fontWeight: '600',
-                  textTransform: 'uppercase',
-                  textAlign: 'center',
-                  whiteSpace: 'nowrap',
-                  minWidth: '80px'
-                }}
-              >
+            <div className="table-cell">
+              <span className={`estado-badge ${pago.estado_conciliacion.toLowerCase()}`}>
                 {pago.estado_conciliacion || 'Pendiente'}
               </span>
             </div>
             
-            <div 
-              className="table-cell"
-              style={{
-                padding: '1rem 0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                width: '150px'
-              }}
-            >
-              <div className="guias-container" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                <span className="guias-count" style={{ fontWeight: '600', fontSize: '0.8rem' }}>
-                  {pago.num_guias} guías
-                </span>
+            <div className="table-cell">
+              <div className="guias-container">
+                <span className="guias-count">{pago.num_guias} guías</span>
                 {pago.trackings_preview && (
-                  <span 
-                    className="guias-preview" 
-                    title={pago.trackings_preview}
-                    style={{
-                      fontSize: '0.75rem',
-                      color: '#64748b',
-                      background: '#f8fafc',
-                      padding: '0.25rem 0.5rem',
-                      borderRadius: '4px',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      maxWidth: '130px'
-                    }}
-                  >
+                  <span className="guias-preview" title={pago.trackings_preview}>
                     {truncateText(pago.trackings_preview, 12)}
                   </span>
                 )}
               </div>
             </div>
             
-            <div 
-              className="table-cell"
-              style={{
-                padding: '1rem 0.75rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '140px'
-              }}
-            >
-              <div className="acciones" style={{ display: 'flex', gap: '0.5rem' }}>
+            <div className="table-cell">
+              <div className="acciones">
                 {pago.imagen && (
                   <button 
                     className="btn-icon"
                     onClick={() => setModalImage(pago.imagen)}
                     title="Ver comprobante"
-                    style={{
-                      background: '#f1f5f9',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
-                      width: '36px',
-                      height: '36px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer'
-                    }}
                   >
                     📄
                   </button>
@@ -437,17 +300,6 @@ export default function PagosSupervisor() {
                   className="btn-icon"
                   onClick={() => alert(`Detalles de pago ${pago.referencia_pago}`)}
                   title="Ver detalles"
-                  style={{
-                    background: '#f1f5f9',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    width: '36px',
-                    height: '36px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer'
-                  }}
                 >
                   🔍
                 </button>

@@ -39,7 +39,7 @@ export default function ConductoresSupervisor() {
     try {
       // Agregar token JWT en la cabecera Authorization
       const token = user?.token || localStorage.getItem("token") || "";
-      const response = await fetch(`https://api.x-cargo.co/supervisor/conductores`, {
+      const response = await fetch(`http://127.0.0.1:8000/supervisor/conductores`, {
         headers: {
           "Authorization": `Bearer ${token}`,
           // Puedes mantener los headers personalizados si el backend los requiere:
@@ -111,7 +111,7 @@ export default function ConductoresSupervisor() {
   const cambiarEstadoConductor = async (conductorId: string, nuevoEstado: string) => {
     try {
       // TODO: Implementar endpoint
-      const response = await fetch(`https://api.x-cargo.co/supervisor/conductor/${conductorId}/estado`, {
+      const response = await fetch(`http://127.0.0.1:8000/supervisor/conductor/${conductorId}/estado`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estado: nuevoEstado })

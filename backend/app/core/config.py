@@ -9,14 +9,10 @@ project_root = current_dir.parent    # backend/
 # 🔧 CORREGIR: Buscar .env en la carpeta backend/ (no en app/)
 env_path = project_root / ".env"  # backend/.env
 
-print(f"🔍 Buscando .env en: {env_path}")
-print(f"📁 ¿Existe .env?: {'✅ Sí' if env_path.exists() else '❌ No'}")
-
 # Si no está en backend/, buscar en app/
 if not env_path.exists():
     env_path = current_dir / ".env"  # backend/app/.env
-    print(f"🔍 Buscando también en: {env_path}")
-    print(f"📁 ¿Existe en app/?: {'✅ Sí' if env_path.exists() else '❌ No'}")
+    
 
 # Cargar variables de entorno
 if env_path.exists():
@@ -29,7 +25,7 @@ else:
 # Variables de configuración
 GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "app/credentials/datos-clientes-xxxx.json")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "https://api.x-cargo.co")
+FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://127.0.0.1:8000")
 
 # 🔍 Debug: Verificar qué se cargó
 print(f"🔑 OPENAI_API_KEY: {'✅ Configurada' if OPENAI_API_KEY else '❌ No encontrada'}")

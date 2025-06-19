@@ -42,6 +42,9 @@ import FormularioPagoConductor from "../pages/conductor/RegistrarPago";
 import DashboardSupervisor from "../pages/supervisor/Dashboard";
 import ConductoresSupervisor from "../pages/supervisor/conductores";
 import PagosSupervisor from "../pages/supervisor/pagos";
+import PagosGuiasPendientes from "../pages/supervisor/guias-pendientes";
+import RegistrarPagoSupervisor from "../pages/supervisor/RegistrarPagoSupervisor";
+
 
 // Recuperación de contraseña
 import RecuperarClave from "../pages/login/RecuperarClave";
@@ -183,7 +186,6 @@ export default function AppRoutes() {
       </Route>
 
       {/* SUPERVISOR */}
-      {/* SUPERVISOR */}
       <Route
         element={
           <ProtectedRoute requiredPermission="supervisor_dashboard">
@@ -205,6 +207,21 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute requiredPermission="supervisor_pagos">
               <PagosSupervisor />
+            </ProtectedRoute>
+          }
+        />        <Route
+          path="/supervisor/guias-pendientes"
+          element={
+            <ProtectedRoute requiredPermission="supervisor_guias">
+              <PagosGuiasPendientes />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/supervisor/registrar-pago"
+          element={
+            <ProtectedRoute requiredPermission="supervisor_pagos">
+              <RegistrarPagoSupervisor />
             </ProtectedRoute>
           }
         />

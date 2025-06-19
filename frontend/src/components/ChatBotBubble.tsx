@@ -98,7 +98,7 @@ export default function ChatBotBubble() {
       console.log("🔍 Cargando estado para:", auth.email);
 
       const res = await fetch(
-        `https://api.x-cargo.co/asistente/estado-usuario/${encodeURIComponent(auth.email)}`,
+        `http://127.0.0.1:8000/asistente/estado-usuario/${encodeURIComponent(auth.email)}`,
         {
           headers: {
             'Authorization': `Bearer ${auth.token}`,
@@ -164,7 +164,7 @@ export default function ChatBotBubble() {
         throw new Error("No hay sesión activa");
       }
 
-      const res = await fetch("https://api.x-cargo.co/asistente/chat", {
+      const res = await fetch("http://127.0.0.1:8000/asistente/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

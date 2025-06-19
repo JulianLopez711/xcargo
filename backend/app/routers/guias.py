@@ -194,10 +194,10 @@ def obtener_guias_pendientes(request: Request) -> Dict:
             print(f"❌ No se encontró employee_id para {usuario}")
             return {"guias": [], "total": 0, "error": "Employee_id no encontrado"}
 
-        print(f"✅ Employee_id encontrado para {usuario}: {employee_id}")        # ✅ QUERY CORREGIDA: Combina guías pendientes de liquidación desde el 9 de junio
+        print(f"✅ Employee_id encontrado para {usuario}: {employee_id}")        # ✅ QUERY MEJORADA: Validación más estricta para evitar duplicados y asegurar solo estado 360 pendiente
         query = """
         WITH GuiasCombinadas AS (
-            -- Guías de guias_liquidacion que están PENDIENTES (no pagadas)
+            -- 1️⃣ Guías de guias_liquidacion que están PENDIENTES (no pagadas)
             SELECT
                 gl.tracking_number AS tracking,
                 COALESCE(gl.conductor_nombre_completo, u.Employee_Name, 'Conductor') AS conductor,
@@ -220,14 +220,15 @@ def obtener_guias_pendientes(request: Request) -> Dict:
             FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
             LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
                 ON u.Employee_id = gl.employee_id
-            WHERE gl.estado_liquidacion IN ('pendiente', 'disponible')  -- Solo pendientes y disponibles
+            WHERE gl.estado_liquidacion IN ('pendiente', 'disponible')  -- ✅ Solo pendientes
+                AND gl.estado_liquidacion NOT IN ('pagado', 'liquidado', 'procesado')  -- ✅ Excluir pagadas
                 AND gl.employee_id = @employee_id
                 AND gl.valor_guia > 0
                 AND DATE(gl.fecha_entrega) >= @fecha_inicio
 
             UNION ALL
 
-            -- Guías de COD_pendientes_v1 entregadas que NO estén pagadas en guias_liquidacion
+            -- 2️⃣ Guías de COD_pendientes_v1 con estado 360 que NO estén pagadas en guias_liquidacion
             SELECT
                 cod.tracking_number AS tracking,
                 COALESCE(cod.Empleado, u.Employee_Name, 'Conductor') AS conductor,
@@ -251,17 +252,51 @@ def obtener_guias_pendientes(request: Request) -> Dict:
             LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
                 ON u.Employee_id = cod.Employee_id
             LEFT JOIN `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
-                ON gl.tracking_number = cod.tracking_number
-            WHERE cod.Status_Big = '360 - Entregado al cliente'
+                ON gl.tracking_number = cod.tracking_number 
+                AND gl.employee_id = cod.Employee_id  -- ✅ Validar también employee_id
+            WHERE cod.Status_Big = '360 - Entregado al cliente'  -- ✅ Solo estado 360
                 AND cod.Employee_id = @employee_id
                 AND cod.Valor > 0
                 AND DATE(cod.Status_Date) >= @fecha_inicio
                 AND (
-                    gl.tracking_number IS NULL  -- No existe en liquidacion
-                    OR gl.estado_liquidacion NOT IN ('pagado', 'liquidado', 'procesado')  -- O no está pagada
+                    gl.tracking_number IS NULL  -- ✅ No existe en liquidacion
+                    OR (gl.tracking_number IS NOT NULL 
+                        AND gl.estado_liquidacion NOT IN ('pagado', 'liquidado', 'procesado'))  -- ✅ O existe pero no está pagada
                 )
+        ),
+        GuiasLimpias AS (
+            -- 3️⃣ Eliminar duplicados por tracking_number, priorizando guias_liquidacion
+            SELECT DISTINCT
+                tracking,
+                conductor,
+                empresa,
+                valor,
+                estado,
+                novedad,
+                fecha_entrega,
+                carrier,
+                carrier_id,
+                ciudad,
+                departamento,
+                status_big,
+                status_date,
+                employee_id,
+                conductor_email,
+                pago_referencia,
+                liquidacion_id,
+                origen,
+                -- Priorizar guias_liquidacion sobre cod_pendientes
+                ROW_NUMBER() OVER (
+                    PARTITION BY tracking 
+                    ORDER BY 
+                        CASE WHEN origen = 'guias_liquidacion' THEN 1 ELSE 2 END,
+                        fecha_entrega DESC
+                ) as rn
+            FROM GuiasCombinadas
         )
-        SELECT * FROM GuiasCombinadas
+        SELECT * EXCEPT(rn) 
+        FROM GuiasLimpias 
+        WHERE rn = 1  -- ✅ Solo la primera ocurrencia de cada tracking
         ORDER BY fecha_entrega DESC
         """
 
