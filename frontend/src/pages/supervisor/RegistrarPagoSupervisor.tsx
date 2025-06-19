@@ -63,7 +63,7 @@ export default function PagosSupervisor() {
       setLoading(true);
       const token = user?.token || localStorage.getItem("token") || "";
       
-      const response = await fetch(`http://127.0.0.1:8000/supervisor/pagos-conductor`, {
+      const response = await fetch(`https://api.x-cargo.co/supervisor/pagos-conductor`, {
         headers: {
           "Authorization": `Bearer ${token}`,
           "X-User-Email": user?.email || "",

@@ -109,7 +109,7 @@ export default function DashboardMaster() {
   const cargarDashboardMaster = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://127.0.0.1:8000/master/dashboard`, {
+      const response = await fetch(`https://api.x-cargo.co/master/dashboard`, {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "master"
@@ -147,7 +147,7 @@ export default function DashboardMaster() {
 
   const exportarDatos = async (formato: string = "json") => {
     try {
-      const response = await fetch(`http://127.0.0.1:8000/master/export/data?formato=${formato}`, {
+      const response = await fetch(`https://api.x-cargo.co/master/export/data?formato=${formato}`, {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "master"
