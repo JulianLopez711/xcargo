@@ -24,8 +24,26 @@ jobs:
       - name: Install dependencies and build
         working-directory: frontend
         run: |
+          # Limpiar caché de npm si existe
+          npm cache clean --force || true
+          
+          # Instalar dependencias
           npm install
+          
+          # Verificar que todas las dependencias estén instaladas
+          npm list --depth=0 || echo "Algunas dependencias pueden tener conflictos menores"
+          
+          # Ejecutar build
           npm run build
+          
+          # Verificar que el build se completó correctamente
+          if [ ! -d "dist" ]; then
+            echo "❌ Error: El directorio dist no fue creado"
+            exit 1
+          fi
+          
+          echo "✅ Build completado exitosamente"
+          ls -la dist/
 
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
