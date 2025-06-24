@@ -11,17 +11,16 @@ interface Conductor {
   correo: string;
   telefono: string;
   cedula: string;
-  vehiculo: string;
-  placa: string;
+  empresa: string;
   estado: "activo" | "inactivo" | "suspendido";
   fecha_registro: string;
-  ultimo_pago: string;
-  pagos_pendientes: number;
+  ultima_actividad: string;
+  entregas_pendientes: number;
   total_entregas: number;
-  calificacion: number;
+  valor_pendiente: number;
 }
 
-const FECHA_INICIO = '2025-06-10';
+const FECHA_INICIO = '2025-06-09';
 
 export default function ConductoresSupervisor() {
   const { user } = useAuth();
@@ -34,7 +33,6 @@ export default function ConductoresSupervisor() {
   useEffect(() => {
     cargarConductores();
   }, []);
-
   const cargarConductores = async () => {
     try {
       // Agregar token JWT en la cabecera Authorization
@@ -47,10 +45,15 @@ export default function ConductoresSupervisor() {
           "X-User-Role": user?.role || "supervisor"
         }
       });
-      
-      if (response.ok) {
+        if (response.ok) {
         const data = await response.json();
-
+        console.log(`✅ Conductores cargados: ${data.length} registros desde ${FECHA_INICIO}`, {
+          fecha_configurada: FECHA_INICIO,
+          total_conductores: data.length,
+          conductores_activos: data.filter((c: any) => c.estado === 'activo').length,
+          total_entregas: data.reduce((sum: number, c: any) => sum + (c.total_entregas || 0), 0),
+          entregas_pendientes: data.reduce((sum: number, c: any) => sum + (c.entregas_pendientes || 0), 0)
+        });
         
         // Mapear datos reales al formato esperado por el frontend
         const conductoresMapeados = data.map((conductor: any) => ({
@@ -59,14 +62,13 @@ export default function ConductoresSupervisor() {
           correo: conductor.correo,
           telefono: conductor.telefono || "Sin teléfono",
           cedula: conductor.id, // Usando ID como cédula temporalmente
-          vehiculo: "Vehículo asignado", // Campo no disponible en datos reales
-          placa: "ABC-123", // Campo no disponible en datos reales
+          empresa: conductor.empresa || "Sin empresa asignada",
           estado: conductor.estado === "activo" ? "activo" : "inactivo",
           fecha_registro: conductor.fecha_registro || "2024-01-01",
-          ultimo_pago: conductor.ultima_actividad || "Sin actividad",
-          pagos_pendientes: conductor.entregas_pendientes || 0,
+          ultima_actividad: conductor.ultima_actividad || "Sin actividad",
+          entregas_pendientes: conductor.entregas_pendientes || 0,
           total_entregas: conductor.total_entregas || 0,
-          calificacion: 4.5 // Campo no disponible, valor por defecto
+          valor_pendiente: conductor.valor_pendiente || 0
         }));
         
         setConductores(conductoresMapeados);
@@ -75,7 +77,7 @@ export default function ConductoresSupervisor() {
       }
     } catch (error) {
       console.error("Error cargando conductores:", error);
-      // Mantener datos de ejemplo en caso de error
+      // Mantener datos de ejemplo en caso de error con los nuevos campos
       setConductores([
         {
           id: "1",
@@ -83,14 +85,13 @@ export default function ConductoresSupervisor() {
           correo: "juan.perez@empresa.com",
           telefono: "+57 300 123 4567",
           cedula: "12345678",
-          vehiculo: "Chevrolet NPR",
-          placa: "ABC-123",
+          empresa: "Transportes XCargo",
           estado: "activo",
           fecha_registro: "2024-03-15",
-          ultimo_pago: "2025-05-20",
-          pagos_pendientes: 2,
+          ultima_actividad: "2025-06-20",
+          entregas_pendientes: 2,
           total_entregas: 45,
-          calificacion: 4.8
+          valor_pendiente: 150000
         }
       ]);
     } finally {
@@ -107,13 +108,15 @@ export default function ConductoresSupervisor() {
     
     return coincideTexto && coincideEstado;
   });
-
   const cambiarEstadoConductor = async (conductorId: string, nuevoEstado: string) => {
     try {
-      // TODO: Implementar endpoint
+      const token = user?.token || localStorage.getItem("token") || "";
       const response = await fetch(`https://api.x-cargo.co/supervisor/conductor/${conductorId}/estado`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({ estado: nuevoEstado })
       });
 
@@ -149,8 +152,7 @@ if (loading) {
 
 
   return (
-    <div className="conductores-supervisor">
-      <div className="page-header">
+    <div className="conductores-supervisor">      <div className="page-header">
         <h1>Gestión de Conductores</h1>
         <div className="empresa-info">
           <span className="empresa-badge">
@@ -159,6 +161,18 @@ if (loading) {
           <span className="fecha-badge">
             📅 Datos desde: {new Date(FECHA_INICIO).toLocaleDateString()}
           </span>
+        </div>
+      </div>
+
+      {/* Banner informativo */}
+      <div className="info-banner">
+        <div className="banner-content">
+          <span className="banner-icon">ℹ️</span>
+          <div className="banner-text">
+            <strong>Información de conductores actualizada</strong>
+            <p>Mostrando datos de conductores y actividad desde el {new Date(FECHA_INICIO).toLocaleDateString()}. 
+            Los valores y estados reflejan la actividad real registrada en el sistema.</p>
+          </div>
         </div>
       </div>
 
@@ -199,8 +213,7 @@ if (loading) {
       {/* Lista de conductores */}
       <div className="conductores-grid">
         {conductoresFiltrados.map((conductor) => (
-          <div key={conductor.id} className="conductor-card">
-            <div className="conductor-header">
+          <div key={conductor.id} className="conductor-card">            <div className="conductor-header">
               <div className="conductor-info">
                 <h3>{conductor.nombre}</h3>
                 <span className={`status-badge ${getEstadoColor(conductor.estado)}`}>
@@ -208,7 +221,7 @@ if (loading) {
                 </span>
               </div>
               <div className="conductor-rating">
-                <span className="rating">⭐ {conductor.calificacion}</span>
+                <span className="empresa">🏢 {conductor.empresa}</span>
               </div>
             </div>
 
@@ -222,8 +235,8 @@ if (loading) {
                 <span className="value">{conductor.telefono}</span>
               </div>
               <div className="detail-row">
-                <span className="label">🚛 Vehículo:</span>
-                <span className="value">{conductor.vehiculo} - {conductor.placa}</span>
+                <span className="label">🏢 Empresa:</span>
+                <span className="value">{conductor.empresa}</span>
               </div>
               <div className="detail-row">
                 <span className="label">📦 Entregas:</span>
@@ -231,7 +244,7 @@ if (loading) {
               </div>
               <div className="detail-row">
                 <span className="label">💰 Pendientes:</span>
-                <span className="value pending">{conductor.pagos_pendientes} pagos</span>
+                <span className="value pending">{conductor.entregas_pendientes} entregas (${conductor.valor_pendiente?.toLocaleString()})</span>
               </div>
             </div>
 
@@ -282,20 +295,20 @@ if (loading) {
                 ✕
               </button>
             </div>
-            
-            <div className="modal-body">
+              <div className="modal-body">
               <div className="conductor-profile">
                 <h3>{conductorSeleccionado.nombre}</h3>
                 <div className="profile-details">
-                  <p><strong>Cédula:</strong> {conductorSeleccionado.cedula}</p>
+                  <p><strong>ID:</strong> {conductorSeleccionado.cedula}</p>
                   <p><strong>Correo:</strong> {conductorSeleccionado.correo}</p>
                   <p><strong>Teléfono:</strong> {conductorSeleccionado.telefono}</p>
-                  <p><strong>Vehículo:</strong> {conductorSeleccionado.vehiculo}</p>
-                  <p><strong>Placa:</strong> {conductorSeleccionado.placa}</p>
+                  <p><strong>Empresa:</strong> {conductorSeleccionado.empresa}</p>
+                  <p><strong>Estado:</strong> {conductorSeleccionado.estado}</p>
                   <p><strong>Fecha de registro:</strong> {conductorSeleccionado.fecha_registro}</p>
-                  <p><strong>Último pago:</strong> {conductorSeleccionado.ultimo_pago}</p>
+                  <p><strong>Última actividad:</strong> {conductorSeleccionado.ultima_actividad}</p>
                   <p><strong>Total entregas:</strong> {conductorSeleccionado.total_entregas}</p>
-                  <p><strong>Calificación:</strong> ⭐ {conductorSeleccionado.calificacion}</p>
+                  <p><strong>Entregas pendientes:</strong> {conductorSeleccionado.entregas_pendientes}</p>
+                  <p><strong>Valor pendiente:</strong> ${conductorSeleccionado.valor_pendiente?.toLocaleString()}</p>
                 </div>
               </div>
             </div>

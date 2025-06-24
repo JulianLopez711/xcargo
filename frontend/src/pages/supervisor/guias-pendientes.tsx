@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/authContext";
 import "../../styles/supervisor/GuiasPendientes.css";
@@ -24,6 +24,7 @@ interface Guia {
 export default function GuiasPendientes() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const selectAllCheckboxRef = useRef<HTMLInputElement>(null);
   const [guias, setGuias] = useState<Guia[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -34,9 +35,9 @@ export default function GuiasPendientes() {
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroTracking, setFiltroTracking] = useState("");
   const [filtroCiudad, setFiltroCiudad] = useState("");
-  const [filtroFecha, setFiltroFecha] = useState("");
-  // Estados para la selección de guías
+  const [filtroFecha, setFiltroFecha] = useState("");  // Estados para la selección de guías - MEJORADO para persistir entre páginas
   const [guiasSeleccionadas, setGuiasSeleccionadas] = useState<string[]>([]);
+  const [guiasSeleccionadasData, setGuiasSeleccionadasData] = useState<Map<string, Guia>>(new Map());
   
   // Estados para filtros temporales (antes de buscar)
   const [filtroTempConductor, setFiltroTempConductor] = useState("");
@@ -44,6 +45,16 @@ export default function GuiasPendientes() {
   const [filtroTempTracking, setFiltroTempTracking] = useState("");
   const [filtroTempCiudad, setFiltroTempCiudad] = useState("");
   const [filtroTempFecha, setFiltroTempFecha] = useState("");
+
+  // Efecto para manejar el estado indeterminate del checkbox principal
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      const someSelected = guias.some(guia => guiasSeleccionadas.includes(guia.tracking_number));
+      const allSelected = guias.length > 0 && guias.every(guia => guiasSeleccionadas.includes(guia.tracking_number));
+      
+      selectAllCheckboxRef.current.indeterminate = someSelected && !allSelected;
+    }
+  }, [guias, guiasSeleccionadas]);
 
   // Solo cargar guías cuando cambie la página o se ejecute búsqueda manual
   useEffect(() => {
@@ -104,49 +115,100 @@ export default function GuiasPendientes() {
       minimumFractionDigits: 0,
     }).format(amount);
   };
-
-  // Funciones para manejo de selección
+  // Funciones para manejo de selección - MEJORADAS para persistir entre páginas
   const toggleSeleccion = (tracking: string) => {
-    setGuiasSeleccionadas((prev) =>
-      prev.includes(tracking) ? prev.filter((t) => t !== tracking) : [...prev, tracking]
-    );
+    const guia = guias.find(g => g.tracking_number === tracking);
+    if (!guia) return;
+
+    setGuiasSeleccionadas((prev) => {
+      const newSelected = prev.includes(tracking) 
+        ? prev.filter((t) => t !== tracking) 
+        : [...prev, tracking];
+      
+      // Actualizar el mapa de datos de guías seleccionadas
+      setGuiasSeleccionadasData((prevData) => {
+        const newData = new Map(prevData);
+        if (newSelected.includes(tracking)) {
+          newData.set(tracking, guia);
+        } else {
+          newData.delete(tracking);
+        }
+        return newData;
+      });
+      
+      return newSelected;
+    });
   };
 
   const toggleTodos = () => {
-    if (guiasSeleccionadas.length === guias.length) {
-      setGuiasSeleccionadas([]);
+    const currentPageTrackings = guias.map(g => g.tracking_number);
+    
+    // Verificar si todas las guías de la página actual están seleccionadas
+    const allCurrentSelected = currentPageTrackings.every(tracking => 
+      guiasSeleccionadas.includes(tracking)
+    );
+
+    if (allCurrentSelected) {
+      // Deseleccionar todas las guías de la página actual
+      setGuiasSeleccionadas(prev => 
+        prev.filter(tracking => !currentPageTrackings.includes(tracking))
+      );
+      setGuiasSeleccionadasData(prevData => {
+        const newData = new Map(prevData);
+        currentPageTrackings.forEach(tracking => newData.delete(tracking));
+        return newData;
+      });
     } else {
-      setGuiasSeleccionadas(guias.map((g) => g.tracking_number));
+      // Seleccionar todas las guías de la página actual
+      const newSelections = currentPageTrackings.filter(tracking => 
+        !guiasSeleccionadas.includes(tracking)
+      );
+      
+      setGuiasSeleccionadas(prev => [...prev, ...newSelections]);
+      setGuiasSeleccionadasData(prevData => {
+        const newData = new Map(prevData);
+        guias.forEach(guia => {
+          if (!prevData.has(guia.tracking_number)) {
+            newData.set(guia.tracking_number, guia);
+          }
+        });
+        return newData;
+      });
     }
   };
 
-  // Cálculos de totales
-  const totalSeleccionado = guias
-    .filter((g) => guiasSeleccionadas.includes(g.tracking_number))
-    .reduce((acc, curr) => acc + curr.valor, 0);
+  // Limpiar selecciones al cambiar filtros (opcional - puede ser que quieras mantenerlas)
+  const limpiarSelecciones = () => {
+    setGuiasSeleccionadas([]);
+    setGuiasSeleccionadasData(new Map());
+  };
+  // Cálculos de totales - ACTUALIZADOS para usar datos persistentes
+  const totalSeleccionado = Array.from(guiasSeleccionadasData.values())
+    .reduce((acc, guia) => acc + guia.valor, 0);
 
-  const totalGlobal = guias.reduce((acc, curr) => acc + curr.valor, 0);
-  // Función para procesar pago
+  const totalGlobal = guias.reduce((acc, curr) => acc + curr.valor, 0);  // Función para procesar pago - ACTUALIZADA para usar datos persistentes
   const handlePagar = () => {
     if (guiasSeleccionadas.length === 0) {
       alert("Debes seleccionar al menos una guía para pagar.");
       return;
     }
 
-    const guiasParaPago = guias
-      .filter((g) => guiasSeleccionadas.includes(g.tracking_number))
-      .map((g) => ({
-        referencia: g.tracking_number,
-        valor: g.valor,
-        tracking: g.tracking_number,
+    // Usar los datos persistentes de las guías seleccionadas
+    const guiasParaPago = Array.from(guiasSeleccionadasData.values())
+      .map((guia) => ({
+        referencia: guia.tracking_number,
+        valor: guia.valor,
+        tracking: guia.tracking_number,
         empresa: "XCargo",
-        conductor: g.conductor.nombre,
-        ciudad: g.ciudad,
-        departamento: g.departamento,
-        carrier: g.carrier,
-        cliente: g.cliente,
-        estado_actual: g.estado
-      }));    console.log('💳 Iniciando flujo de pago con guías:', guiasParaPago);
+        conductor: guia.conductor.nombre,
+        ciudad: guia.ciudad,
+        departamento: guia.departamento,
+        carrier: guia.carrier,
+        cliente: guia.cliente,
+        estado_actual: guia.estado
+      }));
+
+    console.log('💳 Iniciando flujo de pago con guías:', guiasParaPago);
 
     navigate("/supervisor/registrar-pago", {
       state: {
@@ -169,8 +231,7 @@ export default function GuiasPendientes() {
     setFiltroFecha(filtroTempFecha);
     setPage(0); // Resetear a primera página
   };
-
-  // Función para limpiar filtros
+  // Función para limpiar filtros - ACTUALIZADA con opción de limpiar selecciones
   const limpiarFiltros = () => {
     setFiltroTempConductor("");
     setFiltroTempCliente("");
@@ -183,6 +244,8 @@ export default function GuiasPendientes() {
     setFiltroCiudad("");
     setFiltroFecha("");
     setPage(0);
+    // Opcional: descomentar si quieres limpiar selecciones al limpiar filtros
+    // limpiarSelecciones();
   };
 
   // Función para manejar Enter en los inputs
@@ -200,12 +263,16 @@ export default function GuiasPendientes() {
     );
   }
 
-  return (    <div className="guias-pendientes">
-      <div className="page-header">
+  return (    <div className="guias-pendientes">      <div className="page-header">
         <h1>Guías Pendientes</h1>
         <div className="header-info">
           <span className="total-badge">📦 Total: {total} guías</span>
           <span className="valor-badge">💰 Valor Total: {formatCurrency(totalGlobal)}</span>
+          {guiasSeleccionadas.length > 0 && (
+            <span className="selected-badge">
+              ✅ {guiasSeleccionadas.length} seleccionadas ({formatCurrency(totalSeleccionado)})
+            </span>
+          )}
         </div>
       </div>
 
@@ -282,8 +349,18 @@ export default function GuiasPendientes() {
               onClick={limpiarFiltros}
               disabled={loading}
             >
-              🗑️ Limpiar
+              🗑️ Limpiar Filtros
             </button>
+            {guiasSeleccionadas.length > 0 && (
+              <button 
+                className="btn-warning" 
+                onClick={limpiarSelecciones}
+                disabled={loading}
+                title="Limpiar todas las selecciones"
+              >
+                ❌ Limpiar Selecciones ({guiasSeleccionadas.length})
+              </button>
+            )}
             <button 
               className="btn-secondary" 
               onClick={cargarGuias}
@@ -331,16 +408,16 @@ export default function GuiasPendientes() {
           </div>
         )}
       </div><div className="guias-table">
-        <div className="table-header">
-          <div className="header-cell checkbox-cell">
+        <div className="table-header">          <div className="header-cell checkbox-cell">
             <input
+              ref={selectAllCheckboxRef}
               type="checkbox"
               checked={
-                guiasSeleccionadas.length === guias.length &&
-                guias.length > 0
+                guias.length > 0 && 
+                guias.every(guia => guiasSeleccionadas.includes(guia.tracking_number))
               }
               onChange={toggleTodos}
-              title="Seleccionar/Deseleccionar todas"
+              title="Seleccionar/Deseleccionar todas las guías de esta página"
             />
           </div>
           <div className="header-cell">Tracking</div>

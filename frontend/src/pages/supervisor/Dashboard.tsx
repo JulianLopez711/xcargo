@@ -16,8 +16,10 @@ interface Stats {
   total_guias: number;
   guias_pendientes: number;
   guias_entregadas: number;
+  guias_entregadas_no_pagadas?: number; // ✅ NUEVO
   monto_pendiente: number;
   monto_entregado: number;
+  monto_disponible_pago?: number; // ✅ NUEVO 
   promedio_valor_guia: number;
   eficiencia_general: number;
 }
@@ -29,8 +31,11 @@ interface ConductorDestacado {
   guias_totales: number;
   guias_pendientes: number;
   guias_entregadas: number;
+  guias_disponibles_pago?: number; // ✅ NUEVO
   valor_pendiente: number;
+  valor_disponible_pago?: number; // ✅ NUEVO
   ultima_actividad: string;
+  dias_desde_actividad?: number; // ✅ NUEVO
   ciudades_principales: string;
   estado: string;
   eficiencia: number;
@@ -42,7 +47,7 @@ interface Alerta {
   prioridad: string;
 }
 
-const FECHA_INICIO = '2025-06-10';
+// ✅ CONFIGURACIÓN: El sistema muestra datos desde el 9 de junio de 2025 (configurado en backend)
 
 export default function DashboardSupervisor() {
   const { user } = useAuth();
@@ -78,11 +83,17 @@ export default function DashboardSupervisor() {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "supervisor"
         }
-      });
-
-      if (response.ok) {
+      });      if (response.ok) {
         const data = await response.json();
 
+        // ✅ LOG para verificar que los datos son desde 2025-06-09
+        console.log('📊 Dashboard cargado:', {
+          fecha_configurada: '2025-06-09',
+          periodo_analisis: data.periodo_analisis,
+          version: data.version,
+          total_guias: data.stats?.total_guias || 0,
+          fecha_actualizacion: data.fecha_actualizacion
+        });
         
         setCarriers(data.carriers || []);
         setStats(data.stats || {});
@@ -111,11 +122,12 @@ export default function DashboardSupervisor() {
       minimumFractionDigits: 0
     }).format(amount);
   };
-
   const getEstadoColor = (estado: string) => {
     switch (estado) {
+      case "con_disponibles_pago": return "success"; // Verde para guías listas para pago
       case "activo_hoy": return "success";
       case "con_pendientes": return "warning";
+      case "activo_reciente": return "info"; 
       case "activo": return "info";
       case "inactivo": return "secondary";
       default: return "secondary";
@@ -124,10 +136,12 @@ export default function DashboardSupervisor() {
 
   const getEstadoTexto = (estado: string) => {
     switch (estado) {
-      case "activo_hoy": return "Activo hoy";
-      case "con_pendientes": return "Con pendientes";
-      case "activo": return "Activo";
-      case "inactivo": return "Inactivo";
+      case "con_disponibles_pago": return "🎯 Listo para pago";
+      case "activo_hoy": return "✅ Activo hoy";
+      case "con_pendientes": return "⏳ Con pendientes";
+      case "activo_reciente": return "📈 Activo reciente";
+      case "activo": return "🔄 Activo";
+      case "inactivo": return "😴 Inactivo";
       default: return estado;
     }
   };
@@ -170,12 +184,29 @@ if (loading) {
               🏢 {user?.empresa_carrier || "Sin empresa asignada"}
             </span>
           )}
-        </div>
-        <div className="periodo-info">
-          <span className="periodo-badge">
-            📅 Datos desde: {new Date(FECHA_INICIO).toLocaleDateString()}
+        </div>        <div className="periodo-info">
+          
+          <span className="actualizacion-badge">
+            🔄 Última actualización: {new Date().toLocaleTimeString()}
           </span>
         </div>
+      </div>
+
+      {/* Información del período de datos */}
+      <div className="info-banner" style={{
+        backgroundColor: '#e1f5fe', 
+        border: '1px solid #01579b', 
+        borderRadius: '8px', 
+        padding: '12px', 
+        marginBottom: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px'
+      }}>
+        <span style={{ fontSize: '20px' }}>ℹ️</span>
+        <span style={{ color: '#01579b', fontWeight: '500' }}>
+          Este dashboard muestra datos desde el <strong>9 de junio de 2025</strong> en adelante
+        </span>
       </div>
 
       {error && (
@@ -218,15 +249,13 @@ if (loading) {
               {stats.guias_pendientes} pendientes
             </div>
           </div>
-        </div>
-
-        <div className="stat-card">
+        </div>        <div className="stat-card">
           <div className="stat-icon">💰</div>
           <div className="stat-content">
-            <h3>Monto Pendiente</h3>
-            <div className="stat-number">{formatCurrency(stats.monto_pendiente)}</div>
+            <h3>Monto Disponible</h3>
+            <div className="stat-number">{formatCurrency(stats.monto_disponible_pago || 0)}</div>
             <div className="stat-detail">
-              {formatCurrency(stats.promedio_valor_guia)} promedio
+              {stats.guias_entregadas_no_pagadas || 0} guías listas para pago
             </div>
           </div>
         </div>
@@ -255,21 +284,34 @@ if (loading) {
                     <div className="conductor-name">{conductor.nombre}</div>
                     <div className="conductor-detail">
                       {conductor.guias_totales} guías • {conductor.ciudades_principales}
-                    </div>
-                    <div className="conductor-stats">
+                    </div>                    <div className="conductor-stats">
                       <span>📈 {conductor.eficiencia}% eficiencia</span>
+                      {conductor.valor_disponible_pago && conductor.valor_disponible_pago > 0 && (
+                        <span className="disponible-pago">
+                          💳 {formatCurrency(conductor.valor_disponible_pago)} listo para pago
+                        </span>
+                      )}
                       {conductor.valor_pendiente > 0 && (
-                        <span>💰 {formatCurrency(conductor.valor_pendiente)} pendiente</span>
+                        <span>⏳ {formatCurrency(conductor.valor_pendiente)} en proceso</span>
+                      )}
+                      {conductor.dias_desde_actividad !== undefined && conductor.dias_desde_actividad <= 7 && (
+                        <span className="actividad-reciente">
+                          🕒 Hace {conductor.dias_desde_actividad} día{conductor.dias_desde_actividad !== 1 ? 's' : ''}
+                        </span>
                       )}
                     </div>
                   </div>
                   <div className="conductor-status">
                     <span className={`status-badge ${getEstadoColor(conductor.estado)}`}>
                       {getEstadoTexto(conductor.estado)}
-                    </span>
-                    {conductor.guias_pendientes > 0 && (
+                    </span>                    {conductor.guias_pendientes > 0 && (
                       <span className="pending-count">
                         {conductor.guias_pendientes} pendientes
+                      </span>
+                    )}
+                    {conductor.guias_disponibles_pago && conductor.guias_disponibles_pago > 0 && (
+                      <span className="ready-count">
+                        {conductor.guias_disponibles_pago} listas
                       </span>
                     )}
                   </div>
@@ -285,9 +327,15 @@ if (loading) {
 
         <div className="quick-actions">
           <h2>Acciones Rápidas</h2>
-          <div className="actions-grid">
-            <button 
+          <div className="actions-grid">            <button 
               className="action-btn primary"
+              onClick={() => window.location.href = '/supervisor/guias-pendientes'}
+            >
+              <span className="action-icon">📦</span>
+              <span>Ver Guías Pendientes</span>
+            </button>
+            <button 
+              className="action-btn secondary"
               onClick={() => window.location.href = '/supervisor/conductores'}
             >
               <span className="action-icon">👥</span>
@@ -323,14 +371,17 @@ if (loading) {
           </div>
           
           <div className="info-card">
-            <h4>📈 Métricas Clave</h4>
-            <div className="metrics-list">
+            <h4>📈 Métricas Clave</h4>            <div className="metrics-list">
+              <div className="metric-item">
+                <span>Guías listas para pago:</span>
+                <strong>{stats.guias_entregadas_no_pagadas || 0}</strong>
+              </div>
               <div className="metric-item">
                 <span>Valor promedio por guía:</span>
                 <strong>{formatCurrency(stats.promedio_valor_guia)}</strong>
               </div>
               <div className="metric-item">
-                <span>Total entregado:</span>
+                <span>Total ya pagado:</span>
                 <strong>{formatCurrency(stats.monto_entregado)}</strong>
               </div>
               <div className="metric-item">

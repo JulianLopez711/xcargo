@@ -214,6 +214,68 @@
 
 .modal-body {
   padding: 20px;
-  
+}
+
+/* Banner informativo */
+.info-banner {
+  background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+  border: 1px solid #2196f3;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  padding: 16px 20px;
+  gap: 15px;
+}
+
+.banner-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.banner-text {
+  flex: 1;
+}
+
+.banner-text strong {
+  color: #1976d2;
+  font-size: 16px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.banner-text p {
+  color: #424242;
+  font-size: 14px;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.empresa-info {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.empresa-badge, .fecha-badge {
+  background: #f8f9fa;
+  padding: 8px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #dee2e6;
+}
+
+.empresa-badge {
+  color: #495057;
+}
+
+.fecha-badge {
+  color: #6c757d;
 }
 

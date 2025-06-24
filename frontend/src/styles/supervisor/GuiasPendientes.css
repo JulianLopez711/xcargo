@@ -462,6 +462,47 @@
   padding: 0 16px;
 }
 
+/* Estilos adicionales */
+.selected-badge {
+  background: #fff3e0;
+  color: #f57c00;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: 500;
+  font-size: 14px;
+  border: 1px solid rgba(245, 124, 0, 0.2);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.btn-warning {
+  background-color: #ff9800;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.btn-warning:hover {
+  background-color: #f57c00;
+  transform: translateY(-1px);
+}
+
+.btn-warning:disabled {
+  background-color: #ffcc80;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* Responsive Design */
 @media (max-width: 1200px) {
   .table-header,
