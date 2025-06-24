@@ -1,0 +1,90 @@
+name: Deploy Backend to VPS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - 'requirements.txt'
+
+jobs:
+  deploy-backend:
+    name: Desplegar Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: "${{ secrets.VPS_PRIVATE_KEY }}"
+
+      - name: Deploy Backend to VPS
+        env:
+          SSH_USER: devxcargo
+          SSH_HOST: 72.167.223.67
+          DEPLOY_PATH: /home/devxcargo/xcargo
+          SERVICE_NAME: xcargo-backend
+        run: |
+          # Configurar SSH
+          ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts 2>/dev/null
+
+          # Función para ejecutar comandos SSH con reintentos
+          ejecutar_ssh() {
+            local comando="$1"
+            local descripcion="$2"
+            local intentos=0
+            local max_intentos=3
+            
+            while [ $intentos -lt $max_intentos ]; do
+              echo "Ejecutando: $descripcion (intento $((intentos + 1))/$max_intentos)"
+              
+              if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 $SSH_USER@$SSH_HOST "$comando"; then
+                echo "✅ $descripcion completado exitosamente"
+                return 0
+              fi
+              
+              intentos=$((intentos + 1))
+              if [ $intentos -lt $max_intentos ]; then
+                echo "⚠️ Falló $descripcion, reintentando en 5 segundos..."
+                sleep 5
+              fi
+            done
+            
+            echo "❌ Error: $descripcion falló después de $max_intentos intentos"
+            return 1
+          }
+
+          # Crear backup del backend actual
+          echo "Creando backup del backend..."
+          ejecutar_ssh "cd $DEPLOY_PATH && if [ -d backend ]; then cp -r backend backend_backup_\$(date +%Y%m%d_%H%M%S); echo 'Backup creado'; fi" "Crear backup backend"
+
+          # Transferir archivos del backend
+          echo "Transfiriendo archivos del backend..."
+          scp -r -o StrictHostKeyChecking=no -o ConnectTimeout=30 backend/ $SSH_USER@$SSH_HOST:$DEPLOY_PATH/backend_temp/
+          scp -o StrictHostKeyChecking=no requirements.txt $SSH_USER@$SSH_HOST:$DEPLOY_PATH/
+
+          # Detener el servicio backend
+          echo "Deteniendo servicio backend..."
+          ejecutar_ssh "sudo systemctl stop $SERVICE_NAME || echo 'Servicio no estaba corriendo'" "Detener servicio"
+
+          # Reemplazar archivos del backend
+          echo "Actualizando archivos del backend..."
+          ejecutar_ssh "cd $DEPLOY_PATH && rm -rf backend && mv backend_temp backend" "Actualizar archivos"
+
+          # Actualizar dependencias Python
+          echo "Actualizando dependencias Python..."
+          ejecutar_ssh "cd $DEPLOY_PATH && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt" "Actualizar dependencias"
+
+          # Reiniciar el servicio backend
+          echo "Reiniciando servicio backend..."
+          ejecutar_ssh "sudo systemctl start $SERVICE_NAME && sudo systemctl enable $SERVICE_NAME" "Reiniciar servicio"
+
+          # Verificar que el servicio esté corriendo
+          echo "Verificando estado del servicio..."
+          ejecutar_ssh "sudo systemctl status $SERVICE_NAME --no-pager" "Verificar servicio"
+
+          echo "🚀 Backend desplegado exitosamente"
