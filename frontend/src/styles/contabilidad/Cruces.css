@@ -1,11 +1,18 @@
 /* Cruces.css - Estilos para Conciliación Bancaria */
 
+/* Resetear cualquier limitación de ancho */
+* {
+  box-sizing: border-box;
+}
+
 .cruces-container {
   padding: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   background: #f8fafc;
   min-height: 100vh;
+  box-sizing: border-box;
 }
 
 .titulo {
@@ -29,34 +36,49 @@
   margin-bottom: 2rem;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
   border: 1px solid #e5e7eb;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  display: block;
 }
 
 .estadisticas-panel h3 {
   color: #374151;
   font-size: 1.25rem;
   font-weight: 600;
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
 }
 
 .estadisticas-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 1.5rem;
-  padding: 1rem;
+  padding: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   box-sizing: border-box;
 }
 
 .stat-card {
-  background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+  background: white;
   color: #1e293b;
-  padding: 1.5rem;
+  padding: 2rem 1.5rem;
   border-radius: 12px;
   text-align: center;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   border: 1px solid #e2e8f0;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 140px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .stat-card::before {
@@ -69,58 +91,142 @@
   background: linear-gradient(90deg, #3b82f6, #8b5cf6);
 }
 
+.stat-card.primary::before {
+  background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+}
+
+.stat-card.success::before {
+  background: linear-gradient(90deg, #10b981, #059669);
+}
+
+.stat-card.warning::before {
+  background: linear-gradient(90deg, #f59e0b, #d97706);
+}
+
+.stat-card.info::before {
+  background: linear-gradient(90deg, #6366f1, #4f46e5);
+}
+
+.stat-card.danger::before {
+  background: linear-gradient(90deg, #ef4444, #dc2626);
+}
+
+.stat-card.secondary::before {
+  background: linear-gradient(90deg, #6b7280, #4b5563);
+}
+
 .stat-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.15);
 }
 
-.stat-card h4 {
-  font-size: 0.875rem;
+.stat-icon {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+  opacity: 0.9;
+}
+
+.stat-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stat-label {
+  font-size: 0.75rem;
   font-weight: 600;
-  margin-bottom: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #64748b;
+  color: #6b7280;
+  margin-bottom: 0.25rem;
 }
 
-.stat-card p {
-  font-size: 1.5rem;
+.stat-number {
+  font-size: 2rem;
   font-weight: 700;
-  margin: 0.5rem 0;
   color: #1e293b;
+  line-height: 1;
 }
 
-.stat-card small {
+.stat-sublabel {
   font-size: 0.875rem;
-  color: #64748b;
+  color: #6b7280;
   font-weight: 500;
+  margin-top: -0.25rem;
+}
+
+.stat-value {
+  font-size: 0.875rem;
+  color: #374151;
+  font-weight: 600;
+  margin-top: 0.25rem;
 }
 
 /* Responsive ajustes */
+@media (max-width: 1200px) {
+  .estadisticas-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 992px) {
+  .estadisticas-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+}
+
 @media (max-width: 768px) {
   .estadisticas-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
+  }
+  
+  .stat-card {
+    padding: 1.5rem 1rem;
+    min-height: 120px;
+  }
+  
+  .stat-number {
+    font-size: 1.75rem;
+  }
+  
+  .stat-icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.75rem;
   }
 }
 
 @media (max-width: 480px) {
   .estadisticas-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 0.75rem;
   }
   
   .stat-card {
-    padding: 1rem;
+    padding: 1rem 0.75rem;
+    min-height: 100px;
   }
   
-  .stat-card p {
-    font-size: 1rem;
-
+  .stat-label {
+    font-size: 0.7rem;
+  }
+  
+  .stat-number {
+    font-size: 1.5rem;
+  }
+  
+  .stat-icon {
+    font-size: 1.25rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .stat-value {
+    font-size: 0.75rem;
   }
 }
-
-
 
 /* ===================
    CARGA DE ARCHIVO

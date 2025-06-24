@@ -512,6 +512,52 @@ const Cruces: React.FC = () => {
       white-space: nowrap;
       text-shadow: 0 0 2px rgba(255,255,255,0.8);
     }
+
+    /* Forzar grid de 3 columnas */
+    .estadisticas-grid {
+      display: grid !important;
+      grid-template-columns: repeat(3, 1fr) !important;
+      gap: 1.5rem !important;
+      padding: 0 !important;
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      box-sizing: border-box !important;
+    }
+
+    .stat-card {
+      background: white !important;
+      color: #1e293b !important;
+      padding: 2rem 1.5rem !important;
+      border-radius: 12px !important;
+      text-align: center !important;
+      transition: all 0.3s ease !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+      border: 1px solid #e2e8f0 !important;
+      position: relative !important;
+      overflow: hidden !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      min-height: 140px !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
+    }
+
+    @media (max-width: 768px) {
+      .estadisticas-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 1rem !important;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .estadisticas-grid {
+        grid-template-columns: 1fr !important;
+        gap: 0.75rem !important;
+      }
+    }
   `;
 
   const styleSheet = document.createElement("style");
@@ -526,29 +572,70 @@ const Cruces: React.FC = () => {
         <div className="estadisticas-panel">
           <h3>Resumen General</h3>
           <div className="estadisticas-grid">
-            <div className="stat-card">
-              <h4>Total Movimientos</h4>
-              <p>
-                {estadisticasGenerales?.resumen_general?.total_movimientos ?? 0}
-              </p>
-            </div>
-            <div className="stat-card">
-              <h4>Valor Total</h4>
-              <p>
-                $
-                {estadisticasGenerales?.resumen_general?.valor_total?.toLocaleString() ??
-                  0}
-              </p>
-            </div>
-            {estadisticasGenerales?.resumen_por_estado?.map((estado) => (
-              <div key={estado.estado_conciliacion} className="stat-card">
-                <h4>
-                  {estado.estado_conciliacion.replace("_", " ").toUpperCase()}
-                </h4>
-                <p>{estado.cantidad} mov.</p>
-                <small>${estado.valor_total.toLocaleString()}</small>
+            <div className="stat-card primary">
+              <div className="stat-icon">📊</div>
+              <div className="stat-content">
+                <span className="stat-label">TOTAL MOVIMIENTOS</span>
+                <span className="stat-number">
+                  {estadisticasGenerales?.resumen_general?.total_movimientos?.toLocaleString() ?? 0}
+                </span>
               </div>
-            ))}
+            </div>
+            
+            <div className="stat-card success">
+              <div className="stat-icon">💰</div>
+              <div className="stat-content">
+                <span className="stat-label">VALOR TOTAL</span>
+                <span className="stat-number">
+                  $
+                  {estadisticasGenerales?.resumen_general?.valor_total?.toLocaleString("es-CO") ?? 0}
+                </span>
+              </div>
+            </div>
+
+            {estadisticasGenerales?.resumen_por_estado?.map((estado) => {
+              const getEstadoIcon = (estado: string) => {
+                switch (estado) {
+                  case 'pendiente': return '⏳';
+                  case 'conciliado_exacto': return '✅';
+                  case 'conciliado_aproximado': return '🔸';
+                  case 'sin_match': return '❌';
+                  default: return '📄';
+                }
+              };
+
+              const getEstadoClass = (estado: string) => {
+                switch (estado) {
+                  case 'pendiente': return 'warning';
+                  case 'conciliado_exacto': return 'success';
+                  case 'conciliado_aproximado': return 'info';
+                  case 'sin_match': return 'danger';
+                  default: return 'secondary';
+                }
+              };
+
+              const getEstadoLabel = (estado: string) => {
+                switch (estado) {
+                  case 'pendiente': return 'PENDIENTE';
+                  case 'conciliado_exacto': return 'CONCILIADO EXACTO';
+                  case 'conciliado_aproximado': return 'CONCILIADO APROXIMADO';
+                  case 'sin_match': return 'SIN MATCH';
+                  default: return estado.replace('_', ' ').toUpperCase();
+                }
+              };
+
+              return (
+                <div key={estado.estado_conciliacion} className={`stat-card ${getEstadoClass(estado.estado_conciliacion)}`}>
+                  <div className="stat-icon">{getEstadoIcon(estado.estado_conciliacion)}</div>
+                  <div className="stat-content">
+                    <span className="stat-label">{getEstadoLabel(estado.estado_conciliacion)}</span>
+                    <span className="stat-number">{estado.cantidad}</span>
+                    <span className="stat-sublabel">mov.</span>
+                    <span className="stat-value">${estado.valor_total.toLocaleString("es-CO")}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
