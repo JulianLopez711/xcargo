@@ -39,75 +39,88 @@
 }
 
 .estadisticas-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
   padding: 1rem;
   box-sizing: border-box;
 }
 
 .stat-card {
-  flex: 1 1 220px;
-  max-width: 300px;
   background: linear-gradient(135deg, #f8fafc, #e2e8f0);
   color: #1e293b;
-  padding: 1rem;
-  border-radius: 10px;
+  padding: 1.5rem;
+  border-radius: 12px;
   text-align: center;
-  transition: transform 0.2s ease;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-  font-weight: bold;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+  position: relative;
+  overflow: hidden;
 }
 
-/* Hover opcional */
-.stat-card:hover {
-  transform: scale(1.03);
-}
-
-/* Texto dentro del stat-card */
-.stat-card h4 {
-  font-size: 0.9rem;
-  margin-bottom: 0.5rem;
-}
-
-.stat-card p,
-.stat-card small {
-  font-size: 1.2rem;
-  margin: 0;
-}
-
-/* Responsive ajustes */
-@media (max-width: 480px) {
-  .stat-card {
-    flex: 1 1 100%;
-  }
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
 }
 
 .stat-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
 }
 
 .stat-card h4 {
   font-size: 0.875rem;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  color: #64748b;
 }
 
-
-
 .stat-card p {
-  font-size: 1.75rem;
+  font-size: 1.5rem;
   font-weight: 700;
-  margin: 0;
+  margin: 0.5rem 0;
+  color: #1e293b;
 }
 
 .stat-card small {
-  font-size: 0.75rem;
-  opacity: 0.8;
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 500;
 }
+
+/* Responsive ajustes */
+@media (max-width: 768px) {
+  .estadisticas-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .estadisticas-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+  
+  .stat-card {
+    padding: 1rem;
+  }
+  
+  .stat-card p {
+    font-size: 1rem;
+
+  }
+}
+
+
 
 /* ===================
    CARGA DE ARCHIVO
@@ -298,16 +311,38 @@
 
 .resumen-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1rem;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .resumen-item {
-  padding: 1rem;
-  border-radius: 8px;
+  padding: 1.5rem;
+  border-radius: 12px;
   text-align: center;
   color: white;
   font-weight: 600;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.resumen-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0));
+  pointer-events: none;
+}
+
+.resumen-item:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
 }
 
 .resumen-item.success {
@@ -332,14 +367,42 @@
 
 .resumen-item .numero {
   display: block;
-  font-size: 1.5rem;
+  font-size: 2.5rem;
   font-weight: 700;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.5rem;
+  position: relative;
+  z-index: 1;
 }
 
 .resumen-item .etiqueta {
   font-size: 0.875rem;
-  opacity: 0.9;
+  opacity: 0.95;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Responsive para resumen */
+@media (max-width: 768px) {
+  .resumen-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .resumen-item .numero {
+    font-size: 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .resumen-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  
+  .resumen-item {
+    padding: 1rem;
+  }
 }
 
 /* Filtros */
@@ -703,4 +766,152 @@
   .acciones {
     flex-direction: column;
   }
+}
+
+/* Estilos para sugerencias de conciliación manual */
+.sugerencias-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.sugerencia-item {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  font-size: 0.875rem;
+  position: relative;
+}
+
+.sugerencia-item div {
+  margin-bottom: 0.5rem;
+}
+
+.btn-seleccionar {
+  background: #22c55e;
+  color: white;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  margin-top: 0.5rem;
+}
+
+.btn-seleccionar:hover {
+  background: #16a34a;
+}
+
+/* Mejoras adicionales para la tabla */
+.tabla-conciliacion tbody tr:nth-child(even) {
+  background-color: #f9fafb;
+}
+
+.tabla-conciliacion tbody tr:hover {
+  background-color: #f1f5f9 !important;
+  transform: translateX(2px);
+  transition: all 0.2s ease;
+}
+
+/* Responsive para la tabla */
+@media (max-width: 1024px) {
+  .tabla-conciliacion {
+    overflow-x: auto;
+    border-radius: 8px;
+  }
+  
+  .tabla-conciliacion table {
+    min-width: 800px;
+  }
+  
+  .observaciones {
+    max-width: 150px;
+  }
+}
+
+@media (max-width: 768px) {
+  .acciones {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .btn-detalle, .btn-conciliar-manual {
+    font-size: 0.7rem;
+    padding: 4px 8px;
+  }
+}
+
+/* ===================
+   BARRA DE PROGRESO
+   =================== */
+
+.loading-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.loading-progress {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  min-width: 400px;
+  max-width: 500px;
+}
+
+.progress-track {
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+  position: relative;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.progress-text {
+  color: #374151;
+  font-weight: 600;
+  text-align: center;
+  font-size: 1rem;
+  margin-top: 1rem;
+}
+
+.progress-text span {
+  color: #6b7280;
+  font-weight: 500;
 }
