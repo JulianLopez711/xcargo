@@ -1,4 +1,4 @@
-name: Deploy Frontend to VPS
+name: Deploy Frontend and Backend to VPS
 
 on:
   push:
@@ -6,25 +6,52 @@ on:
       - main
     paths:
       - 'frontend/**'
+      - 'backend/**'
+      - 'requirements.txt'
       - '.github/workflows/deploy.yml'
 
 jobs:
   deploy:
-    name: Desplegar Frontend
+    name: Desplegar Frontend y Backend
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detectar cambios
+        id: changes
+        run: |
+          # Detectar si hay cambios en frontend
+          if git diff --name-only HEAD^ HEAD | grep -E '^frontend/'; then
+            echo "frontend_changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Cambios detectados en frontend"
+          else
+            echo "frontend_changed=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Sin cambios en frontend"
+          fi
+          
+          # Detectar si hay cambios en backend
+          if git diff --name-only HEAD^ HEAD | grep -E '^(backend/|requirements\.txt)'; then
+            echo "backend_changed=true" >> $GITHUB_OUTPUT
+            echo "✅ Cambios detectados en backend"
+          else
+            echo "backend_changed=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Sin cambios en backend"
+          fi
 
       - name: Setup Node.js
+        if: steps.changes.outputs.frontend_changed == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'npm'
           cache-dependency-path: frontend/package.json
 
-      - name: Install dependencies and build
+      - name: Install dependencies and build frontend
+        if: steps.changes.outputs.frontend_changed == 'true'
         working-directory: frontend
         run: |
           # Limpiar caché de npm si existe
@@ -58,6 +85,8 @@ jobs:
           SSH_USER: devxcargo
           SSH_HOST: 72.167.223.67
           DEPLOY_PATH: /home/devxcargo/xcargo
+          FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend_changed }}
+          BACKEND_CHANGED: ${{ steps.changes.outputs.backend_changed }}
         run: |
           # Instalar netcat si no está disponible
           if ! command -v nc &> /dev/null; then
@@ -118,64 +147,125 @@ jobs:
           # Verificar conectividad inicial
           verificar_ssh || exit 1
 
-          # Verificar que el directorio dist existe
-          if [ ! -d "frontend/dist" ]; then
-            echo "❌ Error: El directorio frontend/dist no existe"
-            exit 1
+          # =============================
+          # DESPLIEGUE DEL BACKEND
+          # =============================
+          if [ "$BACKEND_CHANGED" = "true" ]; then
+            echo "🔄 Desplegando cambios del backend..."
+            
+            # Transferir archivos del backend
+            echo "📁 Transfiriendo archivos del backend..."
+            scp -r -o StrictHostKeyChecking=no -o ConnectTimeout=30 backend/* $SSH_USER@$SSH_HOST:$DEPLOY_PATH/backend/ || {
+              echo "❌ Error transfiriendo archivos del backend"
+              exit 1
+            }
+            
+            # Transferir requirements.txt si existe
+            if [ -f "requirements.txt" ]; then
+              echo "📄 Transfiriendo requirements.txt..."
+              scp -o StrictHostKeyChecking=no -o ConnectTimeout=30 requirements.txt $SSH_USER@$SSH_HOST:$DEPLOY_PATH/
+            fi
+            
+            # Actualizar dependencias de Python
+            echo "🐍 Actualizando dependencias de Python..."
+            ejecutar_ssh "cd $DEPLOY_PATH && python3 -m pip install -r requirements.txt" "Actualizar dependencias Python" || {
+              echo "⚠️ Error actualizando dependencias Python, continuando..."
+            }
+            
+            # Matar procesos uvicorn existentes
+            echo "🔄 Reiniciando servidor uvicorn..."
+            ejecutar_ssh "pkill -f uvicorn || echo 'No hay procesos uvicorn ejecutándose'" "Detener uvicorn"
+            
+            # Esperar un momento para que se liberen los puertos
+            sleep 3
+            
+            # Iniciar uvicorn en background
+            ejecutar_ssh "cd $DEPLOY_PATH/backend && nohup python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload > uvicorn.log 2>&1 &" "Iniciar uvicorn" || {
+              echo "❌ Error iniciando uvicorn"
+              exit 1
+            }
+            
+            # Verificar que uvicorn está ejecutándose
+            sleep 5
+            ejecutar_ssh "ps aux | grep uvicorn | grep -v grep" "Verificar uvicorn" || {
+              echo "⚠️ Advertencia: uvicorn puede no estar ejecutándose correctamente"
+              ejecutar_ssh "cd $DEPLOY_PATH/backend && tail -20 uvicorn.log" "Ver logs de uvicorn"
+            }
+            
+            echo "✅ Backend desplegado exitosamente"
+          else
+            echo "ℹ️ Sin cambios en backend, omitiendo despliegue"
           fi
 
-          # Crear estructura de directorios en el servidor
-          ejecutar_ssh "mkdir -p $DEPLOY_PATH/frontend/temp && echo 'Directorios creados correctamente'" "Creación de directorios" || exit 1
-
-          # Transferir archivos con reintentos
-          echo "Transfiriendo archivos..."
-          transfer_intentos=0
-          max_transfer_intentos=3
-          
-          while [ $transfer_intentos -lt $max_transfer_intentos ]; do
-            transfer_intentos=$((transfer_intentos + 1))
-            echo "Intento de transferencia $transfer_intentos/$max_transfer_intentos"
+          # =============================
+          # DESPLIEGUE DEL FRONTEND
+          # =============================
+          if [ "$FRONTEND_CHANGED" = "true" ]; then
+            echo "🔄 Desplegando cambios del frontend..."
             
-            if scp -r -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 frontend/dist/* $SSH_USER@$SSH_HOST:$DEPLOY_PATH/frontend/temp/; then
-              echo "✅ Transferencia completada exitosamente"
-              break
-            fi
-            
-            if [ $transfer_intentos -lt $max_transfer_intentos ]; then
-              echo "⚠️ Falló la transferencia, reintentando en 5 segundos..."
-              sleep 5
-              verificar_ssh || exit 1
-            else
-              echo "❌ Error: Falló la transferencia después de $max_transfer_intentos intentos"
+            # Verificar que el directorio dist existe
+            if [ ! -d "frontend/dist" ]; then
+              echo "❌ Error: El directorio frontend/dist no existe"
               exit 1
             fi
-          done
 
-          # Realizar el despliegue atómico con script mejorado
-          echo "Realizando despliegue atómico..."
-          
-          # Script de despliegue dividido en pasos más pequeños para evitar timeouts
-          echo "Paso 1: Preparando backup..."
-          ejecutar_ssh "cd $DEPLOY_PATH && if [ -d frontend/dist ]; then mv frontend/dist frontend/dist_backup_\$(date +%Y%m%d_%H%M%S); echo 'Backup creado'; else echo 'No hay directorio previo para backup'; fi" "Crear backup" || exit 1
-          
-          echo "Paso 2: Moviendo archivos nuevos..."
-          ejecutar_ssh "cd $DEPLOY_PATH && mv frontend/temp frontend/dist && echo 'Archivos movidos exitosamente'" "Mover archivos" || {
-            echo "Error moviendo archivos, intentando restaurar..."
-            ejecutar_ssh "cd $DEPLOY_PATH && LATEST_BACKUP=\$(ls -dt frontend/dist_backup_* 2>/dev/null | head -n1) && if [ -n \"\$LATEST_BACKUP\" ]; then rm -rf frontend/dist 2>/dev/null || true && mv \"\$LATEST_BACKUP\" frontend/dist && echo 'Backup restaurado'; fi" "Restaurar backup"
-            exit 1
-          }
-          
-          echo "Paso 3: Verificando integridad..."
-          ejecutar_ssh "cd $DEPLOY_PATH && if [ ! -d frontend/dist ] || [ -z \"\$(ls -A frontend/dist 2>/dev/null)\" ]; then echo 'Error: directorio vacío'; exit 1; else echo 'Verificación exitosa: \$(ls frontend/dist | wc -l) archivos'; fi" "Verificar archivos" || exit 1
-          
-          echo "Paso 4: Limpiando backups antiguos..."
-          ejecutar_ssh "cd $DEPLOY_PATH && ls -dt frontend/dist_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true && echo 'Limpieza completada'" "Limpiar backups" || echo "⚠️ Error en limpieza (no crítico)"
-          
-          echo "Paso 5: Recargando nginx..."
-          ejecutar_ssh "sudo systemctl reload nginx && echo 'Nginx recargado exitosamente'" "Recargar nginx" || {
-            echo "⚠️ Error recargando nginx, pero archivos desplegados correctamente"
-            echo "Puedes recargar nginx manualmente con: sudo systemctl reload nginx"
-          }
+            # Crear estructura de directorios en el servidor
+            ejecutar_ssh "mkdir -p $DEPLOY_PATH/frontend/temp && echo 'Directorios creados correctamente'" "Creación de directorios" || exit 1
 
-          echo "🚀 Frontend desplegado exitosamente en $SSH_HOST"
+            # Transferir archivos con reintentos
+            echo "📁 Transfiriendo archivos del frontend..."
+            transfer_intentos=0
+            max_transfer_intentos=3
+            
+            while [ $transfer_intentos -lt $max_transfer_intentos ]; do
+              transfer_intentos=$((transfer_intentos + 1))
+              echo "Intento de transferencia $transfer_intentos/$max_transfer_intentos"
+              
+              if scp -r -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 frontend/dist/* $SSH_USER@$SSH_HOST:$DEPLOY_PATH/frontend/temp/; then
+                echo "✅ Transferencia completada exitosamente"
+                break
+              fi
+              
+              if [ $transfer_intentos -lt $max_transfer_intentos ]; then
+                echo "⚠️ Falló la transferencia, reintentando en 5 segundos..."
+                sleep 5
+                verificar_ssh || exit 1
+              else
+                echo "❌ Error: Falló la transferencia después de $max_transfer_intentos intentos"
+                exit 1
+              fi
+            done
+
+            # Realizar el despliegue atómico con script mejorado
+            echo "🔄 Realizando despliegue atómico del frontend..."
+            
+            # Script de despliegue dividido en pasos más pequeños para evitar timeouts
+            echo "Paso 1: Preparando backup..."
+            ejecutar_ssh "cd $DEPLOY_PATH && if [ -d frontend/dist ]; then mv frontend/dist frontend/dist_backup_\$(date +%Y%m%d_%H%M%S); echo 'Backup creado'; else echo 'No hay directorio previo para backup'; fi" "Crear backup" || exit 1
+            
+            echo "Paso 2: Moviendo archivos nuevos..."
+            ejecutar_ssh "cd $DEPLOY_PATH && mv frontend/temp frontend/dist && echo 'Archivos movidos exitosamente'" "Mover archivos" || {
+              echo "Error moviendo archivos, intentando restaurar..."
+              ejecutar_ssh "cd $DEPLOY_PATH && LATEST_BACKUP=\$(ls -dt frontend/dist_backup_* 2>/dev/null | head -n1) && if [ -n \"\$LATEST_BACKUP\" ]; then rm -rf frontend/dist 2>/dev/null || true && mv \"\$LATEST_BACKUP\" frontend/dist && echo 'Backup restaurado'; fi" "Restaurar backup"
+              exit 1
+            }
+            
+            echo "Paso 3: Verificando integridad..."
+            ejecutar_ssh "cd $DEPLOY_PATH && if [ ! -d frontend/dist ] || [ -z \"\$(ls -A frontend/dist 2>/dev/null)\" ]; then echo 'Error: directorio vacío'; exit 1; else echo 'Verificación exitosa: \$(ls frontend/dist | wc -l) archivos'; fi" "Verificar archivos" || exit 1
+            
+            echo "Paso 4: Limpiando backups antiguos..."
+            ejecutar_ssh "cd $DEPLOY_PATH && ls -dt frontend/dist_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true && echo 'Limpieza completada'" "Limpiar backups" || echo "⚠️ Error en limpieza (no crítico)"
+            
+            echo "Paso 5: Recargando nginx..."
+            ejecutar_ssh "sudo systemctl reload nginx && echo 'Nginx recargado exitosamente'" "Recargar nginx" || {
+              echo "⚠️ Error recargando nginx, pero archivos desplegados correctamente"
+              echo "Puedes recargar nginx manualmente con: sudo systemctl reload nginx"
+            }
+            
+            echo "✅ Frontend desplegado exitosamente"
+          else
+            echo "ℹ️ Sin cambios en frontend, omitiendo despliegue"
+          fi
+
+          echo "🚀 Despliegue completado exitosamente en $SSH_HOST"
           echo "✅ Proceso completado sin errores"

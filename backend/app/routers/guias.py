@@ -219,9 +219,7 @@ def obtener_guias_pendientes(request: Request) -> Dict:
                 'guias_liquidacion' as origen
             FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
             LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
-                ON u.Employee_id = gl.employee_id
-            WHERE gl.estado_liquidacion IN ('pendiente', 'disponible')  -- ✅ Solo pendientes
-                AND gl.estado_liquidacion NOT IN ('pagado', 'liquidado', 'procesado')  -- ✅ Excluir pagadas
+                ON u.Employee_id = gl.employee_id            WHERE gl.estado_liquidacion IN ('pendiente', 'disponible')  -- ✅ Solo pendientes (ya excluye pagadas)
                 AND gl.employee_id = @employee_id
                 AND gl.valor_guia > 0
                 AND DATE(gl.fecha_entrega) >= @fecha_inicio
@@ -250,14 +248,16 @@ def obtener_guias_pendientes(request: Request) -> Dict:
                 'cod_pendientes' as origen
             FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
             LEFT JOIN `datos-clientes-441216.Conciliaciones.usuarios_BIG` u 
-                ON u.Employee_id = cod.Employee_id
-            LEFT JOIN `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
+                ON u.Employee_id = cod.Employee_id            LEFT JOIN `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
                 ON gl.tracking_number = cod.tracking_number 
                 AND gl.employee_id = cod.Employee_id  -- ✅ Validar también employee_id
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+                ON pc.tracking = cod.tracking_number  -- ✅ Validar también contra pagos registrados
             WHERE cod.Status_Big = '360 - Entregado al cliente'  -- ✅ Solo estado 360
                 AND cod.Employee_id = @employee_id
                 AND cod.Valor > 0
                 AND DATE(cod.Status_Date) >= @fecha_inicio
+                AND pc.tracking IS NULL  -- ✅ NO debe existir pago registrado
                 AND (
                     gl.tracking_number IS NULL  -- ✅ No existe en liquidacion
                     OR (gl.tracking_number IS NOT NULL 
