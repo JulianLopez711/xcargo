@@ -717,37 +717,41 @@
 
 .detalle-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); /* Columnas más anchas */
+  gap: 2rem; /* Más espacio entre secciones */
+  margin-bottom: 2.5rem;
 }
 
 .detalle-seccion {
   background: #f8fafc;
-  padding: 1.5rem;
-  border-radius: 8px;
+  padding: 2rem; /* Más padding interno */
+  border-radius: 12px; /* Bordes más redondeados */
   border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .detalle-seccion h4 {
   color: #1f2937;
-  font-size: 1.1rem;
+  font-size: 1.25rem; /* Ligeramente más grande */
   font-weight: 600;
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem; /* Más espacio después del título */
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  border-bottom: 2px solid #e5e7eb; /* Línea separadora */
+  padding-bottom: 0.5rem;
 }
 
 .detalle-item {
-  margin-bottom: 0.75rem;
-  font-size: 0.875rem;
+  margin-bottom: 1rem; /* Más espacio entre items */
+  font-size: 0.9rem; /* Ligeramente más grande */
+  line-height: 1.5; /* Mejor line-height */
 }
 
 .detalle-item strong {
   color: #374151;
   font-weight: 600;
-  margin-right: 0.5rem;
+  margin-right: 0.75rem; /* Más espacio después de los labels */
 }
 
 .trackings-list {
@@ -884,7 +888,7 @@
   background: white;
   padding: 1rem;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e7e7eb;
   font-size: 0.875rem;
   position: relative;
 }
@@ -1020,4 +1024,316 @@
 .progress-text span {
   color: #6b7280;
   font-weight: 500;
+}
+
+/* ===================
+   MODAL SELECCIÓN TRANSACCIONES BANCARIAS
+   =================== */
+
+.seleccion-transaccion {
+  max-width: 95vw !important; /* Reducir ancho para que no se salga de la pantalla */
+  width: 95vw !important; /* Ancho fijo para consistencia */
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 20px; /* Reducir padding para dar más espacio interno */
+  box-sizing: border-box; /* Asegurar que el padding se incluya en el tamaño total */
+  margin: 0 auto; /* Centrar el modal */
+}
+
+.seleccion-transaccion h3 {
+  font-size: 1.75rem;
+  margin-bottom: 2rem;
+  color: #1e293b;
+  text-align: center;
+}
+
+.transacciones-list {
+  max-height: 500px; /* Más altura para ver más transacciones */
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 8px; /* Padding interno en la lista */
+  box-sizing: border-box; /* Incluir padding en el tamaño total */
+  width: 100%; /* Asegurar que ocupe todo el ancho disponible */
+}
+
+.transaccion-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center; /* Cambiar a center para mejor alineación del botón */
+  padding: 16px; /* Reducir padding para dar más espacio */
+  border-bottom: 1px solid #e5e7eb;
+  background: white;
+  margin-bottom: 8px; /* Más espacio entre items */
+  border-radius: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.2s ease;
+  box-sizing: border-box; /* Asegurar que el padding se incluya en el tamaño total */
+  width: 100%; /* Asegurar que ocupe todo el ancho disponible */
+  overflow: hidden; /* Prevenir desbordamiento */
+  gap: 16px; /* Reducir espacio entre info y botón */
+}
+
+.transaccion-item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.transaccion-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.transaccion-info {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 2 columnas para ahorrar espacio */
+  gap: 12px 16px; /* Reducir espaciado */
+  font-size: 13px; /* Texto ligeramente más pequeño */
+  padding-right: 12px; /* Reducir espacio antes del botón */
+  max-width: calc(100% - 160px); /* Asegurar que deje espacio para el botón */
+}
+
+.transaccion-info > div {
+  display: flex;
+  flex-direction: column;
+  min-height: auto; /* Permitir altura natural */
+  margin-bottom: 4px; /* Reducir espacio entre filas */
+}
+
+.transaccion-info strong {
+  color: #374151;
+  font-size: 11px; /* Reducir tamaño */
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px; /* Reducir espacio después del label */
+  line-height: 1.2;
+}
+
+.transaccion-info > div > span:not(.estado-badge):not(.similitud-badge) {
+  color: #1f2937;
+  font-weight: 500;
+  line-height: 1.4; /* Compactar line-height */
+  word-break: break-word;
+  font-size: 13px; /* Reducir tamaño de fuente */
+}
+
+.btn-seleccionar {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: white;
+  border: none;
+  padding: 12px 20px; /* Reducir padding para que sea más compacto */
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 14px; /* Tamaño de texto apropiado */
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+  min-width: 100px; /* Reducir ancho mínimo */
+  max-width: 140px; /* Reducir ancho máximo */
+  min-height: 44px; /* Reducir altura mínima pero mantener clickeable */
+  box-shadow: 0 2px 6px rgba(34, 197, 94, 0.25);
+  flex-shrink: 0; /* No permitir que se comprima */
+  align-self: center; /* Centrar verticalmente */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.2;
+  /* Mejorar la accesibilidad táctil */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-seleccionar:hover {
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.4);
+  scale: 1.02; /* Reducir el crecimiento al hover */
+}
+
+.btn-seleccionar:active {
+  transform: translateY(-1px);
+  scale: 0.98; /* Ligera reducción al hacer clic */
+  box-shadow: 0 2px 6px rgba(34, 197, 94, 0.3);
+}
+
+.btn-seleccionar:focus {
+  outline: 3px solid rgba(34, 197, 94, 0.5);
+  outline-offset: 2px;
+}
+
+.estado-badge.pending {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fbbf24;
+}
+
+.estado-badge.success {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #22c55e;
+}
+
+.estado-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+/* Responsive Design para dispositivos móviles */
+@media (max-width: 768px) {
+  .seleccion-transaccion {
+    max-width: 98vw !important;
+    width: 98vw !important;
+    margin: 5px;
+    padding: 12px; /* Menos padding en móvil */
+  }
+  
+  .detalle-grid {
+    grid-template-columns: 1fr; /* Una sola columna en móvil */
+    gap: 1.5rem;
+  }
+  
+  .detalle-seccion {
+    padding: 1.5rem; /* Menos padding en móvil */
+  }
+  
+  .transaccion-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px; /* Reducir gap en móvil */
+    padding: 12px; /* Menos padding en móvil */
+  }
+  
+  .transaccion-info {
+    grid-template-columns: 1fr; /* Una sola columna en móvil */
+    gap: 8px; /* Reducir gap en móvil */
+    padding-right: 0;
+    max-width: 100%; /* Usar todo el ancho en móvil */
+  }
+  
+  .btn-seleccionar {
+    align-self: stretch;
+    margin-left: 0;
+    margin-top: 12px; /* Reducir espacio arriba en móvil */
+    max-width: 100%;
+    min-width: auto;
+    min-height: 48px; /* Altura apropiada para móvil */
+    font-size: 14px; /* Tamaño de texto apropiado para móvil */
+    padding: 14px 20px; /* Padding apropiado para móvil */
+  }
+}
+
+/* Para tablets */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .seleccion-transaccion {
+    max-width: 95vw !important;
+    width: 95vw !important;
+    padding: 16px;
+  }
+  
+  .transaccion-info {
+    grid-template-columns: 1fr;
+    max-width: calc(100% - 120px); /* Dejar espacio para el botón en tablet */
+  }
+}
+
+/* Scrollbar personalizado para la lista de transacciones */
+.transacciones-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.transacciones-list::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.transacciones-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.transacciones-list::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ===================
+   BADGES DE SIMILITUD
+   =================== */
+
+.similitud-badge {
+  padding: 6px 12px; /* Más padding */
+  border-radius: 8px; /* Bordes más redondeados */
+  font-size: 13px; /* Ligeramente más grande */
+  font-weight: 600;
+  margin-left: 8px;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.similitud-excelente {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.similitud-bueno {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.similitud-regular {
+  background: #fed7aa;
+  color: #c2410c;
+  border: 1px solid #fdba74;
+}
+
+.similitud-bajo {
+  background: #fecaca;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+.similitud-muy-bajo {
+  background: #f3f4f6;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+}
+
+/* Reglas generales para prevenir desbordamiento en el modal */
+.seleccion-transaccion * {
+  box-sizing: border-box;
+}
+
+.seleccion-transaccion .transaccion-item {
+  max-width: 100%;
+  word-wrap: break-word;
+}
+
+.seleccion-transaccion .transaccion-info > div > span {
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Asegurar que el botón no se salga en ninguna condición */
+.transaccion-item .btn-seleccionar {
+  flex-shrink: 0;
+  margin-left: 12px; /* Reducir margen para dar más espacio */
+}
+
+/* Mejora adicional para área de clic en dispositivos táctiles */
+@media (hover: none) and (pointer: coarse) {
+  .btn-seleccionar {
+    min-height: 64px; /* Altura mínima más grande en dispositivos táctiles */
+    min-width: 160px; /* Ancho mínimo más grande en táctil */
+    font-size: 18px; /* Texto más grande en táctil */
+    padding: 24px 36px;
+  }
 }

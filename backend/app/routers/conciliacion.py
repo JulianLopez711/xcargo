@@ -239,7 +239,7 @@ def analizar_archivo_detallado(decoded: str, filename: str) -> Dict:
     print(f"  ❌ Errores de parsing: {len(analisis['errores_parsing'])}")
     print(f"  📝 Líneas vacías: {analisis['lineas_vacias']}")
     print(f"  📏 Líneas muy cortas: {analisis['lineas_muy_cortas']}")
-    print(f"  🔗 Separadores detectados: {dict(analisis['separadores_detectados'])}")
+    print(f"  🔗 Separadores detectados: {dict(analisis['separadores_detectadas'])}")
     print(f"  💰 Tipos de transacción: {dict(analisis['tipos_transaccion'])}")
     
     return analisis
@@ -1551,8 +1551,7 @@ def marcar_conciliado_manual(data: dict):
             observaciones = @observaciones,
             conciliado_por = @usuario,
             conciliado_en = @timestamp,
-            confianza_match = 100,
-            match_manual = TRUE
+            confianza_match = 100
         WHERE id = @id_banco
         """
         
@@ -1612,3 +1611,373 @@ def marcar_conciliado_manual(data: dict):
             status_code=500,
             detail=f"Error en conciliación manual: {str(e)}"
         )
+
+
+# ========== ENDPOINTS ADICIONALES NECESARIOS ==========
+
+@router.get("/obtener-movimientos-banco-disponibles")
+async def obtener_movimientos_banco_disponibles(
+    valor_min: float,
+    valor_max: float,
+    fecha_inicio: str,
+    fecha_fin: str,
+    estado: str = "pendiente"
+):
+    """
+    Endpoint para obtener movimientos bancarios disponibles para conciliación manual
+    """
+    client = bigquery.Client()
+    
+    try:
+        query = """
+        SELECT 
+            id,
+            fecha,
+            valor_banco,
+            cuenta,
+            codigo,
+            cod_transaccion,
+            descripcion,
+            tipo,
+            estado_conciliacion
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        WHERE fecha BETWEEN @fecha_inicio AND @fecha_fin
+        AND valor_banco BETWEEN @valor_min AND @valor_max
+        AND estado_conciliacion = @estado
+        ORDER BY fecha DESC, valor_banco DESC
+        LIMIT 50
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio),
+                bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin),
+                bigquery.ScalarQueryParameter("valor_min", "FLOAT", valor_min),
+                bigquery.ScalarQueryParameter("valor_max", "FLOAT", valor_max),
+                bigquery.ScalarQueryParameter("estado", "STRING", estado)
+            ]
+        )
+        
+        resultados = []
+        for row in client.query(query, job_config=job_config).result():
+            resultados.append({
+                "id": row["id"],
+                "fecha": row["fecha"].isoformat(),
+                "valor_banco": float(row["valor_banco"]),
+                "cuenta": row["cuenta"],
+                "codigo": row["codigo"],
+                "cod_transaccion": row["cod_transaccion"],
+                "descripcion": row["descripcion"],
+                "tipo": row["tipo"],
+                "estado_conciliacion": row["estado_conciliacion"]
+            })
+        
+        return {
+            "transacciones": resultados,
+            "total": len(resultados),
+            "criterios": {
+                "valor_min": valor_min,
+                "valor_max": valor_max,
+                "fecha_inicio": fecha_inicio,
+                "fecha_fin": fecha_fin,
+                "estado": estado
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo movimientos bancarios: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo movimientos: {str(e)}"
+        )
+
+@router.get("/pagos-pendientes-conciliar")
+async def obtener_pagos_pendientes_conciliar():
+    """
+    Endpoint para obtener pagos pendientes de conciliar
+    """
+    client = bigquery.Client()
+    
+    try:
+        query = """
+        SELECT 
+            referencia_pago as referencia,
+            COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64)) as valor,
+            fecha as fecha,
+            entidad,
+            estado,
+            tipo,
+            correo,
+            fecha_pago,
+            tracking,
+            cliente,
+            COALESCE(conciliado, FALSE) as conciliado
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE (estado_conciliacion IS NULL 
+               OR estado_conciliacion = '' 
+               OR estado_conciliacion = 'pendiente'
+               OR estado_conciliacion = 'pendiente_conciliacion')
+        AND fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+        ORDER BY fecha_pago DESC
+        LIMIT 100
+        """
+        
+        resultados = []
+        for row in client.query(query).result():
+            resultados.append({
+                "referencia": row["referencia"],
+                "valor": float(row["valor"]) if row["valor"] else 0,
+                "fecha": row["fecha"].isoformat() if row["fecha"] else None,
+                "entidad": row["entidad"] or "",
+                "estado": row["estado"] or "",
+                "correo": row["correo"] or "",
+                "fecha_pago": row["fecha_pago"].isoformat() if row["fecha_pago"] else None,
+                "tracking": row["tracking"] or "",
+                "cliente": row["cliente"] or "",
+                "conciliado": bool(row["conciliado"])
+            })
+        
+        return {
+            "pagos": resultados,
+            "total": len(resultados)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo pagos pendientes: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo pagos pendientes: {str(e)}"
+        )
+
+@router.get("/transacciones-bancarias-disponibles")
+async def obtener_transacciones_bancarias_disponibles(referencia: str):
+    """
+    Endpoint para obtener transacciones bancarias disponibles para una referencia específica
+    con porcentaje de similitud basado en fecha, valor y tipo
+    """
+    client = bigquery.Client()
+    
+    try:
+        # Primero obtener info del pago para buscar transacciones similares
+        query_pago = """
+        SELECT 
+            COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64)) as valor_pago,
+            fecha_pago,
+            entidad,
+            tipo
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        WHERE referencia_pago = @referencia
+        LIMIT 1
+        """
+        
+        job_config_pago = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia", "STRING", referencia)
+            ]
+        )
+        
+        pago_result = list(client.query(query_pago, job_config=job_config_pago).result())
+        
+        if not pago_result:
+            return {"transacciones": [], "mensaje": "Pago no encontrado"}
+        
+        pago = pago_result[0]
+        valor_pago = float(pago["valor_pago"]) if pago["valor_pago"] else 0
+        fecha_pago = pago["fecha_pago"]
+        entidad_pago = (pago["entidad"] or "").lower()
+        tipo_pago = (pago["tipo"] or "").lower()
+        
+        # Buscar SOLO transacciones bancarias pendientes de conciliar (no conciliadas)
+        query_transacciones = """
+        SELECT 
+            id,
+            fecha,
+            valor_banco,
+            cuenta,
+            codigo,
+            cod_transaccion,
+            descripcion,
+            tipo,
+            estado_conciliacion
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        WHERE fecha BETWEEN DATE_SUB(@fecha_pago, INTERVAL 15 DAY) AND DATE_ADD(@fecha_pago, INTERVAL 15 DAY)
+        AND valor_banco BETWEEN (@valor_pago * 0.5) AND (@valor_pago * 1.5)
+        AND (estado_conciliacion = 'pendiente' OR estado_conciliacion IS NULL)
+        AND (referencia_pago_asociada IS NULL OR referencia_pago_asociada = '')
+        ORDER BY fecha DESC, valor_banco DESC
+        LIMIT 20
+        """
+        
+        job_config_transacciones = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("fecha_pago", "DATE", fecha_pago),
+                bigquery.ScalarQueryParameter("valor_pago", "FLOAT", valor_pago)
+            ]
+        )
+        
+        transacciones = list(client.query(query_transacciones, job_config=job_config_transacciones).result())
+        
+        resultados = []
+        for transaccion in transacciones:
+            # ✅ CALCULAR PORCENTAJE DE SIMILITUD
+            porcentaje_similitud = calcular_porcentaje_similitud(
+                pago_fecha=fecha_pago,
+                pago_valor=valor_pago,
+                pago_entidad=entidad_pago,
+                pago_tipo=tipo_pago,
+                banco_fecha=transaccion["fecha"],
+                banco_valor=float(transaccion["valor_banco"]),
+                banco_cuenta=transaccion["cuenta"] or "",
+                banco_tipo=transaccion["tipo"] or "",
+                banco_descripcion=transaccion["descripcion"] or ""
+            )
+            
+            resultados.append({
+                "id": transaccion["id"],
+                "fecha": transaccion["fecha"].isoformat(),
+                "valor_banco": float(transaccion["valor_banco"]),
+                "cuenta": transaccion["cuenta"],
+                "codigo": transaccion["codigo"],
+                "cod_transaccion": transaccion["cod_transaccion"],
+                "descripcion": transaccion["descripcion"],
+                "tipo": transaccion["tipo"],
+                "estado_conciliacion": transaccion["estado_conciliacion"],
+                "porcentaje_similitud": porcentaje_similitud,
+                "nivel_match": get_nivel_match(porcentaje_similitud)
+            })
+        
+        # Ordenar por porcentaje de similitud descendente
+        resultados.sort(key=lambda x: x["porcentaje_similitud"], reverse=True)
+        
+        return {
+            "transacciones": resultados,
+            "total": len(resultados),
+            "pago_referencia": referencia,
+            "criterios_busqueda": {
+                "valor_pago": valor_pago,
+                "fecha_pago": fecha_pago.isoformat(),
+                "entidad_pago": entidad_pago,
+                "tipo_pago": tipo_pago
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error obteniendo transacciones bancarias disponibles: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo transacciones: {str(e)}"
+        )
+
+
+def calcular_porcentaje_similitud(
+    pago_fecha, pago_valor: float, pago_entidad: str, pago_tipo: str,
+    banco_fecha, banco_valor: float, banco_cuenta: str, banco_tipo: str, banco_descripcion: str
+) -> float:
+    """
+    Calcula el porcentaje de similitud entre un pago y una transacción bancaria
+    basado en fecha (40%), valor (40%) y tipo/entidad (20%)
+    """
+    try:
+        # 1. SIMILITUD DE FECHA (40% del peso total)
+        diferencia_dias = abs((banco_fecha - pago_fecha).days)
+        if diferencia_dias == 0:
+            similitud_fecha = 1.0
+        elif diferencia_dias <= 1:
+            similitud_fecha = 0.9
+        elif diferencia_dias <= 3:
+            similitud_fecha = 0.7
+        elif diferencia_dias <= 7:
+            similitud_fecha = 0.5
+        elif diferencia_dias <= 15:
+            similitud_fecha = 0.2
+        else:
+            similitud_fecha = 0.0
+        
+        # 2. SIMILITUD DE VALOR (40% del peso total)
+        diferencia_valor = abs(banco_valor - pago_valor)
+        porcentaje_diferencia = diferencia_valor / max(pago_valor, banco_valor) if max(pago_valor, banco_valor) > 0 else 1
+        
+        if porcentaje_diferencia == 0:
+            similitud_valor = 1.0
+        elif porcentaje_diferencia <= 0.01:  # 1% diferencia
+            similitud_valor = 0.95
+        elif porcentaje_diferencia <= 0.05:  # 5% diferencia
+            similitud_valor = 0.8
+        elif porcentaje_diferencia <= 0.1:   # 10% diferencia
+            similitud_valor = 0.6
+        elif porcentaje_diferencia <= 0.2:   # 20% diferencia
+            similitud_valor = 0.3
+        else:
+            similitud_valor = 0.0
+        
+        # 3. SIMILITUD DE TIPO/ENTIDAD (20% del peso total)
+        similitud_tipo = 0.0
+        
+        # Comparar entidad del pago con cuenta bancaria y descripción
+        banco_cuenta_lower = banco_cuenta.lower()
+        banco_descripcion_lower = banco_descripcion.lower()
+        banco_tipo_lower = banco_tipo.lower()
+        
+        # Mapeo de entidades comunes
+        entidades_mapeo = {
+            'nequi': ['nequi', 'bancolombia'],
+            'bancolombia': ['bancolombia', 'banco colombia', 'bcolombia'],
+            'daviplata': ['daviplata', 'davivienda'],
+            'banco de bogota': ['bogota', 'banco bogota'],
+            'banco popular': ['popular'],
+            'banco caja social': ['caja social', 'bcsc'],
+        }
+        
+        # Buscar coincidencias
+        if pago_entidad:
+            # Coincidencia exacta
+            if (pago_entidad in banco_cuenta_lower or 
+                pago_entidad in banco_descripcion_lower or
+                pago_entidad in banco_tipo_lower):
+                similitud_tipo = 1.0
+            else:
+                # Buscar en mapeos
+                for entidad_key, variantes in entidades_mapeo.items():
+                    if pago_entidad in entidad_key or entidad_key in pago_entidad:
+                        for variante in variantes:
+                            if (variante in banco_cuenta_lower or 
+                                variante in banco_descripcion_lower or
+                                variante in banco_tipo_lower):
+                                similitud_tipo = 0.8
+                                break
+                        if similitud_tipo > 0:
+                            break
+        
+        # Si no hay coincidencia de entidad, dar puntuación base por tipo
+        if similitud_tipo == 0.0:
+            if ('pago' in banco_descripcion_lower or 
+                'transferencia' in banco_descripcion_lower or
+                'consignacion' in banco_descripcion_lower):
+                similitud_tipo = 0.3
+        
+        # CÁLCULO FINAL CON PESOS
+        porcentaje_final = (
+            similitud_fecha * 0.4 +      # 40% peso fecha
+            similitud_valor * 0.4 +      # 40% peso valor  
+            similitud_tipo * 0.2         # 20% peso tipo/entidad
+        ) * 100
+        
+        return round(porcentaje_final, 1)
+        
+    except Exception as e:
+        logger.error(f"Error calculando similitud: {str(e)}")
+        return 0.0
+
+
+def get_nivel_match(porcentaje: float) -> str:
+    """Determina el nivel de match basado en el porcentaje"""
+    if porcentaje >= 90:
+        return "🟢 Excelente"
+    elif porcentaje >= 75:
+        return "🟡 Bueno"
+    elif porcentaje >= 60:
+        return "🟠 Regular"
+    elif porcentaje >= 40:
+        return "🔴 Bajo"
+    else:
+        return "⚫ Muy Bajo"
