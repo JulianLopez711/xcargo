@@ -18,9 +18,12 @@ interface Pago {
   novedades?: string;
   num_guias: number;
   trackings_preview: string;
+  trackings_completos?: string; // Added this property
   correo_conductor: string;
+  hora_pago?: string; // Added this property
   fecha_creacion?: string;
   fecha_modificacion?: string;
+  carrier?: string; // Agregado para mostrar el carrier
 }
 
 interface DetalleTracking {
@@ -173,7 +176,7 @@ export default function PagosContabilidad() {
 
     const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Fecha_Creacion\n";
     const filas = pagosFiltrados
-      .map((p, idx) =>
+      .map((p: Pago, idx: number) =>
         `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${p.estado_conciliacion}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${p.fecha_creacion || ''}"`
       )
       .join("\n");
@@ -183,7 +186,83 @@ export default function PagosContabilidad() {
     });
     
     const fechaHoy = new Date().toISOString().split("T")[0];
-    saveAs(blob, `pagos-consolidados-${fechaHoy}.csv`);
+    saveAs(blob, `pagos-consolidados-pagina-${paginaActual}-${fechaHoy}.csv`);
+  };
+
+  const descargarInformeCompleto = async () => {
+    if (procesando) {
+      alert("Ya hay una operación en curso, por favor espere");
+      return;
+    }
+
+    const confirmacion = confirm(
+      "¿Deseas descargar el informe completo con todos los registros que coincidan con los filtros actuales? Esto puede tomar varios minutos dependiendo de la cantidad de datos."
+    );
+
+    if (!confirmacion) return;
+
+    setProcesando("descarga_completa");
+
+    try {
+      // Construir parámetros de query con los mismos filtros actuales
+      const params = new URLSearchParams();
+
+      // Aplicar filtros si están definidos
+      if (filtroReferencia.trim()) {
+        params.append('referencia', filtroReferencia.trim());
+      }
+      if (fechaDesde) {
+        params.append('fecha_desde', fechaDesde);
+      }
+      if (fechaHasta) {
+        params.append('fecha_hasta', fechaHasta);
+      }
+      if (filtroEstado) {
+        params.append('estado', filtroEstado);
+      }
+
+      const response = await fetch(`https://api.x-cargo.co/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${getToken()}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.pagos || data.pagos.length === 0) {
+        alert("No se encontraron registros para exportar con los filtros aplicados");
+        return;
+      }
+
+      // Crear CSV con todos los datos
+      const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Trackings_Completos,Hora_Pago,Novedades,Fecha_Creacion,Fecha_Modificacion\n";
+      const filas = data.pagos
+        .map((p: Pago, idx: number) =>
+          `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${getEstadoTexto(p.estado_conciliacion)}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${(p.trackings_completos || '').replace(/"/g, '""')}","${p.hora_pago || ''}","${(p.novedades || '').replace(/"/g, '""')}","${p.fecha_creacion || ''}","${p.fecha_modificacion || ''}"`
+        )
+        .join("\n");
+
+      const blob = new Blob([encabezado + filas], {
+        type: "text/csv;charset=utf-8;",
+      });
+      
+      const fechaHoy = new Date().toISOString().split("T")[0];
+      const nombreArchivo = `informe-completo-pagos-${data.info_exportacion.total_registros_exportados}-registros-${fechaHoy}.csv`;
+      saveAs(blob, nombreArchivo);
+
+      alert(`✅ Informe completo descargado exitosamente!\n\n📊 Total de registros: ${data.info_exportacion.total_registros_exportados}\n📅 Fecha de exportación: ${new Date(data.info_exportacion.fecha_exportacion).toLocaleString()}\n📁 Archivo: ${nombreArchivo}`);
+
+    } catch (error) {
+      console.error("❌ Error descargando informe completo:", error);
+      const errorMessage = error instanceof Error ? error.message : "Error desconocido";
+      alert(`❌ Error al descargar el informe completo: ${errorMessage}`);
+    } finally {
+      setProcesando(null);
+    }
   };
 
   const verImagen = (src: string) => {
@@ -373,7 +452,19 @@ export default function PagosContabilidad() {
           🗑️ Limpiar
         </button>
         <button onClick={descargarCSV} className="boton-accion">
-          📥 Descargar Informe
+          📥 Descargar Página
+        </button>
+        <button 
+          onClick={descargarInformeCompleto} 
+          className="boton-accion"
+          disabled={procesando === "descarga_completa"}
+          style={{
+            backgroundColor: procesando === "descarga_completa" ? "#6c757d" : "#28a745",
+            color: "white",
+            position: "relative"
+          }}
+        >
+          {procesando === "descarga_completa" ? "⏳ Descargando..." : "📊 Descargar Informe Completo"}
         </button>
       </div>
 
@@ -411,7 +502,7 @@ export default function PagosContabilidad() {
                   <td>${p.valor.toLocaleString()}</td>
                   <td>{p.num_guias}</td>
                   <td>{p.fecha}</td>
-                  <td>{}</td>
+                  <td>{p.carrier || "N/A"}</td>
                   <td>{p.tipo}</td>
                   <td style={{
                     color: p.estado_conciliacion === "rechazado" ? "crimson" :

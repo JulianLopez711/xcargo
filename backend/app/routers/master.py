@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, Header
 from fastapi.responses import StreamingResponse
 from google.cloud import bigquery
 from app.dependencies import get_current_user
@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 import logging
 import csv
 import io
+import os
+import json
+import concurrent.futures
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -27,21 +30,52 @@ except Exception as e:
         detail=f"Error inicializando conexión con BigQuery: {str(e)}"
     )
 
-def verificar_master(current_user: dict = Depends(get_current_user)):
+def verificar_master(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
+    x_user_role: Optional[str] = Header(None, alias="X-User-Role")
+):
     """
     Verificar que el usuario tenga permisos de master o admin
-    Se cambió para permitir tanto 'admin' como 'master'
+    Compatible con JWT y headers X-User
     """
-    print(f"🔐 Usuario verificando acceso master: {current_user}")
-    print(f"   - Email: {current_user.get('correo', 'No definido')}")
-    print(f"   - Rol: {current_user.get('rol', 'No definido')}")
+    logger.info(f"🔐 Verificando master para endpoint: {request.url.path}")
+    logger.info(f"   - Authorization: {'Presente' if authorization else 'No presente'}")
+    logger.info(f"   - X-User-Email: {x_user_email}")
+    logger.info(f"   - X-User-Role: {x_user_role}")
     
-    if current_user["rol"] not in ["admin", "master"]:
-        print(f"❌ Acceso denegado - Rol requerido: admin o master, Rol actual: {current_user['rol']}")
-        raise HTTPException(status_code=403, detail="No autorizado - Solo admin y master")
+    # Método 1: Headers X-User (usado por el frontend)
+    if x_user_email and x_user_role:
+        logger.info(f"🔑 Usando autenticación por headers X-User")
+        if x_user_role.lower() in ["admin", "master"]:
+            user_data = {"correo": x_user_email, "rol": x_user_role.lower()}
+            logger.info(f"✅ Acceso autorizado para {x_user_email} con rol {x_user_role}")
+            return user_data
+        else:
+            logger.error(f"❌ Rol no autorizado: {x_user_role} (se requiere admin o master)")
+            raise HTTPException(status_code=403, detail="No autorizado - Solo admin y master")
     
-    print(f"✅ Acceso autorizado para usuario {current_user.get('correo')} con rol {current_user['rol']}")
-    return current_user
+    # Método 2: JWT Authorization (fallback)
+    if authorization and authorization.startswith("Bearer "):
+        try:
+            logger.info(f"🔑 Usando autenticación JWT")
+            from fastapi.security import HTTPAuthorizationCredentials
+            credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=authorization[7:])
+            current_user = get_current_user(credentials)
+            
+            if current_user["rol"] in ["admin", "master"]:
+                logger.info(f"✅ Acceso JWT autorizado para {current_user.get('correo')} con rol {current_user['rol']}")
+                return current_user
+            else:
+                logger.error(f"❌ Rol JWT no autorizado: {current_user['rol']}")
+                raise HTTPException(status_code=403, detail="No autorizado - Solo admin y master")
+        except Exception as e:
+            logger.error(f"❌ Error validando JWT: {e}")
+            raise HTTPException(status_code=401, detail="Token inválido")
+    
+    logger.error("❌ No se encontraron credenciales válidas")
+    raise HTTPException(status_code=401, detail="Credenciales de autenticación requeridas")
 
 @router.get("/dashboard")
 async def get_dashboard_data(current_user: dict = Depends(verificar_master)):
@@ -217,7 +251,7 @@ async def get_carriers_guias_entregadas(
 ):
     """
     🚛 CARRIER MANAGEMENT: Obtiene todas las guías entregadas (estado 360) 
-    con su estado de pago correspondiente
+    con su estado de pago correspondiente - OPTIMIZADO
     """
     try:
         logger.info(f"📦 Obteniendo guías de carriers para {current_user.get('correo', 'usuario desconocido')}")
@@ -231,8 +265,8 @@ async def get_carriers_guias_entregadas(
             filtros_where.append("DATE(cod.Status_Date) >= @fecha_inicio")
             query_params.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio))
         else:
-            # Por defecto, últimos 30 días
-            filtros_where.append("DATE(cod.Status_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)")
+            # Por defecto, últimos 7 días para optimizar rendimiento
+            filtros_where.append("DATE(cod.Status_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)")
             
         if fecha_fin:
             filtros_where.append("DATE(cod.Status_Date) <= @fecha_fin")
@@ -243,10 +277,17 @@ async def get_carriers_guias_entregadas(
             filtros_where.append("LOWER(cod.Carrier) LIKE LOWER(@carrier)")
             query_params.append(bigquery.ScalarQueryParameter("carrier", "STRING", f"%{carrier}%"))
         
+        # Filtro por estado de pago
+        if estado_pago and estado_pago in ['pendiente', 'pagado']:
+            query_params.append(bigquery.ScalarQueryParameter("estado_pago", "STRING", estado_pago))
+        
         where_clause = " AND ".join(filtros_where) if filtros_where else "1=1"
         
-        # Query principal con JOIN para verificar estado de pago
-        carriers_query = f"""
+        # Calcular offset
+        offset = (page - 1) * page_size
+        
+        # Query OPTIMIZADO que obtiene todo en una sola consulta
+        optimized_query = f"""
         WITH GuiasEntregadas AS (
             SELECT 
                 cod.tracking_number,
@@ -260,12 +301,12 @@ async def get_carriers_guias_entregadas(
                 cod.carrier_id,
                 cod.Empleado,
                 cod.Employee_id,
-                -- Verificar estado de pago
+                -- Verificar estado de pago de forma optimizada
                 CASE 
-                    WHEN gl.tracking_number IS NOT NULL AND gl.estado_liquidacion = 'pagado' THEN 'pagado'
-                    WHEN gl.tracking_number IS NOT NULL AND gl.estado_liquidacion IN ('liquidado', 'procesado') THEN 'pagado'
+                    WHEN gl.tracking_number IS NOT NULL AND gl.estado_liquidacion IN ('pagado', 'liquidado', 'procesado') THEN 'pagado'
                     ELSE 'pendiente'
-                END as estado_pago,                gl.pago_referencia,
+                END as estado_pago,
+                gl.pago_referencia,
                 gl.fecha_entrega as fecha_liquidacion
             FROM `{PROJECT_ID}.{DATASET}.COD_pendientes_v1` cod
             LEFT JOIN `{PROJECT_ID}.{DATASET}.guias_liquidacion` gl
@@ -273,57 +314,179 @@ async def get_carriers_guias_entregadas(
             WHERE cod.Status_Big = '360 - Entregado al cliente'
                 AND cod.Valor > 0
                 AND {where_clause}
+        ),
+        GuiasFiltradas AS (
+            SELECT *
+            FROM GuiasEntregadas
+            WHERE (@estado_pago IS NULL OR estado_pago = @estado_pago)
+        ),
+        ConteoTotal AS (
+            SELECT COUNT(*) as total_count
+            FROM GuiasFiltradas
+        ),
+        ResumenGeneral AS (
+            SELECT
+                COUNT(*) as total_guias,
+                SUM(Valor) as valor_total,
+                COUNT(CASE WHEN estado_pago = 'pendiente' THEN 1 END) as guias_pendientes,
+                COUNT(CASE WHEN estado_pago = 'pagado' THEN 1 END) as guias_pagadas,
+                SUM(CASE WHEN estado_pago = 'pendiente' THEN Valor ELSE 0 END) as valor_pendiente,
+                SUM(CASE WHEN estado_pago = 'pagado' THEN Valor ELSE 0 END) as valor_pagado
+            FROM GuiasFiltradas
+        ),
+        GuiasPaginadas AS (
+            SELECT *
+            FROM GuiasFiltradas
+            ORDER BY Status_Date DESC
+            LIMIT @page_size OFFSET @offset
         )
-        SELECT * FROM GuiasEntregadas
+        SELECT 
+            'data' as tipo,
+            tracking_number,
+            Cliente,
+            Ciudad,
+            Departamento,
+            Valor,
+            Status_Date,
+            Status_Big,
+            Carrier,
+            carrier_id,
+            Empleado,
+            Employee_id,
+            estado_pago,
+            pago_referencia,
+            fecha_liquidacion,
+            NULL as total_count,
+            NULL as total_guias,
+            NULL as valor_total,
+            NULL as guias_pendientes,
+            NULL as guias_pagadas,
+            NULL as valor_pendiente,
+            NULL as valor_pagado
+        FROM GuiasPaginadas
+        
+        UNION ALL
+        
+        SELECT 
+            'count' as tipo,
+            NULL as tracking_number,
+            NULL as Cliente,
+            NULL as Ciudad,
+            NULL as Departamento,
+            NULL as Valor,
+            NULL as Status_Date,
+            NULL as Status_Big,
+            NULL as Carrier,
+            NULL as carrier_id,
+            NULL as Empleado,
+            NULL as Employee_id,
+            NULL as estado_pago,
+            NULL as pago_referencia,
+            NULL as fecha_liquidacion,
+            (SELECT total_count FROM ConteoTotal) as total_count,
+            NULL as total_guias,
+            NULL as valor_total,
+            NULL as guias_pendientes,
+            NULL as guias_pagadas,
+            NULL as valor_pendiente,
+            NULL as valor_pagado
+        FROM ConteoTotal
+        
+        UNION ALL
+        
+        SELECT 
+            'summary' as tipo,
+            NULL as tracking_number,
+            NULL as Cliente,
+            NULL as Ciudad,
+            NULL as Departamento,
+            NULL as Valor,
+            NULL as Status_Date,
+            NULL as Status_Big,
+            NULL as Carrier,
+            NULL as carrier_id,
+            NULL as Empleado,
+            NULL as Employee_id,
+            NULL as estado_pago,
+            NULL as pago_referencia,
+            NULL as fecha_liquidacion,
+            NULL as total_count,
+            total_guias,
+            valor_total,
+            guias_pendientes,
+            guias_pagadas,
+            valor_pendiente,
+            valor_pagado
+        FROM ResumenGeneral
+        
+        ORDER BY tipo, Status_Date DESC
         """
-          # Aplicar filtro de estado de pago si se especifica
-        where_estado_pago = ""
-        if estado_pago and estado_pago in ['pendiente', 'pagado']:
-            where_estado_pago = f" WHERE estado_pago = @estado_pago"
-            query_params.append(bigquery.ScalarQueryParameter("estado_pago", "STRING", estado_pago))
-        
-        # Primero obtener el total de registros para paginación
-        count_query = carriers_query + where_estado_pago
-        
-        # Query principal con paginación
-        offset = (page - 1) * page_size
-        carriers_query += where_estado_pago + f" ORDER BY Status_Date DESC LIMIT @limit OFFSET @offset"
         
         # Agregar parámetros de paginación
         query_params.extend([
-            bigquery.ScalarQueryParameter("limit", "INT64", page_size),
+            bigquery.ScalarQueryParameter("page_size", "INT64", page_size),
             bigquery.ScalarQueryParameter("offset", "INT64", offset)
         ])
         
-        logger.info(f"🔍 Ejecutando query de carriers con paginación - Página {page}, Tamaño {page_size}...")
+        # Si no hay filtro de estado_pago, agregar NULL
+        if not (estado_pago and estado_pago in ['pendiente', 'pagado']):
+            query_params.append(bigquery.ScalarQueryParameter("estado_pago", "STRING", None))
         
-        # Ejecutar query para obtener total de registros
-        job_config_count = bigquery.QueryJobConfig(query_parameters=query_params[:-2])  # Sin limit/offset
-        count_job = bq_client.query(count_query, job_config=job_config_count)
-        total_registros = len([row for row in count_job.result()])
+        logger.info(f"🔍 Ejecutando query optimizado de carriers - Página {page}, Tamaño {page_size}...")
         
-        # Ejecutar query principal con paginación
-        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
-        carriers_job = bq_client.query(carriers_query, job_config=job_config)
-        guias_result = [dict(row) for row in carriers_job.result()]
+        # Ejecutar query optimizado con timeout correcto para BigQuery
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=query_params,
+            use_query_cache=True,
+            job_timeout_ms=60000  # 60 segundos en milisegundos
+        )
         
-        # Calcular totales del total de registros (sin paginación)
-        total_job = bq_client.query(count_query, job_config=job_config_count)
-        todas_las_guias = [dict(row) for row in total_job.result()]
+        # Usar ThreadPoolExecutor para timeout personalizado adicional
+        def ejecutar_query():
+            query_job = bq_client.query(optimized_query, job_config=job_config)
+            return query_job.result(timeout=45)  # 45 segundos timeout en result()
         
-        total_guias = len(todas_las_guias)
-        valor_total = sum(float(guia['Valor']) for guia in todas_las_guias)
-        guias_pendientes = sum(1 for guia in todas_las_guias if guia['estado_pago'] == 'pendiente')
-        guias_pagadas = sum(1 for guia in todas_las_guias if guia['estado_pago'] == 'pagado')
-        valor_pendiente = sum(float(guia['Valor']) for guia in todas_las_guias if guia['estado_pago'] == 'pendiente')
-        valor_pagado = sum(float(guia['Valor']) for guia in todas_las_guias if guia['estado_pago'] == 'pagado')
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(ejecutar_query)
+            try:
+                results = future.result(timeout=50)  # 50 segundos timeout total
+            except concurrent.futures.TimeoutError:
+                raise HTTPException(
+                    status_code=504,
+                    detail="Consulta demoró demasiado tiempo. Intenta reducir el rango de fechas o usar más filtros."
+                )
+        
+        # Procesar resultados
+        guias_result = []
+        total_registros = 0
+        resumen_data = {}
+        
+        for row in results:
+            row_dict = dict(row)
+            if row_dict['tipo'] == 'data':
+                # Datos de guías
+                guia_data = {k: v for k, v in row_dict.items() if k not in ['tipo', 'total_count', 'total_guias', 'valor_total', 'guias_pendientes', 'guias_pagadas', 'valor_pendiente', 'valor_pagado']}
+                guias_result.append(guia_data)
+            elif row_dict['tipo'] == 'count':
+                # Total de registros
+                total_registros = int(row_dict['total_count']) if row_dict['total_count'] else 0
+            elif row_dict['tipo'] == 'summary':
+                # Resumen general
+                resumen_data = {
+                    'total_guias': int(row_dict['total_guias']) if row_dict['total_guias'] else 0,
+                    'valor_total': float(row_dict['valor_total']) if row_dict['valor_total'] else 0,
+                    'guias_pendientes': int(row_dict['guias_pendientes']) if row_dict['guias_pendientes'] else 0,
+                    'guias_pagadas': int(row_dict['guias_pagadas']) if row_dict['guias_pagadas'] else 0,
+                    'valor_pendiente': float(row_dict['valor_pendiente']) if row_dict['valor_pendiente'] else 0,
+                    'valor_pagado': float(row_dict['valor_pagado']) if row_dict['valor_pagado'] else 0
+                }
         
         # Calcular información de paginación
-        total_pages = (total_registros + page_size - 1) // page_size
+        total_pages = (total_registros + page_size - 1) // page_size if total_registros > 0 else 1
         has_next = page < total_pages
         has_prev = page > 1
         
-        # Resumen por carrier
+        # Crear resumen por carrier solo con datos de la página actual
         carriers_resumen = {}
         for guia in guias_result:
             carrier_name = guia['Carrier']
@@ -353,7 +516,8 @@ async def get_carriers_guias_entregadas(
             else:
                 carrier_data['guias_pagadas'] += 1
                 carrier_data['valor_pagado'] += float(guia['Valor'])
-          # Convertir sets a listas para JSON
+        
+        # Convertir sets a listas para JSON
         for carrier in carriers_resumen.values():
             carrier['total_conductores'] = len(carrier['conductores_unicos'])
             carrier['total_ciudades'] = len(carrier['ciudades_uniques'])
@@ -362,16 +526,16 @@ async def get_carriers_guias_entregadas(
             del carrier['conductores_unicos']
             del carrier['ciudades_uniques']
         
+        # Calcular porcentaje pagado
+        porcentaje_pagado = 0
+        if resumen_data.get('total_guias', 0) > 0:
+            porcentaje_pagado = round((resumen_data['guias_pagadas'] / resumen_data['total_guias'] * 100), 2)
+        
         response_data = {
             "guias": guias_result,
             "resumen_general": {
-                "total_guias": total_guias,
-                "valor_total": valor_total,
-                "guias_pendientes": guias_pendientes,
-                "guias_pagadas": guias_pagadas,
-                "valor_pendiente": valor_pendiente,
-                "valor_pagado": valor_pagado,
-                "porcentaje_pagado": round((guias_pagadas / total_guias * 100), 2) if total_guias > 0 else 0
+                **resumen_data,
+                "porcentaje_pagado": porcentaje_pagado
             },
             "paginacion": {
                 "page": page,
@@ -393,9 +557,12 @@ async def get_carriers_guias_entregadas(
             "total_carriers": len(carriers_resumen)
         }
         
-        logger.info(f"✅ Datos de carriers obtenidos: {total_guias} guías de {len(carriers_resumen)} carriers")
+        logger.info(f"✅ Datos de carriers obtenidos: {len(guias_result)} guías de {len(carriers_resumen)} carriers")
         return response_data
         
+    except HTTPException:
+        # Re-lanzar HTTPExceptions
+        raise
     except Exception as e:
         logger.error(f"❌ Error obteniendo datos de carriers: {str(e)}")
         raise HTTPException(

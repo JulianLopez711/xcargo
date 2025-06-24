@@ -36,7 +36,7 @@ def get_bigquery_client() -> bigquery.Client:
     try:
         return bigquery.Client(project=PROJECT_ID)
     except Exception as e:
-        logger.error(f"Error inicializando cliente BigQuery: {e}")
+        
         raise HTTPException(
             status_code=500, 
             detail="Error de configuración de base de datos"
@@ -76,53 +76,49 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
     ruta_local = os.path.join(COMPROBANTES_DIR, nombre_archivo)
     
     try:
-        # Debug: verificar información del archivo
-        logger.info(f"📁 Guardando archivo: {archivo.filename}")
-        logger.info(f"📍 Ruta destino: {ruta_local}")
-        logger.info(f"📊 Content type: {archivo.content_type}")
         
         # Crear directorio si no existe
         os.makedirs(COMPROBANTES_DIR, exist_ok=True)
-        logger.info(f"📂 Directorio verificado: {COMPROBANTES_DIR}")
+        
         
         # Leer contenido
         content = await archivo.read()
-        logger.info(f"📋 Contenido leído: {len(content)} bytes")
+       
         
         if len(content) == 0:
-            logger.error("❌ El archivo está vacío")
+            
             raise ValueError("Archivo vacío")
         
         # Guardar archivo
         with open(ruta_local, "wb") as f:
             bytes_written = f.write(content)
-            logger.info(f"💾 Bytes escritos: {bytes_written}")
+       
         
         # Verificar que se guardó correctamente
         if not os.path.exists(ruta_local):
-            logger.error(f"❌ El archivo no se guardó: {ruta_local}")
+
             raise FileNotFoundError(f"No se pudo guardar: {ruta_local}")
         
         # Verificar tamaño y permisos
         file_stat = os.stat(ruta_local)
-        logger.info(f"✅ Archivo guardado - Tamaño: {file_stat.st_size}, Permisos: {oct(file_stat.st_mode)}")
+        
         
         # Establecer permisos correctos
         os.chmod(ruta_local, 0o644)
         
         # URL para acceso
         comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
-        logger.info(f"🔗 URL generada: {comprobante_url}")
+  
         
         return comprobante_url
         
     except Exception as e:
-        logger.error(f"❌ Error guardando comprobante: {e}")
+
         # Limpiar archivo si hay error
         if os.path.exists(ruta_local):
             try:
                 os.remove(ruta_local)
-                logger.info(f"🗑️ Archivo limpiado tras error: {ruta_local}")
+
             except:
                 pass
         raise HTTPException(
@@ -149,10 +145,6 @@ async def registrar_pago_conductor(
     comprobante_url = None
 
     try:
-        # PASO 1: Validaciones de entrada
-        logger.info(f"Iniciando registro de pago para {correo}")
-        
-        # Validar y convertir valor
         try:
             valor_pago = float(valor_pago_str.replace(',', '').replace('$', ''))
             if valor_pago <= 0:
@@ -185,7 +177,7 @@ async def registrar_pago_conductor(
             except ValueError:
                 raise HTTPException(status_code=400, detail="Formato de hora inválido (HH:MM o HH:MM:SS)")
         # PASO 2: Validar referencia única
-        logger.info(f"Validando referencia única: {referencia}")
+        
         verificacion_ref = client.query("""
             SELECT COUNT(*) as total
             FROM `{project}.{dataset}.pagosconductor`
@@ -205,7 +197,7 @@ async def registrar_pago_conductor(
 
         try:
             lista_guias = json.loads(guias)
-            logger.info(f"Procesando {len(lista_guias)} guías")
+            
             
             if not lista_guias:
                 raise HTTPException(status_code=400, detail="Debe asociar al menos una guía")
@@ -219,7 +211,7 @@ async def registrar_pago_conductor(
         if not referencias_guias:
             raise HTTPException(status_code=400, detail="No se encontraron referencias válidas en las guías")
 
-        logger.info(f"Consultando información para {len(referencias_guias)} referencias")
+        
         refs_str = "', '".join(referencias_guias)
         
         query_clientes = f"""
@@ -233,21 +225,21 @@ async def registrar_pago_conductor(
             resultado_clientes = client.query(query_clientes).result()
             clientes_data = {
                 row["referencia"]: {
-                    "cliente": row["Cliente"], 
+                    "cliente": row["cliente"],  # 🔥 CORREGIDO: cambiado de "Cliente" a "cliente"
                     "valor": row["valor"]
                 } for row in resultado_clientes
             }
-            logger.info(f"Información obtenida para {len(clientes_data)} guías")
+            
         except Exception as e:
-            logger.warning(f"Error consultando COD_pendientes_v1: {e}")
+            
             clientes_data = {}
 
         # PASO 6: Guardar comprobante
-        logger.info("Guardando comprobante de pago")
+        
         comprobante_url = await guardar_comprobante(comprobante)
 
         # PASO 7: Preparar datos para inserción
-        logger.info("Preparando datos para inserción en BigQuery")
+        
         creado_en = datetime.utcnow()
         filas = []
 
@@ -285,9 +277,9 @@ async def registrar_pago_conductor(
             )
             resultado_match = list(client.query(query_match, job_config=job_config_match).result())
             estado_conciliacion = "conciliado_automatico" if resultado_match else "pendiente_conciliacion"
-            logger.info(f"🧠 Estado de conciliación determinado: {estado_conciliacion}")
+            
         except Exception as e:
-            logger.warning(f"⚠️ No se pudo verificar conciliación automática: {e}")
+            
             estado_conciliacion = "pendiente_conciliacion"
 
         filas = []
@@ -313,7 +305,7 @@ async def registrar_pago_conductor(
             referencia_value = str(guia.get("referencia", "")).strip()
             
             if not referencia_value:
-                logger.warning(f"Guía {i+1} sin referencia válida, omitiendo")
+                
                 continue
 
             # Obtener datos del cliente
@@ -359,9 +351,6 @@ async def registrar_pago_conductor(
 
         if not filas:
             raise HTTPException(status_code=400, detail="No se procesaron guías válidas")
-
-        # PASO 8: Insertar en BigQuery
-        logger.info(f"Insertando {len(filas)} registros en BigQuery")
         
         # Preparar valores para consulta SQL
         valores_sql = []
@@ -424,11 +413,11 @@ async def registrar_pago_conductor(
             future = executor.submit(lambda: client.query(query).result())
             future.result(timeout=30)
         
-        logger.info("✅ Datos insertados correctamente")
+
         
  # PASO 9: Insertar o actualizar en guias_liquidacion (MERGE/UPSERT por guía)
         try:
-            logger.info("Sincronizando pagos en guias_liquidacion")
+
             for fila in filas:
                 merge_query = f"""
                 MERGE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` AS gl
@@ -482,9 +471,9 @@ async def registrar_pago_conductor(
                     ]
                 )
                 client.query(merge_query, job_config=job_config).result()
-            logger.info("✅ MERGE completado en guias_liquidacion para todas las guías")
+            
         except Exception as e:
-            logger.error(f"❌ Error haciendo MERGE en guias_liquidacion: {e}")
+            
 
 
         # 🔥 FASE 1: Registrar bono por excedente si aplica
@@ -493,18 +482,18 @@ async def registrar_pago_conductor(
             try:
                 valor_total_guias = sum(float(g.get('valor', 0)) for g in lista_guias)
                 excedente = round(valor_total_combinado - valor_total_guias, 2)
-                logger.info(f"📊 Cálculo de excedente - Total pagado: ${valor_total_combinado}, Total guías: ${valor_total_guias}, Excedente: ${excedente}")
+                
             except Exception as e:
-                logger.error(f"❌ Error calculando excedente: {e}")
+                
                 return
 
             if excedente > 0:
-                logger.info(f"💸 Excedente detectado: ${excedente} — iniciando registro de bono")
+                
 
                 # Obtener y validar employee_id
                 employee_id = obtener_employee_id_usuario(correo, client)
                 if not employee_id:
-                    logger.error(f"❌ No se pudo obtener employee_id para {correo}")
+                    
                     # Enviar notificación al administrador
                     await notificar_error_bono(correo, excedente, "No se encontró employee_id")
                     logger.warning(f"⚠️ No se pudo obtener el Employee ID para {correo}, no se registrará bono")
@@ -541,9 +530,9 @@ async def registrar_pago_conductor(
                         bigquery.ScalarQueryParameter("modificado_por", "STRING", correo),
                     ])
                     client.query(insertar_bono_query, job_config=job_config).result()
-                    logger.info(f"✅ Bono de excedente registrado: {bono_id}")
+                    
         except Exception as e:
-            logger.error(f"❌ ERROR GRAVE al registrar bono excedente: {e}")
+            
             # ⚠️ IMPORTANTE: NO hacer raise aquí a menos que quieras que falle todo el pago
             # Solo registrar el error pero continuar con el flujo
             logger.warning("⚠️ Continuando sin registrar bono de excedente")
@@ -564,8 +553,7 @@ async def registrar_pago_conductor(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error inesperado registrando pago híbrido: {str(e)}")
-        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+
         
         # Limpiar comprobante si hay error
         if comprobante_url:
@@ -654,7 +642,7 @@ async def obtener_bonos_disponibles(
         }
 
     except Exception as e:
-        logger.error(f"❌ Error obteniendo bonos: {str(e)}")
+        
         raise HTTPException(
             status_code=500,
             detail=f"Error consultando bonos disponibles: {str(e)}"
@@ -756,7 +744,7 @@ async def aplicar_bonos_conductor(
         errors = client.insert_rows_json(table_id, [movimiento])
 
         if errors:
-            logger.error(f"❌ Error registrando movimiento: {errors}")
+            
             raise Exception("Error registrando movimiento del bono")
 
         return {
@@ -768,7 +756,7 @@ async def aplicar_bonos_conductor(
     except HTTPException as http_err:
         raise http_err
     except Exception as e:
-        logger.error(f"❌ Error aplicando bono: {str(e)}")
+        
         raise HTTPException(
             status_code=500,
             detail=f"Error aplicando bono: {str(e)}"        )
@@ -781,24 +769,28 @@ def obtener_detalles_pago(referencia_pago: str):
     try:
         client = get_bigquery_client()
         
-        # Consultar detalles del pago
+        # Consultar detalles del pago con JOIN para obtener el carrier real
         query = """
         SELECT 
-            referencia_pago,
-            referencia,
-            tracking,
-            valor,
-            cliente,
-            entidad as carrier,
-            tipo,
-            fecha_pago,
-            hora_pago,
-            estado_conciliacion as estado,
-            novedades,
-            comprobante
-        FROM `{project}.{dataset}.pagosconductor`
-        WHERE referencia_pago = @referencia_pago
-        ORDER BY creado_en ASC
+            pc.referencia_pago,
+            pc.referencia,
+            pc.tracking,
+            pc.valor,
+            pc.cliente,
+            COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier,
+            pc.tipo,
+            pc.fecha_pago,
+            pc.hora_pago,
+            pc.estado_conciliacion as estado,
+            pc.novedades,
+            pc.comprobante
+        FROM `{project}.{dataset}.pagosconductor` pc
+        LEFT JOIN `{project}.{dataset}.COD_pendientes_v1` cod 
+            ON pc.tracking = cod.tracking_number
+        LEFT JOIN `{project}.{dataset}.guias_liquidacion` gl 
+            ON pc.tracking = gl.tracking_number
+        WHERE pc.referencia_pago = @referencia_pago
+        ORDER BY pc.creado_en ASC
         """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
         
         job_config = bigquery.QueryJobConfig(
@@ -832,7 +824,7 @@ def obtener_detalles_pago(referencia_pago: str):
                 detail=f"No se encontraron detalles para la referencia de pago: {referencia_pago}"
             )
         
-        logger.info(f"✅ Detalles obtenidos para pago {referencia_pago}: {len(detalles)} guías")
+    
         
         return {
             "detalles": detalles,
@@ -845,7 +837,7 @@ def obtener_detalles_pago(referencia_pago: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error obteniendo detalles del pago {referencia_pago}: {str(e)}")
+        
         raise HTTPException(
             status_code=500,
             detail=f"Error interno del servidor: {str(e)}"
@@ -923,29 +915,32 @@ def obtener_pagos_pendientes_contabilidad(
         # Query principal con paginación
         main_query = f"""
         SELECT 
-            referencia_pago,
-            correo as correo_conductor,
-            MAX(fecha_pago) AS fecha,
-            COALESCE(MAX(valor_total_consignacion), SUM(valor)) AS valor,
-            MAX(entidad) AS entidad,
-            MAX(tipo) AS tipo,
-            MAX(comprobante) AS imagen,
+            pc.referencia_pago,
+            pc.correo as correo_conductor,
+            MAX(pc.fecha_pago) AS fecha,
+            COALESCE(MAX(pc.valor_total_consignacion), SUM(pc.valor)) AS valor,
+            MAX(pc.entidad) AS entidad,
+            MAX(pc.tipo) AS tipo,
+            MAX(pc.comprobante) AS imagen,
             COUNT(*) AS num_guias,
-            STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia) LIMIT 5) AS trackings_preview,
-            MAX(estado_conciliacion) as estado_conciliacion,
-            MAX(novedades) as novedades,
-            MAX(creado_en) as fecha_creacion,
-            MAX(modificado_en) as fecha_modificacion
-        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            STRING_AGG(DISTINCT COALESCE(pc.tracking, pc.referencia), ', ' ORDER BY COALESCE(pc.tracking, pc.referencia) LIMIT 5) AS trackings_preview,
+            MAX(pc.estado_conciliacion) as estado_conciliacion,
+            MAX(pc.novedades) as novedades,
+            MAX(pc.creado_en) as fecha_creacion,
+            MAX(pc.modificado_en) as fecha_modificacion,
+            MAX(COALESCE(cod.Carrier, gl.carrier, 'N/A')) as carrier
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+            ON pc.tracking = cod.tracking_number
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+            ON pc.tracking = gl.tracking_number
         {where_clause}
-        GROUP BY referencia_pago, correo
-        ORDER BY MAX(fecha_pago) DESC, MAX(creado_en) DESC
+        GROUP BY pc.referencia_pago, pc.correo
+        ORDER BY MAX(pc.fecha_pago) DESC, MAX(pc.creado_en) DESC
         LIMIT {limit}
         OFFSET {offset}
         """
         
-        logger.info(f"Ejecutando consulta con filtros: referencia={referencia}, estado={estado}, desde={fecha_desde}, hasta={fecha_hasta}")
-        logger.info(f"Paginación: limit={limit}, offset={offset}")
         
         # Configurar parámetros para las consultas
         job_config = bigquery.QueryJobConfig(query_parameters=parametros)
@@ -988,7 +983,8 @@ def obtener_pagos_pendientes_contabilidad(
                 "trackings_preview": trackings_preview,
                 "correo_conductor": str(row.get("correo_conductor", "")),
                 "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
-                "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None
+                "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
+                "carrier": str(row.get("carrier", "N/A"))
             }
             pagos.append(pago)
         
@@ -1012,7 +1008,7 @@ def obtener_pagos_pendientes_contabilidad(
             "fecha_hasta": fecha_hasta
         }
         
-        logger.info(f"✅ Consulta exitosa: {len(pagos)} pagos obtenidos de {total_registros} totales")
+       
         
         # Retornar respuesta estructurada
         return {
@@ -1027,8 +1023,6 @@ def obtener_pagos_pendientes_contabilidad(
         # Re-lanzar HTTPExceptions
         raise
     except Exception as e:
-        logger.error(f"❌ Error obteniendo pagos pendientes: {str(e)}")
-        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         
         # En caso de error, retornar respuesta de fallback
         return JSONResponse(
@@ -1146,7 +1140,7 @@ def aprobar_pago(payload: dict):
         resultado_conteo = client.query(conteo_query, job_config=job_config_conteo).result()
         total_guias = next(resultado_conteo)["total_guias"]
 
-        logger.info(f"✅ Pago {referencia} aprobado por {modificado_por}. {total_guias} guías liberadas.")
+        
 
         return {
             "mensaje": "Pago aprobado y conciliado manualmente",
@@ -1158,7 +1152,7 @@ def aprobar_pago(payload: dict):
         }
 
     except Exception as e:
-        logger.error(f"❌ Error aprobando pago {referencia}: {str(e)}")
+
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": f"Error interno del servidor: {str(e)}"}
@@ -1260,7 +1254,7 @@ def rechazar_pago(payload: dict):
         resultado_conteo = client.query(conteo_query, job_config=job_config_conteo).result()
         total_guias = next(resultado_conteo)["total_guias"]
 
-        logger.info(f"❌ Pago {referencia_pago} rechazado por {modificado_por}. Razón: {novedad}")
+        
 
         return {
             "mensaje": f"Pago con referencia {referencia_pago} rechazado exitosamente",
@@ -1276,7 +1270,7 @@ def rechazar_pago(payload: dict):
         # Re-lanzar HTTPExceptions
         raise
     except Exception as e:
-        logger.error(f"❌ Error rechazando pago {referencia_pago}: {str(e)}")
+        
         raise HTTPException(
             status_code=500, 
             detail=f"Error interno del servidor: {str(e)}"
@@ -1314,14 +1308,14 @@ async def notificar_error_bono(correo: str, excedente: float, razon: str):
         ])
         
         client.query(query, job_config=job_config).result()
-        logger.info(f"✅ Error de bono registrado para conductor {correo}")
+        
         
     except Exception as e:
         logger.error(f"❌ Error al notificar error de bono: {e}")
 
 @router.get("/historial")
 async def obtener_historial_pagos(
-    limite: int = Query(50, description="Número máximo de registros a devolver"),
+    limite: int = Query(50, description="Número máximo de registros a devolver (0 = todos)"),
     offset: int = Query(0, description="Número de registros a omitir"),
     fecha_inicio: Optional[str] = Query(None, description="Fecha de inicio (YYYY-MM-DD)"),
     fecha_fin: Optional[str] = Query(None, description="Fecha de fin (YYYY-MM-DD)"),
@@ -1330,6 +1324,7 @@ async def obtener_historial_pagos(
 ):
     """
     Obtiene el historial de pagos con filtros opcionales
+    limite = 0 devuelve TODOS los registros sin límite
     """
     try:
         client = get_bigquery_client()
@@ -1372,23 +1367,24 @@ async def obtener_historial_pagos(
             query += " AND LOWER(correo) LIKE @conductor"
             query_params.append(bigquery.ScalarQueryParameter("conductor", "STRING", f"%{conductor.lower()}%"))
         
-        # Agregar ordenación y límites
-        query += """
-        ORDER BY fecha_pago DESC, hora_pago DESC, creado_en DESC
-        LIMIT @limite
-        OFFSET @offset
-        """
+        # Agregar ordenación
+        query += " ORDER BY fecha_pago DESC, hora_pago DESC, creado_en DESC"
         
-        query_params.extend([
-            bigquery.ScalarQueryParameter("limite", "INT64", limite),
-            bigquery.ScalarQueryParameter("offset", "INT64", offset)
-        ])
+        # Solo agregar límite si es mayor que 0
+        if limite > 0:
+            query += " LIMIT @limite OFFSET @offset"
+            query_params.extend([
+                bigquery.ScalarQueryParameter("limite", "INT64", limite),
+                bigquery.ScalarQueryParameter("offset", "INT64", offset)
+            ])
         
-        logger.info(f"Ejecutando consulta de historial con límite={limite}, offset={offset}")
+       
         
         # Ejecutar consulta
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
-        results = client.query(query, job_config=job_config).result()        # Convertir resultados
+        results = client.query(query, job_config=job_config).result()
+        
+        # Convertir resultados
         historial = []
         for row in results:
             pago = {
@@ -1418,6 +1414,7 @@ async def obtener_historial_pagos(
         
         # Aplicar los mismos filtros para el conteo
         count_params = []
+        
         if fecha_inicio:
             count_query += " AND DATE(fecha_pago) >= @fecha_inicio"
             count_params.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio))
@@ -1438,21 +1435,160 @@ async def obtener_historial_pagos(
         count_result = list(client.query(count_query, job_config=count_job_config).result())
         total_registros = count_result[0].total if count_result else 0
         
-        logger.info(f"✅ Historial obtenido: {len(historial)} registros de {total_registros} totales")
         
         return {
             "historial": historial,
             "total": total_registros,
             "limite": limite,
             "offset": offset,
-            "tiene_mas": (offset + limite) < total_registros
+            "tiene_mas": (offset + limite) < total_registros if limite > 0 else False
         }
         
     except Exception as e:
-        logger.error(f"❌ Error obteniendo historial de pagos: {e}")
-        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+
         raise HTTPException(
             status_code=500,
             detail=f"Error interno del servidor: {str(e)}"
+        )
+
+@router.get("/exportar-pendientes-contabilidad")
+def exportar_todos_pagos_pendientes_contabilidad(
+    referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado de conciliación"),
+    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
+):
+    """
+    Exporta TODOS los pagos pendientes de contabilidad que coincidan con los filtros (sin paginación)
+    """
+    try:
+        client = get_bigquery_client()
+        
+        # Construir condiciones de filtro dinámicamente (igual que en la consulta paginada)
+        condiciones = ["1=1"]
+        parametros = []
+        
+        # Filtro por referencia de pago
+        if referencia and referencia.strip():
+            condiciones.append("referencia_pago LIKE @referencia_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
+            )
+        
+        # Filtro por estado (por defecto pendiente_conciliacion si no se especifica)
+        if estado and estado.strip():
+            condiciones.append("estado_conciliacion = @estado_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
+            )
+        else:
+            # Si no se especifica estado, mostrar solo pendientes por defecto
+            condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
+        
+        # Filtro por fecha desde
+        if fecha_desde:
+            try:
+                datetime.strptime(fecha_desde, "%Y-%m-%d")
+                condiciones.append("fecha_pago >= @fecha_desde")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("fecha_desde", "DATE", fecha_desde)
+                )
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_desde inválido (YYYY-MM-DD)")
+        
+        # Filtro por fecha hasta
+        if fecha_hasta:
+            try:
+                datetime.strptime(fecha_hasta, "%Y-%m-%d")
+                condiciones.append("fecha_pago <= @fecha_hasta")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("fecha_hasta", "DATE", fecha_hasta)
+                )
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido (YYYY-MM-DD)")
+        
+        where_clause = "WHERE " + " AND ".join(condiciones)
+        
+        # Query para exportar TODOS los registros (sin LIMIT ni OFFSET)
+        export_query = f"""
+        SELECT 
+            referencia_pago,
+            correo as correo_conductor,
+            MAX(fecha_pago) AS fecha,
+            COALESCE(MAX(valor_total_consignacion), SUM(valor)) AS valor,
+            MAX(entidad) AS entidad,
+            MAX(tipo) AS tipo,
+            MAX(comprobante) AS imagen,
+            COUNT(*) AS num_guias,
+            STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia)) AS trackings_completos,
+            MAX(estado_conciliacion) as estado_conciliacion,
+            MAX(novedades) as novedades,
+            MAX(creado_en) as fecha_creacion,
+            MAX(modificado_en) as fecha_modificacion,
+            MAX(hora_pago) as hora_pago
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        {where_clause}
+        GROUP BY referencia_pago, correo
+        ORDER BY MAX(fecha_pago) DESC, MAX(creado_en) DESC
+        """
+        
+        
+        
+        # Configurar parámetros y ejecutar consulta
+        job_config = bigquery.QueryJobConfig(query_parameters=parametros)
+        
+        # Ejecutar consulta con timeout extendido para exportación
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_export = executor.submit(lambda: client.query(export_query, job_config=job_config).result())
+            export_result = future_export.result(timeout=120)  # 2 minutos para exportación completa
+        
+        # Procesar todos los resultados
+        pagos_exportar = []
+        for row in export_result:
+            pago = {
+                "referencia_pago": row.get("referencia_pago", ""),
+                "valor": float(row.get("valor", 0)) if row.get("valor") else 0.0,
+                "fecha": str(row.get("fecha", "")),
+                "entidad": str(row.get("entidad", "")),
+                "estado_conciliacion": str(row.get("estado_conciliacion", "")),
+                "tipo": str(row.get("tipo", "")),
+                "imagen": str(row.get("imagen", "")),
+                "novedades": str(row.get("novedades", "")),
+                "num_guias": int(row.get("num_guias", 0)),
+                "trackings_completos": str(row.get("trackings_completos", "")),
+                "correo_conductor": str(row.get("correo_conductor", "")),
+                "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
+                "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
+                "hora_pago": str(row.get("hora_pago", ""))
+            }
+            pagos_exportar.append(pago)
+        
+        # Información de la exportación
+        info_exportacion = {
+            "total_registros_exportados": len(pagos_exportar),
+            "filtros_aplicados": {
+                "referencia": referencia,
+                "estado": estado,
+                "fecha_desde": fecha_desde,
+                "fecha_hasta": fecha_hasta
+            },
+            "fecha_exportacion": datetime.now().isoformat()
+        }
+        
+    
+        
+        return {
+            "pagos": pagos_exportar,
+            "info_exportacion": info_exportacion,
+            "status": "success"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor en exportación: {str(e)}"
         )
 

@@ -11,26 +11,26 @@ export const masterRoutes = [
     path: "/master/carriers",
     permission: "master_carriers",
   },
-  {
-    name: "Supervisores",
-    path: "/master/supervisores",
-    permission: "master_supervisores",
-  },
-  {
-    name: "Reportes",
-    path: "/master/reportes",
-    permission: "master_reportes",
-  },
-  {
-    name: "Análisis",
-    path: "/master/analisis",
-    permission: "master_analisis",
-  },
-  {
-    name: "Configuración",
-    path: "/master/configuracion",
-    permission: "master_config",
-  },
+  // {
+  //   name: "Supervisores",
+  //   path: "/master/supervisores",
+  //   permission: "master_supervisores",
+  // },
+  // {
+  //   name: "Reportes",
+  //   path: "/master/reportes",
+  //   permission: "master_reportes",
+  // },
+  // {
+  //   name: "Análisis",
+  //   path: "/master/analisis",
+  //   permission: "master_analisis",
+  // },
+  // {
+  //   name: "Configuración",
+  //   path: "/master/configuracion",
+  //   permission: "master_config",
+  // },
 ];
 
 export const getAvailableMasterRoutes = (permissions: string[]) =>

@@ -46,7 +46,7 @@ export default function HistorialPagos() {
   const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
   const [paginaActual, setPaginaActual] = useState(1);
   const [totalPaginas, setTotalPaginas] = useState(1);
-  const [limite] = useState(50);
+  const [limite] = useState(0); // 0 = TODOS los registros sin límite
   
   const [filtros, setFiltros] = useState<FiltrosHistorial>({
     estado: "",
@@ -58,10 +58,12 @@ export default function HistorialPagos() {
   });
 
   const obtenerHistorial = async (pagina = 1, nuevosFiltros?: FiltrosHistorial) => {
+    console.log(`🔄 [HISTORIAL] Iniciando carga de historial - Página: ${pagina}`);
     setCargando(true);
     setError("");
     
     const filtrosAUsar = nuevosFiltros || filtros;
+    console.log(`📋 [HISTORIAL] Filtros a usar:`, filtrosAUsar);
     
     try {
       // Construir parámetros de consulta
@@ -72,39 +74,63 @@ export default function HistorialPagos() {
       if (filtrosAUsar.referencia) params.append("referencia", filtrosAUsar.referencia);
       params.append("limite", limite.toString());
 
-      const response = await fetch(
-        `https://api.x-cargo.co/pagos/historial?${params.toString()}`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          signal: AbortSignal.timeout(30000)
-        }
-      );
+      const url = `https://api.x-cargo.co/pagos/historial?${params.toString()}`;
+      console.log(`📡 [HISTORIAL] URL completa: ${url}`);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(30000)
+      });
+
+      console.log(`📊 [HISTORIAL] Respuesta:`, {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
 
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
 
       const data = await response.json();
+      console.log(`📦 [HISTORIAL] Datos recibidos:`, data);
+      console.log(`📈 [HISTORIAL] Tipo de datos:`, typeof data);
+      console.log(`📋 [HISTORIAL] Es objeto:`, typeof data === 'object');
+      console.log(`📋 [HISTORIAL] Tiene historial:`, data && 'historial' in data);
       
-      if (data.historial && Array.isArray(data.historial)) {
+      if (data && data.historial && Array.isArray(data.historial)) {
+        console.log(`✅ [HISTORIAL] Datos válidos - ${data.historial.length} registros antes de filtrar`);
+        
         const historialFiltrado = filtrarPorConductorYEntidad(data.historial, filtrosAUsar);
+        console.log(`🔍 [HISTORIAL] Después de filtrar: ${historialFiltrado.length} registros`);
+        
         setPagos(historialFiltrado);
         calcularEstadisticas(historialFiltrado);
         
-        // Calcular paginación (simulada en frontend)
-        const totalRegistros = historialFiltrado.length;
-        setTotalPaginas(Math.ceil(totalRegistros / limite));
-        setPaginaActual(pagina);
+        // Con límite = 0, no hay paginación - mostramos todos los registros
+        if (limite === 0) {
+          setTotalPaginas(1);
+          setPaginaActual(1);
+          console.log(`📄 [HISTORIAL] Sin paginación - todos los registros mostrados`);
+        } else {
+          // Paginación simulada en frontend (para límites > 0)
+          const totalRegistros = historialFiltrado.length;
+          setTotalPaginas(Math.ceil(totalRegistros / limite));
+          setPaginaActual(pagina);
+          console.log(`📄 [HISTORIAL] Con paginación - Página ${pagina} de ${Math.ceil(totalRegistros / limite)}`);
+        }
       } else {
+        console.error(`❌ [HISTORIAL] Datos inválidos:`, data);
         setPagos([]);
         setEstadisticas(null);
+        setError("No se recibieron datos válidos del servidor");
       }
 
     } catch (err: any) {
-      console.error("Error al obtener historial de pagos:", err);
+      console.error("❌ [HISTORIAL] Error completo:", err);
       
       let mensajeError = "Error desconocido";
       
@@ -116,10 +142,12 @@ export default function HistorialPagos() {
         mensajeError = err.message;
       }
       
+      console.error(`💬 [HISTORIAL] Mensaje de error para el usuario:`, mensajeError);
       setError(`Error al cargar historial: ${mensajeError}`);
       setPagos([]);
       setEstadisticas(null);
     } finally {
+      console.log(`🏁 [HISTORIAL] Finalizando carga`);
       setCargando(false);
     }
   };
@@ -267,13 +295,23 @@ export default function HistorialPagos() {
       .map(p => p.estado)
       .filter(estado => estado !== null && estado !== undefined && estado !== '')
   )).sort();
+  
   const entidadesUnicas = Array.from(new Set(
     pagos
       .map(p => p.entidad)
       .filter(entidad => entidad !== null && entidad !== undefined && entidad !== '')
-  )).sort();  // Paginación de datos
-  const inicio = (paginaActual - 1) * limite;
-  const pagosPaginados = pagos.slice(inicio, inicio + limite);
+  )).sort();
+
+  // Paginación de datos - solo aplicar si hay límite
+  const pagosPaginados = limite > 0 
+    ? (() => {
+        const inicio = (paginaActual - 1) * limite;
+        return pagos.slice(inicio, inicio + limite);
+      })()
+    : pagos; // Si límite = 0, mostrar todos los pagos
+
+  // Calcular inicio para mostrar en la tabla
+  const inicio = limite > 0 ? (paginaActual - 1) * limite : 0;
 
   return (
     <div className="historial-pagos">

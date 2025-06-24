@@ -33,50 +33,73 @@ export default function CalendarioConciliacion() {
 
   // Cargar datos del mes
   const cargarDatosMes = async (mes: string) => {
+    console.log(`🔄 Iniciando carga de datos para mes: ${mes}`);
     setIsLoading(true);
     setError(null);
     
     try {
+      const url = `${API_URL}/contabilidad/conciliacion-mensual?mes=${mes}`;
+      console.log(`📡 Llamando a: ${url}`);
+      
       const token = localStorage.getItem("token") || "";
-      const response = await fetch(
-        `${API_URL}/contabilidad/conciliacion-mensual?mes=${mes}`,
-        {
-          headers: token
-            ? {
-                "Authorization": `Bearer ${token}`,
-                "Content-Type": "application/json"
-              }
-            : {
-                "Content-Type": "application/json"
-              }
-        }
-      );
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(token && { "Authorization": `Bearer ${token}` })
+      };
+      
+      console.log("📋 Headers:", headers);
+      
+      const response = await fetch(url, {
+        headers,
+        method: 'GET',
+        // Agregar timeout
+        signal: AbortSignal.timeout(30000) // 30 segundos
+      });
+      
+      console.log(`📊 Respuesta recibida:`, {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
       
       const data = await response.json();
+      console.log("📦 Datos recibidos:", data);
+      console.log("📈 Tipo de datos:", typeof data, "Es array:", Array.isArray(data));
       
       if (Array.isArray(data)) {
         const datosConEstado = data.map((dia: DiaConciliacion) => ({
           ...dia,
           estado: determinarEstado(dia)
         }));
+        console.log(`✅ ${datosConEstado.length} días procesados correctamente`);
         setDatos(datosConEstado);
       } else {
-        console.error("Respuesta inesperada:", data);
+        console.error("❌ Respuesta inesperada - no es array:", data);
+        setError("Los datos recibidos no tienen el formato esperado");
         setDatos([]);
       }
     } catch (err) {
-      // Mejora: mensaje claro si es error de red
+      console.error("❌ Error completo:", err);
+      
+      let mensajeError = "Error desconocido";
+      
       if (err instanceof TypeError && err.message === "Failed to fetch") {
-        setError("No se pudo conectar con el servidor. Verifique su conexión de red o que el servidor esté disponible.");
-      } else {
-        setError(err instanceof Error ? err.message : "Error desconocido");
+        mensajeError = "No se pudo conectar con el servidor. Verifique que el backend esté ejecutándose en https://api.x-cargo.co";
+      } else if (err instanceof Error && err.name === 'AbortError') {
+        mensajeError = "La consulta tardó demasiado tiempo (más de 30 segundos)";
+      } else if (err instanceof Error) {
+        mensajeError = err.message;
       }
+      
+      console.error("💬 Mensaje de error para el usuario:", mensajeError);
+      setError(mensajeError);
       setDatos([]);
     } finally {
+      console.log("🏁 Finalizando carga de datos");
       setIsLoading(false);
     }
   };

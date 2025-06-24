@@ -97,7 +97,7 @@ export default function CarrierManagement() {
     };
   }, [user]);
   const cargarDatos = useCallback(
-    async (page: number = currentPage) => {
+    async (page: number = 1) => {
       if (!user || !mountedRef.current) return;
 
       try {
@@ -121,24 +121,51 @@ export default function CarrierManagement() {
           params.toString() ? "?" + params.toString() : ""
         }`;
 
+        console.log("🔍 Enviando request a:", url);
+        console.log("📋 Headers:", getHeaders());
+
         const response = await fetch(url, {
           headers: getHeaders(),
+          signal: AbortSignal.timeout(60000), // 60 segundos timeout
         });
 
+        console.log("📡 Response status:", response.status);
+
         if (!response.ok) {
-          throw new Error(`Error al cargar datos: ${response.statusText}`);
+          const errorText = await response.text();
+          console.error("❌ Error response:", errorText);
+          throw new Error(`Error ${response.status}: ${response.statusText}`);
         }
 
         const responseData: CarrierDataResponse = await response.json();
+        console.log("✅ Datos recibidos:", {
+          total_guias: responseData.resumen_general?.total_guias,
+          guias_count: responseData.guias?.length,
+          carriers_count: responseData.total_carriers,
+        });
+
         if (!mountedRef.current) return;
 
         setData(responseData);
+        setCurrentPage(page);
       } catch (err) {
-        console.error("Error al cargar datos:", err);
+        console.error("❌ Error al cargar datos:", err);
         if (mountedRef.current) {
-          setError(
-            err instanceof Error ? err.message : "Error al cargar los datos"
-          );
+          if (err instanceof Error) {
+            if (err.name === "TimeoutError") {
+              setError(
+                "La consulta tardó demasiado tiempo. Intenta reducir el rango de fechas o usar más filtros."
+              );
+            } else if (err.message.includes("504")) {
+              setError(
+                "Consulta demoró demasiado tiempo. Intenta reducir el rango de fechas o usar más filtros."
+              );
+            } else {
+              setError(err.message);
+            }
+          } else {
+            setError("Error al cargar los datos");
+          }
         }
       } finally {
         if (mountedRef.current) {
@@ -146,7 +173,7 @@ export default function CarrierManagement() {
         }
       }
     },
-    [user, getHeaders, filtros, currentPage, pageSize]
+    [user, getHeaders, filtros, pageSize]
   );
 
   const exportarDatos = useCallback(
@@ -255,13 +282,89 @@ export default function CarrierManagement() {
     }
   };
 
-  // useEffect para cargar datos cuando cambian filtros, página o tamaño de página
+  // useEffect ÚNICO para carga inicial - SIN dependencias problemáticas
   useEffect(() => {
-    cargarDatos(currentPage);
+    mountedRef.current = true;
+
+    // Función interna que no depende de cargarDatos
+    const cargarDatosIniciales = async () => {
+      if (!user) return;
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        const params = new URLSearchParams();
+        params.append("page", "1");
+        params.append("page_size", "50");
+
+        const url = `https://api.x-cargo.co/master/carriers/guias?${params.toString()}`;
+
+        console.log("🔍 Carga inicial - Request a:", url);
+
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${user.token}`,
+            "X-User-Email": user.email,
+            "X-User-Role": user.role,
+          },
+          signal: AbortSignal.timeout(60000),
+        });
+
+        console.log("📡 Carga inicial - Response status:", response.status);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error("❌ Error en carga inicial:", errorText);
+          throw new Error(`Error ${response.status}: ${response.statusText}`);
+        }
+
+        const responseData: CarrierDataResponse = await response.json();
+        console.log("✅ Carga inicial completada:", {
+          total_guias: responseData.resumen_general?.total_guias,
+          guias_count: responseData.guias?.length,
+          carriers_count: responseData.total_carriers,
+        });
+
+        if (mountedRef.current) {
+          setData(responseData);
+          setCurrentPage(1);
+        }
+      } catch (err) {
+        console.error("❌ Error en carga inicial:", err);
+        if (mountedRef.current) {
+          if (err instanceof Error) {
+            if (err.name === "TimeoutError") {
+              setError(
+                "La consulta tardó demasiado tiempo. Intenta reducir el rango de fechas o usar más filtros."
+              );
+            } else if (err.message.includes("504")) {
+              setError(
+                "Consulta demoró demasiado tiempo. Intenta reducir el rango de fechas o usar más filtros."
+              );
+            } else {
+              setError(err.message);
+            }
+          } else {
+            setError("Error al cargar los datos");
+          }
+        }
+      } finally {
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+      }
+    };
+
+    // Solo cargar datos iniciales si tenemos usuario
+    if (user?.token) {
+      cargarDatosIniciales();
+    }
+
     return () => {
       mountedRef.current = false;
     };
-  }, [currentPage, pageSize, filtros]);
+  }, [user?.token]); // Solo cuando cambia el token
 
   if (!user) {
     return (

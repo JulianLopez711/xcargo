@@ -701,6 +701,7 @@ class NuevoRol(BaseModel):
     nombre_rol: str
     descripcion: Optional[str] = None
     ruta_defecto: Optional[str] = None
+    permisos_seleccionados: List[str] = []
 
 class NuevoPermiso(BaseModel):
     """Modelo para crear un nuevo permiso"""
@@ -709,6 +710,10 @@ class NuevoPermiso(BaseModel):
     descripcion: Optional[str] = None
     modulo: str
     ruta: Optional[str] = None
+
+class ActualizarPermisosRequest(BaseModel):
+    """Modelo para actualizar permisos de un rol"""
+    permisos: List[str]
 
 @router.get("/roles-con-permisos", response_model=List[RolConPermisos])
 async def obtener_roles_con_permisos(
@@ -837,6 +842,23 @@ async def crear_rol(
         
         bq_client.query(insert_query, job_config=job_config).result()
         
+        # Insertar permisos iniciales si se proporcionaron
+        if rol.permisos_seleccionados:
+            values = ", ".join([f"(@id_rol, @permiso_{i})" for i in range(len(rol.permisos_seleccionados))])
+            permisos_query = f"""
+            INSERT INTO `{PROJECT_ID}.{DATASET}.rol_permisos` (id_rol, id_permiso)
+            VALUES {values}
+            """
+            
+            params = [bigquery.ScalarQueryParameter("id_rol", "STRING", rol.id_rol)]
+            params.extend([
+                bigquery.ScalarQueryParameter(f"permiso_{i}", "STRING", permiso_id)
+                for i, permiso_id in enumerate(rol.permisos_seleccionados)
+            ])
+            
+            job_config = bigquery.QueryJobConfig(query_parameters=params)
+            bq_client.query(permisos_query, job_config=job_config).result()
+        
         return {"message": "Rol creado exitosamente"}
 
     except HTTPException as he:
@@ -905,7 +927,7 @@ async def crear_permiso(
 @router.post("/rol/{id_rol}/permisos")
 async def actualizar_permisos_rol(
     id_rol: str,
-    permisos_ids: List[str] = Form(...),
+    request: ActualizarPermisosRequest,
     user = Depends(verificar_admin)
 ):
     """
@@ -932,6 +954,26 @@ async def actualizar_permisos_rol(
         if result.count == 0:
             raise HTTPException(status_code=404, detail="Rol no encontrado")
 
+        # Validar que todos los permisos existen
+        if request.permisos:
+            permisos_check = ", ".join([f"@permiso_{i}" for i in range(len(request.permisos))])
+            validate_query = f"""
+            SELECT COUNT(*) as count
+            FROM `{PROJECT_ID}.{DATASET}.permisos`
+            WHERE id_permiso IN ({permisos_check})
+            """
+            
+            validate_params = [
+                bigquery.ScalarQueryParameter(f"permiso_{i}", "STRING", permiso_id)
+                for i, permiso_id in enumerate(request.permisos)
+            ]
+            
+            validate_job_config = bigquery.QueryJobConfig(query_parameters=validate_params)
+            validate_result = next(bq_client.query(validate_query, validate_job_config).result())
+            
+            if validate_result.count != len(request.permisos):
+                raise HTTPException(status_code=400, detail="Algunos permisos no existen")
+
         # Eliminar permisos actuales del rol
         delete_query = f"""
         DELETE FROM `{PROJECT_ID}.{DATASET}.rol_permisos`
@@ -941,8 +983,8 @@ async def actualizar_permisos_rol(
         bq_client.query(delete_query, job_config=job_config).result()
 
         # Insertar nuevos permisos
-        if permisos_ids:
-            values = ", ".join([f"(@id_rol, @permiso_{i})" for i in range(len(permisos_ids))])
+        if request.permisos:
+            values = ", ".join([f"(@id_rol, @permiso_{i})" for i in range(len(request.permisos))])
             insert_query = f"""
             INSERT INTO `{PROJECT_ID}.{DATASET}.rol_permisos` (id_rol, id_permiso)
             VALUES {values}
@@ -951,12 +993,13 @@ async def actualizar_permisos_rol(
             params = [bigquery.ScalarQueryParameter("id_rol", "STRING", id_rol)]
             params.extend([
                 bigquery.ScalarQueryParameter(f"permiso_{i}", "STRING", permiso_id)
-                for i, permiso_id in enumerate(permisos_ids)
+                for i, permiso_id in enumerate(request.permisos)
             ])
             
             job_config = bigquery.QueryJobConfig(query_parameters=params)
             bq_client.query(insert_query, job_config=job_config).result()
 
+        logger.info(f"✅ Permisos actualizados para rol {id_rol}: {len(request.permisos)} permisos")
         return {"message": "Permisos actualizados exitosamente"}
 
     except HTTPException as he:
