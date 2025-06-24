@@ -791,38 +791,57 @@
   display: flex;
   gap: 1rem;
   justify-content: flex-end;
+  align-items: center; /* Mejorar alineación vertical */
   padding-top: 1.5rem;
   border-top: 1px solid #e5e7eb;
+  margin-top: 1rem; /* Más espacio desde el contenido */
 }
 
 .btn-conciliar-manual {
-  background: #22c55e;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
   color: white;
-  padding: 10px 20px;
+  padding: 14px 24px; /* Más padding para mejor área de clic */
   border: none;
-  border-radius: 6px;
+  border-radius: 8px; /* Bordes más redondeados */
   font-weight: 600;
+  font-size: 14px; /* Tamaño de fuente consistente */
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: all 0.3s ease;
+  min-height: 44px; /* Altura mínima para mejor accesibilidad */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(34, 197, 94, 0.2);
 }
 
 .btn-conciliar-manual:hover {
-  background: #16a34a;
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(34, 197, 94, 0.3);
 }
 
 .btn-cerrar {
-  background: #6b7280;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
-  padding: 10px 20px;
+  padding: 14px 24px; /* Mismas dimensiones que el otro botón */
   border: none;
-  border-radius: 6px;
+  border-radius: 8px; /* Bordes consistentes */
   font-weight: 600;
+  font-size: 14px; /* Tamaño de fuente consistente */
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: all 0.3s ease;
+  min-height: 44px; /* Altura mínima igual al otro botón */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);
+  min-width: 100px; /* Ancho mínimo para consistencia */
 }
 
 .btn-cerrar:hover {
-  background: #4b5563;
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(239, 68, 68, 0.3);
 }
 
 /* ===================
@@ -861,6 +880,15 @@
   
   .modal-acciones {
     flex-direction: column;
+    gap: 12px; /* Reducir gap en móvil */
+  }
+  
+  .btn-conciliar-manual,
+  .btn-cerrar {
+    width: 100%; /* Botones de ancho completo en móvil */
+    padding: 16px 20px; /* Más padding vertical para mejor toque */
+    font-size: 16px; /* Texto más grande en móvil */
+    min-height: 50px; /* Altura mayor para mejor accesibilidad táctil */
   }
 }
 
@@ -875,6 +903,23 @@
   
   .acciones {
     flex-direction: column;
+  }
+}
+
+/* ===================
+   PARA TABLETS
+   =================== */
+
+@media (max-width: 1024px) and (min-width: 769px) {
+  .modal-acciones {
+    gap: 16px; /* Más espacio entre botones en tablet */
+  }
+  
+  .btn-conciliar-manual,
+  .btn-cerrar {
+    padding: 16px 28px; /* Más padding en tablet */
+    font-size: 15px;
+    min-height: 48px;
   }
 }
 

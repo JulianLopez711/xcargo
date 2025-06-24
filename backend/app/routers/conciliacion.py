@@ -1629,6 +1629,13 @@ async def obtener_movimientos_banco_disponibles(
     client = bigquery.Client()
     
     try:
+        # Validar rangos de valor para evitar consultas demasiado amplias
+        if valor_max / valor_min > 10:  # Si el rango es mayor a 10x, es demasiado amplio
+            raise HTTPException(
+                status_code=400, 
+                detail="Rango de valor demasiado amplio. La diferencia no debe ser mayor a 10x"
+            )
+        
         query = """
         SELECT 
             id,
@@ -1644,7 +1651,7 @@ async def obtener_movimientos_banco_disponibles(
         WHERE fecha BETWEEN @fecha_inicio AND @fecha_fin
         AND valor_banco BETWEEN @valor_min AND @valor_max
         AND estado_conciliacion = @estado
-        ORDER BY fecha DESC, valor_banco DESC
+        ORDER BY ABS(valor_banco - (@valor_min + @valor_max) / 2), fecha DESC
         LIMIT 50
         """
         
@@ -1787,7 +1794,7 @@ async def obtener_transacciones_bancarias_disponibles(referencia: str):
         entidad_pago = (pago["entidad"] or "").lower()
         tipo_pago = (pago["tipo"] or "").lower()
         
-        # Buscar SOLO transacciones bancarias pendientes de conciliar (no conciliadas)
+        # Buscar SOLO transacciones bancarias pendientes con filtros más estrictos
         query_transacciones = """
         SELECT 
             id,
@@ -1801,10 +1808,17 @@ async def obtener_transacciones_bancarias_disponibles(referencia: str):
             estado_conciliacion
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
         WHERE fecha BETWEEN DATE_SUB(@fecha_pago, INTERVAL 15 DAY) AND DATE_ADD(@fecha_pago, INTERVAL 15 DAY)
-        AND valor_banco BETWEEN (@valor_pago * 0.5) AND (@valor_pago * 1.5)
+        AND CASE 
+            WHEN @valor_pago <= 50000 THEN 
+                valor_banco BETWEEN (@valor_pago * 0.8) AND (@valor_pago * 1.2)
+            WHEN @valor_pago <= 200000 THEN 
+                valor_banco BETWEEN (@valor_pago * 0.9) AND (@valor_pago * 1.1)
+            ELSE 
+                valor_banco BETWEEN (@valor_pago * 0.95) AND (@valor_pago * 1.05)
+        END
         AND (estado_conciliacion = 'pendiente' OR estado_conciliacion IS NULL)
         AND (referencia_pago_asociada IS NULL OR referencia_pago_asociada = '')
-        ORDER BY fecha DESC, valor_banco DESC
+        ORDER BY ABS(valor_banco - @valor_pago), fecha DESC
         LIMIT 20
         """
         
@@ -1817,8 +1831,30 @@ async def obtener_transacciones_bancarias_disponibles(referencia: str):
         
         transacciones = list(client.query(query_transacciones, job_config=job_config_transacciones).result())
         
+        # 🔍 DEBUG: Log de filtrado
+        logger.info(f"🔍 Filtrado para referencia {referencia}:")
+        logger.info(f"   💰 Valor pago: ${valor_pago:,.0f}")
+        logger.info(f"   📅 Fecha pago: {fecha_pago}")
+        logger.info(f"   🏦 Transacciones encontradas: {len(transacciones)}")
+        
+        if valor_pago > 200000:
+            rango_min = valor_pago * 0.95
+            rango_max = valor_pago * 1.05
+            logger.info(f"   📊 Rango estricto (5%): ${rango_min:,.0f} - ${rango_max:,.0f}")
+        elif valor_pago > 50000:
+            rango_min = valor_pago * 0.9
+            rango_max = valor_pago * 1.1
+            logger.info(f"   📊 Rango medio (10%): ${rango_min:,.0f} - ${rango_max:,.0f}")
+        else:
+            rango_min = valor_pago * 0.8
+            rango_max = valor_pago * 1.2
+            logger.info(f"   📊 Rango amplio (20%): ${rango_min:,.0f} - ${rango_max:,.0f}")
+        
         resultados = []
         for transaccion in transacciones:
+            valor_transaccion = float(transaccion["valor_banco"])
+            logger.info(f"   🔄 Procesando transacción: ${valor_transaccion:,.0f} (ID: {transaccion['id']})")
+            
             # ✅ CALCULAR PORCENTAJE DE SIMILITUD
             porcentaje_similitud = calcular_porcentaje_similitud(
                 pago_fecha=fecha_pago,
@@ -1831,6 +1867,20 @@ async def obtener_transacciones_bancarias_disponibles(referencia: str):
                 banco_tipo=transaccion["tipo"] or "",
                 banco_descripcion=transaccion["descripcion"] or ""
             )
+            
+            # 🛡️ VALIDACIÓN ADICIONAL: No incluir transacciones con diferencias extremas de valor
+            diferencia_porcentual = abs(valor_transaccion - valor_pago) / max(valor_pago, valor_transaccion)
+            
+            # Filtro de seguridad adicional basado en el monto
+            if valor_pago > 200000 and diferencia_porcentual > 0.05:  # 5% para pagos grandes
+                logger.warning(f"   ⚠️ Transacción rechazada por diferencia extrema: {diferencia_porcentual:.2%}")
+                continue
+            elif valor_pago > 50000 and diferencia_porcentual > 0.1:   # 10% para pagos medianos  
+                logger.warning(f"   ⚠️ Transacción rechazada por diferencia extrema: {diferencia_porcentual:.2%}")
+                continue
+            elif diferencia_porcentual > 0.2:                           # 20% para pagos pequeños
+                logger.warning(f"   ⚠️ Transacción rechazada por diferencia extrema: {diferencia_porcentual:.2%}")
+                continue
             
             resultados.append({
                 "id": transaccion["id"],
@@ -1893,22 +1943,56 @@ def calcular_porcentaje_similitud(
         else:
             similitud_fecha = 0.0
         
-        # 2. SIMILITUD DE VALOR (40% del peso total)
+        # 2. SIMILITUD DE VALOR (40% del peso total) - MÁS ESTRICTA
         diferencia_valor = abs(banco_valor - pago_valor)
         porcentaje_diferencia = diferencia_valor / max(pago_valor, banco_valor) if max(pago_valor, banco_valor) > 0 else 1
         
-        if porcentaje_diferencia == 0:
-            similitud_valor = 1.0
-        elif porcentaje_diferencia <= 0.01:  # 1% diferencia
-            similitud_valor = 0.95
-        elif porcentaje_diferencia <= 0.05:  # 5% diferencia
-            similitud_valor = 0.8
-        elif porcentaje_diferencia <= 0.1:   # 10% diferencia
-            similitud_valor = 0.6
-        elif porcentaje_diferencia <= 0.2:   # 20% diferencia
-            similitud_valor = 0.3
-        else:
-            similitud_valor = 0.0
+        # Rangos más estrictos según el monto
+        if pago_valor <= 50000:  # Pagos pequeños: tolerancia del 20%
+            if porcentaje_diferencia == 0:
+                similitud_valor = 1.0
+            elif porcentaje_diferencia <= 0.005:  # 0.5% diferencia
+                similitud_valor = 0.95
+            elif porcentaje_diferencia <= 0.02:   # 2% diferencia
+                similitud_valor = 0.8
+            elif porcentaje_diferencia <= 0.05:   # 5% diferencia
+                similitud_valor = 0.6
+            elif porcentaje_diferencia <= 0.1:    # 10% diferencia
+                similitud_valor = 0.3
+            elif porcentaje_diferencia <= 0.2:    # 20% diferencia
+                similitud_valor = 0.1
+            else:
+                similitud_valor = 0.0
+        elif pago_valor <= 200000:  # Pagos medianos: tolerancia del 10%
+            if porcentaje_diferencia == 0:
+                similitud_valor = 1.0
+            elif porcentaje_diferencia <= 0.002:  # 0.2% diferencia
+                similitud_valor = 0.95
+            elif porcentaje_diferencia <= 0.01:   # 1% diferencia
+                similitud_valor = 0.8
+            elif porcentaje_diferencia <= 0.03:   # 3% diferencia
+                similitud_valor = 0.6
+            elif porcentaje_diferencia <= 0.05:   # 5% diferencia
+                similitud_valor = 0.3
+            elif porcentaje_diferencia <= 0.1:    # 10% diferencia
+                similitud_valor = 0.1
+            else:
+                similitud_valor = 0.0
+        else:  # Pagos grandes: tolerancia del 5%
+            if porcentaje_diferencia == 0:
+                similitud_valor = 1.0
+            elif porcentaje_diferencia <= 0.001:  # 0.1% diferencia
+                similitud_valor = 0.95
+            elif porcentaje_diferencia <= 0.005:  # 0.5% diferencia
+                similitud_valor = 0.8
+            elif porcentaje_diferencia <= 0.01:   # 1% diferencia
+                similitud_valor = 0.6
+            elif porcentaje_diferencia <= 0.02:   # 2% diferencia
+                similitud_valor = 0.3
+            elif porcentaje_diferencia <= 0.05:   # 5% diferencia
+                similitud_valor = 0.1
+            else:
+                similitud_valor = 0.0
         
         # 3. SIMILITUD DE TIPO/ENTIDAD (20% del peso total)
         similitud_tipo = 0.0
@@ -1970,14 +2054,14 @@ def calcular_porcentaje_similitud(
 
 
 def get_nivel_match(porcentaje: float) -> str:
-    """Determina el nivel de match basado en el porcentaje"""
-    if porcentaje >= 90:
+    """Determina el nivel de match basado en el porcentaje - UMBRALES MÁS ESTRICTOS"""
+    if porcentaje >= 95:
         return "🟢 Excelente"
-    elif porcentaje >= 75:
+    elif porcentaje >= 85:
         return "🟡 Bueno"
-    elif porcentaje >= 60:
+    elif porcentaje >= 70:
         return "🟠 Regular"
-    elif porcentaje >= 40:
+    elif porcentaje >= 50:
         return "🔴 Bajo"
     else:
         return "⚫ Muy Bajo"
