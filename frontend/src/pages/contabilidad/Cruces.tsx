@@ -427,45 +427,6 @@ const Cruces: React.FC = () => {
     }
   };
 
-  // ✅ FUNCIÓN MARCAR CONCILIADO MANUAL IMPLEMENTADA
-  const marcarConciliadoManual = async (
-    idBanco: string,
-    referenciaPago?: string
-  ) => {
-    try {
-      const usuario = localStorage.getItem("correo") || "sistema@x-cargo.co";
-      const res = await fetch(
-        `${API_BASE_URL}/conciliacion/marcar-conciliado-manual`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            id_banco: idBanco,
-            referencia_pago: referenciaPago,
-            observaciones: "Conciliado manualmente por usuario",
-            usuario,
-          }),
-        }
-      );
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Error al conciliar");
-      }
-
-      setMensaje("✅ Conciliación manual completada");
-
-      // Recargar datos
-      await cargarEstadisticas();
-      await ejecutarConciliacion(); // Actualizar resultados completos
-    } catch (err: any) {
-      setMensaje("❌ Error: " + err.message);
-      console.error("Error en conciliación manual:", err);
-    }
-  };
-
   // ✅ NUEVA FUNCIÓN PARA OBTENER TRANSACCIONES BANCARIAS DISPONIBLES
   const obtenerTransaccionesBancarias = async (referenciaPago: string) => {
     try {
@@ -1563,11 +1524,10 @@ const Cruces: React.FC = () => {
                 <button
                   className="btn-conciliar-manual"
                   onClick={() => {
-                    marcarConciliadoManual(
-                      modalDetalle.id_banco,
-                      modalDetalle.referencia_pago
-                    );
+                    // Cerrar el modal de detalle
                     setModalDetalle(null);
+                    // Abrir el modal de selección de transacciones bancarias
+                    mostrarModalSeleccionTransaccionBanco(modalDetalle);
                   }}
                 >
                   ✅ Conciliar Manualmente
