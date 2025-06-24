@@ -66,20 +66,54 @@ jobs:
           echo "Configurando SSH..."
           ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts 2>/dev/null
 
-          # Verificar conectividad SSH
-          echo "Verificando conectividad SSH..."
-          for i in {1..12}; do
-            if nc -z $SSH_HOST 22; then
-              echo "✅ Conexión SSH establecida"
-              break
-            fi
-            echo "⏳ Esperando conexión SSH... (intento $i/12)"
-            sleep 5
-            if [ $i -eq 12 ]; then
-              echo "❌ Error: No se pudo establecer conexión SSH"
-              exit 1
-            fi
-          done
+          # Función para verificar conectividad SSH con reintentos
+          verificar_ssh() {
+            local intentos=0
+            local max_intentos=15
+            
+            while [ $intentos -lt $max_intentos ]; do
+              if nc -z -w5 $SSH_HOST 22; then
+                echo "✅ Conexión SSH verificada (intento $((intentos + 1)))"
+                return 0
+              fi
+              intentos=$((intentos + 1))
+              echo "⏳ Esperando conexión SSH... (intento $intentos/$max_intentos)"
+              sleep 3
+            done
+            
+            echo "❌ Error: No se pudo establecer conexión SSH después de $max_intentos intentos"
+            return 1
+          }
+
+          # Función para ejecutar comandos SSH con reintentos
+          ejecutar_ssh() {
+            local comando="$1"
+            local descripcion="$2"
+            local intentos=0
+            local max_intentos=3
+            
+            while [ $intentos -lt $max_intentos ]; do
+              echo "Ejecutando: $descripcion (intento $((intentos + 1))/$max_intentos)"
+              
+              if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 $SSH_USER@$SSH_HOST "$comando"; then
+                echo "✅ $descripcion completado exitosamente"
+                return 0
+              fi
+              
+              intentos=$((intentos + 1))
+              if [ $intentos -lt $max_intentos ]; then
+                echo "⚠️ Falló $descripcion, reintentando en 5 segundos..."
+                sleep 5
+                verificar_ssh || return 1
+              fi
+            done
+            
+            echo "❌ Error: $descripcion falló después de $max_intentos intentos"
+            return 1
+          }
+
+          # Verificar conectividad inicial
+          verificar_ssh || exit 1
 
           # Verificar que el directorio dist existe
           if [ ! -d "frontend/dist" ]; then
@@ -88,53 +122,57 @@ jobs:
           fi
 
           # Crear estructura de directorios en el servidor
-          echo "Preparando directorios en el servidor..."
-          ssh $SSH_USER@$SSH_HOST -o StrictHostKeyChecking=no "
-            mkdir -p $DEPLOY_PATH/frontend/temp &&
-            echo '✅ Directorios creados correctamente'
-          " || {
-            echo "❌ Error: No se pudieron crear los directorios"
-            exit 1
-          }
+          ejecutar_ssh "mkdir -p $DEPLOY_PATH/frontend/temp && echo 'Directorios creados correctamente'" "Creación de directorios" || exit 1
 
-          # Transferir archivos
+          # Transferir archivos con reintentos
           echo "Transfiriendo archivos..."
-          scp -r -o StrictHostKeyChecking=no frontend/dist/* $SSH_USER@$SSH_HOST:$DEPLOY_PATH/frontend/temp/ || {
-            echo "❌ Error: Falló la transferencia de archivos"
+          transfer_intentos=0
+          max_transfer_intentos=3
+          
+          while [ $transfer_intentos -lt $max_transfer_intentos ]; do
+            transfer_intentos=$((transfer_intentos + 1))
+            echo "Intento de transferencia $transfer_intentos/$max_transfer_intentos"
+            
+            if scp -r -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=10 frontend/dist/* $SSH_USER@$SSH_HOST:$DEPLOY_PATH/frontend/temp/; then
+              echo "✅ Transferencia completada exitosamente"
+              break
+            fi
+            
+            if [ $transfer_intentos -lt $max_transfer_intentos ]; then
+              echo "⚠️ Falló la transferencia, reintentando en 5 segundos..."
+              sleep 5
+              verificar_ssh || exit 1
+            else
+              echo "❌ Error: Falló la transferencia después de $max_transfer_intentos intentos"
+              exit 1
+            fi
+          done
+
+          # Realizar el despliegue atómico con script mejorado
+          echo "Realizando despliegue atómico..."
+          
+          # Script de despliegue dividido en pasos más pequeños para evitar timeouts
+          echo "Paso 1: Preparando backup..."
+          ejecutar_ssh "cd $DEPLOY_PATH && if [ -d frontend/dist ]; then mv frontend/dist frontend/dist_backup_\$(date +%Y%m%d_%H%M%S); echo 'Backup creado'; else echo 'No hay directorio previo para backup'; fi" "Crear backup" || exit 1
+          
+          echo "Paso 2: Moviendo archivos nuevos..."
+          ejecutar_ssh "cd $DEPLOY_PATH && mv frontend/temp frontend/dist && echo 'Archivos movidos exitosamente'" "Mover archivos" || {
+            echo "Error moviendo archivos, intentando restaurar..."
+            ejecutar_ssh "cd $DEPLOY_PATH && LATEST_BACKUP=\$(ls -dt frontend/dist_backup_* 2>/dev/null | head -n1) && if [ -n \"\$LATEST_BACKUP\" ]; then rm -rf frontend/dist 2>/dev/null || true && mv \"\$LATEST_BACKUP\" frontend/dist && echo 'Backup restaurado'; fi" "Restaurar backup"
             exit 1
           }
-
-          # Realizar el despliegue atómico
-          echo "Realizando despliegue..."
-          ssh $SSH_USER@$SSH_HOST -o StrictHostKeyChecking=no "
-            cd $DEPLOY_PATH &&
-            # Backup del directorio actual si existe
-            if [ -d frontend/dist ]; then
-              echo 'Creando backup...' &&
-              mv frontend/dist frontend/dist_backup_\$(date +%Y%m%d_%H%M%S)
-            fi &&
-            # Mover los nuevos archivos
-            echo 'Moviendo nuevos archivos...' &&
-            mv frontend/temp frontend/dist &&
-            # Limpiar backups antiguos (mantener solo los 3 más recientes)
-            ls -dt frontend/dist_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true &&
-            # Recargar nginx
-            echo 'Recargando nginx...' &&
-            sudo systemctl reload nginx &&
-            echo '✅ Despliegue completado exitosamente'
-          " || {
-            echo "❌ Error durante el despliegue"
-            # Intentar restaurar backup si existe
-            ssh $SSH_USER@$SSH_HOST "
-              if [ -d $DEPLOY_PATH/frontend/dist_backup_* ]; then
-                echo 'Restaurando backup...'
-                rm -rf $DEPLOY_PATH/frontend/dist 2>/dev/null || true
-                mv \$(ls -dt $DEPLOY_PATH/frontend/dist_backup_* | head -n1) $DEPLOY_PATH/frontend/dist
-                sudo systemctl reload nginx
-                echo '✅ Backup restaurado'
-              fi
-            "
-            exit 1
+          
+          echo "Paso 3: Verificando integridad..."
+          ejecutar_ssh "cd $DEPLOY_PATH && if [ ! -d frontend/dist ] || [ -z \"\$(ls -A frontend/dist 2>/dev/null)\" ]; then echo 'Error: directorio vacío'; exit 1; else echo 'Verificación exitosa: \$(ls frontend/dist | wc -l) archivos'; fi" "Verificar archivos" || exit 1
+          
+          echo "Paso 4: Limpiando backups antiguos..."
+          ejecutar_ssh "cd $DEPLOY_PATH && ls -dt frontend/dist_backup_* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true && echo 'Limpieza completada'" "Limpiar backups" || echo "⚠️ Error en limpieza (no crítico)"
+          
+          echo "Paso 5: Recargando nginx..."
+          ejecutar_ssh "sudo systemctl reload nginx && echo 'Nginx recargado exitosamente'" "Recargar nginx" || {
+            echo "⚠️ Error recargando nginx, pero archivos desplegados correctamente"
+            echo "Puedes recargar nginx manualmente con: sudo systemctl reload nginx"
           }
 
           echo "🚀 Frontend desplegado exitosamente en $SSH_HOST"
+          echo "✅ Proceso completado sin errores"
