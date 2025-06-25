@@ -273,7 +273,8 @@ async def get_dashboard_supervisor(current_user = Depends(verificar_supervisor))
             dias_desde_actividad = 999
             
             if row.ultima_actividad:
-                dias_desde_actividad = (datetime.now().date() - row.ultima_actividad.date()).days
+                # ✅ CORREGIDO: row.ultima_actividad ya es un objeto date, no necesita .date()
+                dias_desde_actividad = (datetime.now().date() - row.ultima_actividad).days
             
             # Criterios de estado actualizados
             if row.guias_disponibles_pago and int(row.guias_disponibles_pago) > 0:
