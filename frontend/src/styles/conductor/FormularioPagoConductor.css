@@ -413,6 +413,55 @@ div[style*="margin: 1rem 0"] {
   }
 }
 
+/* 🔥 NUEVO: Estilos para referencias repetidas */
+.referencia-repetida {
+  background-color: #fffbeb !important;
+  border-left: 4px solid #fbbf24;
+}
+
+.referencia-repetida:hover {
+  background-color: #fef3c7 !important;
+}
+
+.indicador-repetida {
+  animation: pulseWarning 2s infinite;
+}
+
+@keyframes pulseWarning {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Mejorar tooltips */
+.indicador-repetida:hover {
+  cursor: help;
+  transform: scale(1.1);
+  transition: transform 0.2s ease;
+}
+
+/* Alerta de información para referencias repetidas */
+.alerta-referencias-repetidas {
+  background-color: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+  color: #92400e;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.alerta-referencias-repetidas::before {
+  content: '⚠️';
+  font-size: 1.2rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .registrar-pago {

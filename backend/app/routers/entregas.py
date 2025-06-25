@@ -44,19 +44,25 @@ def obtener_entregas_consolidadas(
         where_clause = ""
         if condiciones:
             where_clause = "AND " + " AND ".join(condiciones)
-        
-        # Filtro de conciliación
+          # Filtro de conciliación
         filtro_conciliacion = ""
         if solo_conciliadas:
             filtro_conciliacion = "AND bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual', 'conciliado')"
-        
         query = f"""
         WITH entregas_procesadas AS (
-            SELECT 
+            SELECT                
                 COALESCE(pc.tracking, pc.referencia_pago) as tracking,
                 pc.referencia_pago,
                 COALESCE(pc.cliente, 'Sin Cliente') as cliente,
-                COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor,
+                CAST(pc.valor AS FLOAT64) as valor_consignacion,
+                
+                -- Obtener valor real del tracking desde guias_liquidacion o COD_pendientes_v1
+                COALESCE(
+                    gl.valor_guia, 
+                    SAFE_CAST(cod.Valor AS FLOAT64),
+                    CAST(pc.valor AS FLOAT64)
+                ) as valor_tracking,
+                
                 pc.fecha_pago,
                 COALESCE(pc.correo, 'conductor@unknown.com') as correo_conductor,
                 COALESCE(pc.entidad, 'Sin Entidad') as entidad_pago,
@@ -68,13 +74,13 @@ def obtener_entregas_consolidadas(
                 COALESCE(bm.fecha, pc.fecha_pago) as fecha_banco,
                 COALESCE(bm.valor_banco, pc.valor_total_consignacion) as valor_banco,
                 COALESCE(bm.descripcion, 'Sin descripción banco') as descripcion_banco,
-                COALESCE(bm.estado_conciliacion, 'pendiente') as estado_conciliacion_raw,
+                COALESCE(bm.estado_conciliacion, 'pendiente') as estado_conciliacion_raw,                
                 COALESCE(bm.confianza_match, 0) as confianza_match,
                 COALESCE(bm.observaciones, 'Sin observaciones') as observaciones_conciliacion,
                 COALESCE(bm.conciliado_en, bm.cargado_en) as fecha_conciliacion,
-                
+                  
                 -- Validaciones
-                ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, pc.valor_total_consignacion, pc.valor, 0)) as diferencia_valor,
+                ABS(CAST(pc.valor AS FLOAT64) - COALESCE(bm.valor_banco, 0)) as diferencia_valor,
                 
                 -- Estado final procesado
                 CASE 
@@ -95,16 +101,14 @@ END as estado_conciliacion,
     ELSE 'Sin Conciliar'
 END as calidad_conciliacion,
                 
-                -- Flags de validación
+                -- Flags de validación                
                 CASE 
     WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual', 'conciliado') 
          AND pc.estado = 'aprobado' 
     THEN TRUE
     ELSE FALSE
-END as listo_para_liquidar,
-                
-                CASE 
-                    WHEN ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, pc.valor_total_consignacion, pc.valor, 0)) <= 1000 
+END as listo_para_liquidar,                  CASE 
+                    WHEN ABS(CAST(pc.valor AS FLOAT64) - COALESCE(bm.valor_banco, 0)) <= 1000 
                     THEN TRUE
                     ELSE FALSE
                 END as integridad_ok
@@ -113,6 +117,14 @@ END as listo_para_liquidar,
             
             LEFT JOIN `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
                 ON bm.referencia_pago_asociada = pc.referencia_pago
+            
+            -- JOIN para obtener valor real del tracking desde guias_liquidacion
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.guias_liquidacion` gl
+                ON gl.tracking_number = pc.tracking
+            
+            -- JOIN para obtener valor desde COD_pendientes_v1 como fallback
+            LEFT JOIN `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
+                ON cod.tracking_number = pc.tracking
             
             WHERE pc.estado IN ('aprobado', 'pagado')
             AND pc.referencia_pago IS NOT NULL
@@ -125,7 +137,8 @@ END as listo_para_liquidar,
             tracking,
             referencia_pago,
             cliente,
-            valor,
+            valor_consignacion as valor,
+            valor_tracking,
             DATE(fecha_pago) as fecha,
             correo_conductor,
             entidad_pago,
@@ -168,11 +181,11 @@ END as listo_para_liquidar,
             'exactas': 0,
             'aproximadas': 0,
             'manuales': 0,
-            'sin_conciliar': 0
-        }
+            'sin_conciliar': 0        }
         
         for row in resultados:
-            valor = float(row["valor"])
+            valor_consignacion = float(row["valor"])
+            valor_tracking = float(row["valor_tracking"]) if row["valor_tracking"] else valor_consignacion
             diferencia_valor = float(row["diferencia_valor"]) if row["diferencia_valor"] else 0
             
             entrega = {
@@ -180,7 +193,8 @@ END as listo_para_liquidar,
                 "fecha": row["fecha"].isoformat(),
                 "tipo": row["tipo"],
                 "cliente": row["cliente"],
-                "valor": valor,
+                "valor": valor_consignacion,
+                "valor_tracking": valor_tracking,
                 "estado_conciliacion": row["estado_conciliacion"],
                 "referencia_pago": row["referencia_pago"],
                 "correo_conductor": row["correo_conductor"],
@@ -199,7 +213,7 @@ END as listo_para_liquidar,
             }
             
             entregas.append(entrega)
-            total_valor += valor
+            total_valor += valor_consignacion
             
             # Actualizar estadísticas de calidad
             if row["estado_conciliacion"] == "Conciliado Exacto":
@@ -220,7 +234,7 @@ END as listo_para_liquidar,
                 }
             
             clientes_agrupados[cliente_key]["cantidad"] += 1
-            clientes_agrupados[cliente_key]["valor"] += valor
+            clientes_agrupados[cliente_key]["valor"] += valor_consignacion
         
         # Calcular métricas de calidad
         total_entregas = len(entregas)
@@ -265,11 +279,10 @@ def obtener_resumen_liquidaciones():
         query = """
         WITH resumen_clientes AS (
             SELECT 
-                COALESCE(pc.cliente, 'Sin Cliente') as cliente,
-                COUNT(*) as total_entregas,
-                SUM(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)) as valor_total,
+                COALESCE(pc.cliente, 'Sin Cliente') as cliente,                COUNT(*) as total_entregas,
+                SUM(CAST(pc.valor AS FLOAT64)) as valor_total,
                 COUNT(CASE WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') THEN 1 END) as entregas_conciliadas,
-                AVG(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)) as valor_promedio_entrega
+                AVG(CAST(pc.valor AS FLOAT64)) as valor_promedio_entrega
                 
             FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
             
@@ -338,24 +351,23 @@ def validar_integridad_liquidacion(cliente: str):
     client = bigquery.Client()
     
     try:
-        query = """
-        WITH validacion_cliente AS (
+        query = """        WITH validacion_cliente AS (
             SELECT 
                 pc.referencia_pago,
-                COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor_pago,
+                CAST(pc.valor AS FLOAT64) as valor_pago,
                 COALESCE(bm.valor_banco, 0) as valor_banco,
-                ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) as diferencia_valor,
+                ABS(CAST(pc.valor AS FLOAT64) - COALESCE(bm.valor_banco, 0)) as diferencia_valor,
                 bm.estado_conciliacion,
                 pc.estado as estado_pago,
                 
                 CASE 
                     WHEN bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual') 
                          AND pc.estado = 'aprobado'
-                         AND ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) <= 1000
+                         AND ABS(CAST(pc.valor AS FLOAT64) - COALESCE(bm.valor_banco, 0)) <= 1000
                     THEN 'LISTO'
                     WHEN pc.estado = 'aprobado' AND bm.estado_conciliacion IS NULL 
                     THEN 'PENDIENTE_CONCILIAR'
-                    WHEN ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - COALESCE(bm.valor_banco, 0)) > 1000
+                    WHEN ABS(CAST(pc.valor AS FLOAT64) - COALESCE(bm.valor_banco, 0)) > 1000
                     THEN 'DIFERENCIA_VALOR'
                     ELSE 'OTRO_PROBLEMA'
                 END as resultado_validacion
@@ -499,9 +511,8 @@ def obtener_entregas_listas_liquidar(
     query = f"""
     SELECT 
         COALESCE(pc.tracking, pc.referencia_pago) as tracking,
-        pc.referencia_pago,
-        COALESCE(pc.cliente, 'Sin Cliente') as cliente,
-        COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor,
+        pc.referencia_pago,        COALESCE(pc.cliente, 'Sin Cliente') as cliente,
+        CAST(pc.valor AS FLOAT64) as valor,
         DATE(pc.fecha_pago) as fecha,
         COALESCE(pc.correo, 'conductor@unknown.com') as correo_conductor,
         COALESCE(pc.entidad, 'Sin Entidad') as entidad_pago,
@@ -765,15 +776,14 @@ def reparar_referencias_conciliacion():
         
         # 2. Intentar reparar basado en valor y fecha
         query_reparar = """
-        UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
-        SET referencia_pago_asociada = (
+        UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos` bm        SET referencia_pago_asociada = (
             SELECT pc.referencia_pago
             FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
             WHERE pc.estado = 'aprobado'
-            AND ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - bm.valor_banco) <= 1000
+            AND ABS(CAST(pc.valor AS FLOAT64) - bm.valor_banco) <= 1000
             AND ABS(DATE_DIFF(pc.fecha_pago, bm.fecha, DAY)) <= 3
             ORDER BY 
-                ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - bm.valor_banco),
+                ABS(CAST(pc.valor AS FLOAT64) - bm.valor_banco),
                 ABS(DATE_DIFF(pc.fecha_pago, bm.fecha, DAY))
             LIMIT 1
         )
@@ -782,7 +792,7 @@ def reparar_referencias_conciliacion():
         AND EXISTS (
             SELECT 1 FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
             WHERE pc.estado = 'aprobado'
-            AND ABS(COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) - bm.valor_banco) <= 1000
+            AND ABS(CAST(pc.valor AS FLOAT64) - bm.valor_banco) <= 1000
             AND ABS(DATE_DIFF(pc.fecha_pago, bm.fecha, DAY)) <= 3
         )
         """
@@ -827,11 +837,12 @@ def analizar_datos_para_asociar():
         """
         
         # 2. Ver pagos aprobados disponibles
+              
         query_pagos = """
         SELECT 
             referencia_pago,
             fecha_pago,
-            COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64), 0) as valor,
+            CAST(valor AS FLOAT64) as valor,
             COALESCE(cliente, 'Sin Cliente') as cliente,
             correo
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
@@ -1046,11 +1057,10 @@ def verificar_asociaciones_exitosas():
             bm.referencia_pago_asociada,
             
             pc.referencia_pago,
-            pc.fecha_pago,
-            COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0) as valor_pago,
+            pc.fecha_pago,            CAST(pc.valor AS FLOAT64) as valor_pago,
             COALESCE(pc.cliente, 'Sin Cliente') as cliente,
             
-            ABS(bm.valor_banco - COALESCE(pc.valor_total_consignacion, CAST(pc.valor AS FLOAT64), 0)) as diferencia_valor,
+            ABS(bm.valor_banco - CAST(pc.valor AS FLOAT64)) as diferencia_valor,
             ABS(DATE_DIFF(bm.fecha, pc.fecha_pago, DAY)) as diferencia_dias
             
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
@@ -1248,7 +1258,7 @@ async def obtener_estadisticas(
             parametros.append(bigquery.ScalarQueryParameter("fecha_hasta", "DATE", hasta))
             
         if cliente:
-            condiciones.append("COALESCE(cliente, 'Sin Cliente') = @cliente")
+            condiciones.append("COALESCE(cliente, 'Sin Cliente') = @cliente")            
             parametros.append(bigquery.ScalarQueryParameter("cliente", "STRING", cliente))
             
         where_clause = "WHERE " + " AND ".join(condiciones) if condiciones else ""
@@ -1259,8 +1269,8 @@ async def obtener_estadisticas(
             COUNTIF(estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual', 'conciliado')) as entregas_conciliadas,
             COUNTIF(estado_conciliacion = 'pendiente') as entregas_pendientes,
             COUNTIF(estado = 'pagado') as entregas_pagadas,
-            SUM(COALESCE(valor_total_consignacion, valor, 0)) as valor_total,
-            SUM(CASE WHEN estado_conciliacion = 'pendiente' THEN COALESCE(valor_total_consignacion, valor, 0) ELSE 0 END) as valor_pendiente,
+            SUM(CAST(valor AS FLOAT64)) as valor_total,
+            SUM(CASE WHEN estado_conciliacion = 'pendiente' THEN CAST(valor AS FLOAT64) ELSE 0 END) as valor_pendiente,
             COUNT(DISTINCT carrier_id) as carriers_activos,
             COUNT(DISTINCT correo) as conductores_activos
         FROM `pagosconductor`

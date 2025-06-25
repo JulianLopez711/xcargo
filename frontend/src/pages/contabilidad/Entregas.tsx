@@ -9,6 +9,7 @@ interface EntregaConciliada {
   referencia_pago: string;
   cliente: string;
   valor: number;
+  valor_tracking: number;
   fecha: string;
   correo_conductor: string;
   entidad_pago: string;
@@ -200,18 +201,16 @@ export default function EntregasConciliadas() {
 
   // Entregas seleccionadas para procesamiento
   const entregasParaPago = entregas.filter(e => entregasSeleccionadas.has(e.referencia_pago));
-  const totalSeleccionado = entregasParaPago.reduce((sum, e) => sum + e.valor, 0);
-
-  // Exportar a Excel
+  const totalSeleccionado = entregasParaPago.reduce((sum, e) => sum + e.valor, 0);  // Exportar a Excel
   const exportarExcel = () => {
     const datosExport = entregasFiltradas.map(e => ({
       'Tracking': e.tracking,
       'Referencia Pago': e.referencia_pago,
       'Cliente': e.cliente,
-      'Valor': e.valor,
+      'Valor Tracking': e.valor_tracking || e.valor, // Valor real del tracking
+      'Valor Consignación': e.valor,
       'Fecha': e.fecha,
       'Estado Conciliación': e.estado_conciliacion,
-      'Valor Banco': e.valor_banco_conciliado,
       'Entidad Pago': e.entidad_pago,
       'Confianza %': e.confianza_match,
       'Calidad': e.calidad_conciliacion,

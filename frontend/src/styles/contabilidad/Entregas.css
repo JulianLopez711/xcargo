@@ -134,7 +134,7 @@
 }
 
 .estadistica-card.success .card-content h3 {
-  color: #155724;
+  color: #968383;
 }
 
 .estadistica-card.info .card-content h3 {
@@ -346,13 +346,13 @@
 
 .tabla-header h3 {
   margin: 0;
-  color: #495057;
+  color: #f1f1f1;
   font-size: 18px;
   font-weight: 600;
 }
 
 .tabla-info {
-  color: #6c757d;
+  color: #ffffff;
   font-size: 14px;
 }
 

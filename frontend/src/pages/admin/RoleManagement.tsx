@@ -137,8 +137,8 @@ export default function RoleManagement() {
 
     try {
       const [rolesData, permisosData] = await Promise.all([
-        fetchWithAuth("https://api.x-cargo.co/admin/roles-con-permisos"),
-        fetchWithAuth("https://api.x-cargo.co/admin/permisos")
+        fetchWithAuth("http://127.0.0.1:8000/admin/roles-con-permisos"),
+        fetchWithAuth("http://127.0.0.1:8000/admin/permisos")
       ]);
 
       if (!mountedRef.current) return;
@@ -189,7 +189,7 @@ export default function RoleManagement() {
         ? [...rol.permisos.map(p => p.id_permiso), permisoId]
         : rol.permisos.map(p => p.id_permiso).filter(id => id !== permisoId);
 
-      await fetchWithAuth(`https://api.x-cargo.co/admin/rol/${rolId}/permisos`, {
+      await fetchWithAuth(`http://127.0.0.1:8000/admin/rol/${rolId}/permisos`, {
         method: "POST",
         body: JSON.stringify({ permisos: nuevosPermisos })
       });
@@ -226,7 +226,7 @@ export default function RoleManagement() {
 
     try {
       setEstado(prev => ({ ...prev, isLoading: true }));
-      await fetchWithAuth("https://api.x-cargo.co/admin/crear-rol", {
+      await fetchWithAuth("http://127.0.0.1:8000/admin/crear-rol", {
         method: "POST",
         body: JSON.stringify(nuevoRol)
       });
@@ -263,7 +263,7 @@ export default function RoleManagement() {
 
     try {
       setEstado(prev => ({ ...prev, isLoading: true }));
-      await fetchWithAuth("https://api.x-cargo.co/admin/crear-permiso", {
+      await fetchWithAuth("http://127.0.0.1:8000/admin/crear-permiso", {
         method: "POST",
         body: JSON.stringify(nuevoPermiso)
       });

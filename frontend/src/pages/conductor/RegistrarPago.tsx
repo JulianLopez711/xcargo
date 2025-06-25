@@ -290,7 +290,7 @@ export default function RegistrarPago() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
+      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -350,6 +350,63 @@ export default function RegistrarPago() {
     } finally {
       setAnalizando(false);
     }
+  };  // 🔥 FUNCIÓN MEJORADA: Validación robusta de duplicados
+  const validarDuplicado = (nuevosDatos: DatosPago): { esDuplicado: boolean; mensaje: string } => {
+    const referencia = nuevosDatos.referencia.trim();
+    const valor = parseValorMonetario(nuevosDatos.valor);
+    const fecha = nuevosDatos.fecha.trim();
+    
+    // Buscar pagos con la misma referencia
+    const pagosConMismaReferencia = pagosCargados.filter(
+      (p) => p.datos.referencia.trim() === referencia
+    );
+
+    if (pagosConMismaReferencia.length === 0) {
+      // No hay pagos con esta referencia, está bien
+      return { esDuplicado: false, mensaje: "" };
+    }
+
+    // Si hay pagos con la misma referencia, validar valor + fecha para detectar duplicados exactos
+    const duplicadoExacto = pagosConMismaReferencia.find((p) => {
+      const valorExistente = parseValorMonetario(p.datos.valor);
+      const fechaExistente = p.datos.fecha.trim();
+      
+      return valorExistente === valor && fechaExistente === fecha;
+    });
+
+    if (duplicadoExacto) {
+      return { 
+        esDuplicado: true, 
+        mensaje: `❌ DUPLICADO DETECTADO\n\nYa existe un pago con exactamente los mismos datos:\n• Referencia: ${referencia}\n• Valor: $${valor.toLocaleString()}\n• Fecha: ${fecha}\n\nEste sí es un duplicado real y no se puede agregar.` 
+      };
+    }
+
+    // Si tiene la misma referencia pero diferente valor o fecha, es posible que sea válido
+    // Mostrar los detalles y pedir confirmación
+    const pagoExistente = pagosConMismaReferencia[0];
+    const valorExistente = parseValorMonetario(pagoExistente.datos.valor);
+    const fechaExistente = pagoExistente.datos.fecha.trim();
+    
+    const continuar = window.confirm(
+      `⚠️ ATENCIÓN: Referencia repetida pero con datos diferentes\n\n` +
+      `PAGO YA REGISTRADO:\n` +
+      `• Referencia: ${referencia}\n` +
+      `• Valor: $${valorExistente.toLocaleString()}\n` +
+      `• Fecha: ${fechaExistente}\n\n` +
+      `PAGO QUE INTENTAS AGREGAR:\n` +
+      `• Referencia: ${referencia}\n` +
+      `• Valor: $${valor.toLocaleString()}\n` +
+      `• Fecha: ${fecha}\n\n` +
+      `¿Son realmente pagos diferentes con la misma referencia?\n` +
+      `(Por ejemplo: abonos parciales, pagos fraccionados, etc.)\n\n` +
+      `✅ CONTINUAR si son pagos válidos diferentes\n` +
+      `❌ CANCELAR si es un error`
+    );
+
+    return { 
+      esDuplicado: !continuar, 
+      mensaje: continuar ? "" : "⚠️ Operación cancelada. Revisa los datos antes de intentar nuevamente." 
+    };
   };
 
   const agregarPago = () => {
@@ -366,17 +423,10 @@ export default function RegistrarPago() {
       return;
     }
 
-    const referencia = datosManuales.referencia.trim();
-    const fechaHora = `${datosManuales.fecha.trim()} ${datosManuales.hora.trim()}`;
-
-    const duplicado = pagosCargados.find(
-      (p) =>
-        p.datos.referencia === referencia ||
-        `${p.datos.fecha} ${p.datos.hora}` === fechaHora
-    );
-
-    if (duplicado) {
-      alert("Este comprobante ya fue cargado (referencia o fecha/hora duplicada).");
+    // 🔥 NUEVA VALIDACIÓN: Usar la función mejorada de duplicados
+    const validacion = validarDuplicado(datosManuales);
+    if (validacion.esDuplicado) {
+      alert(validacion.mensaje);
       return;
     }
 
@@ -424,7 +474,7 @@ export default function RegistrarPago() {
             }))
           };
 
-          const responseBonos = await fetch("https://api.x-cargo.co/pagos/aplicar-bonos", {
+          const responseBonos = await fetch("http://127.0.0.1:8000/pagos/aplicar-bonos", {
             method: "POST",
             headers: {
               'Authorization': `Bearer ${getToken()}`,
@@ -472,7 +522,7 @@ export default function RegistrarPago() {
           }))
         };
 
-        const responseBonos = await fetch("https://api.x-cargo.co/pagos/aplicar-bonos", {
+        const responseBonos = await fetch("http://127.0.0.1:8000/pagos/aplicar-bonos", {
           method: "POST",
           headers: {
             'Authorization': `Bearer ${getToken()}`,
@@ -539,8 +589,8 @@ export default function RegistrarPago() {
           }
 
           const endpoint = (referenciaBonos && montoBonosUsar > 0) 
-            ? "https://api.x-cargo.co/pagos/registrar-conductor-con-bonos"
-            : "https://api.x-cargo.co/pagos/registrar-conductor";
+            ? "http://127.0.0.1:8000/pagos/registrar-conductor-con-bonos"
+            : "http://127.0.0.1:8000/pagos/registrar-conductor";
 
           const response = await fetch(endpoint, {
             method: "POST",
@@ -671,7 +721,7 @@ export default function RegistrarPago() {
       formData.append('sobrante', totales.sobrante.toString());
 
       // Enviar al backend
-      const response = await fetch('https://api.x-cargo.co/pagos/registrar-conductor', {
+      const response = await fetch('http://127.0.0.1:8000/pagos/registrar-conductor', {
         method: 'POST',
         body: formData,
         headers: {
@@ -708,7 +758,7 @@ export default function RegistrarPago() {
   useEffect(() => {
     const cargarBonos = async () => {
       try {
-        const response = await fetch('https://api.x-cargo.co/pagos/bonos-disponibles', {
+        const response = await fetch('http://127.0.0.1:8000/pagos/bonos-disponibles', {
           headers: {
             'Authorization': `Bearer ${getToken()}`
           }
@@ -1020,12 +1070,32 @@ export default function RegistrarPago() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Lista de pagos cargados */}
+      )}      {/* 🔥 MEJORADO: Lista de pagos cargados con validación de duplicados */}
       {pagosCargados.length > 0 && (
         <div className="pagos-cargados">
-          <h3>Pagos cargados</h3>
+          <h3>📄 Comprobantes Cargados ({pagosCargados.length})</h3>
+          
+          {/* Alerta si hay referencias repetidas */}
+          {(() => {
+            const referenciasRepetidas = pagosCargados
+              .map(p => p.datos.referencia.trim())
+              .filter((ref, index, arr) => arr.indexOf(ref) !== index);
+            
+            if (referenciasRepetidas.length > 0) {
+              const referenciasUnicas = [...new Set(referenciasRepetidas)];
+              return (
+                <div className="alerta-referencias-repetidas">
+                  <span>
+                    Se detectaron referencias repetidas: <strong>{referenciasUnicas.join(', ')}</strong>
+                    <br />
+                    Esto puede ser válido para pagos fraccionados o abonos parciales.
+                  </span>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
           <table>
             <thead>
               <tr>
@@ -1037,31 +1107,57 @@ export default function RegistrarPago() {
                 <th>Comprobante</th>
                 <th>Acción</th>
               </tr>
-            </thead>
-            <tbody>
-              {pagosCargados.map((p, idx) => (
-                <tr key={idx}>
-                  <td>${parseValorMonetario(p.datos.valor).toLocaleString("es-CO")}</td>
-                  <td>{p.datos.fecha}</td>
-                  <td>{p.datos.hora}</td>
-                  <td>{p.datos.entidad}</td>
-                  <td>{p.datos.referencia}</td>
-                  <td>
-                    <a
-                      href={URL.createObjectURL(p.archivo)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Ver
-                    </a>
-                  </td>
-                  <td>
-                    <button onClick={() => eliminarPago(p.datos.referencia)}>
-                      🗑 Eliminar
-                    </button>
-                  </td>
-                </tr>
-              ))}
+            </thead>            <tbody>
+              {pagosCargados.map((p, idx) => {
+                // 🔥 NUEVO: Detectar si esta referencia se repite
+                const referenciasIguales = pagosCargados.filter(pago => 
+                  pago.datos.referencia.trim() === p.datos.referencia.trim()
+                ).length;
+                const esReferenciaRepetida = referenciasIguales > 1;
+                
+                return (
+                  <tr key={idx} className={esReferenciaRepetida ? 'referencia-repetida' : ''}>
+                    <td>${parseValorMonetario(p.datos.valor).toLocaleString("es-CO")}</td>
+                    <td>{p.datos.fecha}</td>
+                    <td>{p.datos.hora}</td>
+                    <td>{p.datos.entidad}</td>
+                    <td>
+                      {p.datos.referencia}
+                      {esReferenciaRepetida && (
+                        <span 
+                          className="indicador-repetida" 
+                          title={`Esta referencia se repite ${referenciasIguales} veces en la lista`}
+                          style={{
+                            marginLeft: '8px',
+                            backgroundColor: '#fbbf24',
+                            color: '#92400e',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          ⚠️ x{referenciasIguales}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <a
+                        href={URL.createObjectURL(p.archivo)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Ver
+                      </a>
+                    </td>
+                    <td>
+                      <button onClick={() => eliminarPago(p.datos.referencia)}>
+                        🗑 Eliminar
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

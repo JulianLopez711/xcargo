@@ -24,13 +24,15 @@ def obtener_carrier_id_supervisor(correo: str, client: bigquery.Client) -> List[
     """
     try:
         # Primero buscar en usuarios administrativos
-        query_admin = """
+        # INTENTO 1: Buscar si empresa_carrier contiene IDs numéricos
+        query_admin_numeric = """
         SELECT DISTINCT
-            CAST(SPLIT(empresa_carrier, ',')[OFFSET(0)] AS INT64) as carrier_id
+            SAFE_CAST(SPLIT(empresa_carrier, ',')[OFFSET(0)] AS INT64) as carrier_id
         FROM `datos-clientes-441216.Conciliaciones.usuarios`
         WHERE correo = @correo
         AND empresa_carrier IS NOT NULL
         AND empresa_carrier != ''
+        AND REGEXP_CONTAINS(empresa_carrier, r'^[0-9,\s]+$')
         """
         
         job_config = bigquery.QueryJobConfig(
@@ -39,12 +41,30 @@ def obtener_carrier_id_supervisor(correo: str, client: bigquery.Client) -> List[
             ]
         )
         
-        result = client.query(query_admin, job_config=job_config).result()
+        result = client.query(query_admin_numeric, job_config=job_config).result()
         rows = list(result)
         
         carrier_ids = []
         if rows:
-            carrier_ids = [row.carrier_id for row in rows if row.carrier_id]
+            carrier_ids = [row.carrier_id for row in rows if row.carrier_id is not None]
+        
+        # INTENTO 2: Si no encontró IDs numéricos, buscar por nombre de empresa
+        if not carrier_ids:
+            query_admin_by_name = """
+            SELECT DISTINCT cod.carrier_id
+            FROM `datos-clientes-441216.Conciliaciones.usuarios` u
+            JOIN `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
+                ON UPPER(TRIM(u.empresa_carrier)) = UPPER(TRIM(cod.Carrier))
+            WHERE u.correo = @correo
+            AND u.empresa_carrier IS NOT NULL
+            AND u.empresa_carrier != ''
+            """
+            
+            result_by_name = client.query(query_admin_by_name, job_config=job_config).result()
+            rows_by_name = list(result_by_name)
+            
+            if rows_by_name:
+                carrier_ids = [row.carrier_id for row in rows_by_name if row.carrier_id is not None]
         
         # Si no está en usuarios, buscar en usuarios_BIG (conductores que pueden ser supervisores)
         if not carrier_ids:
@@ -74,12 +94,15 @@ def obtener_carrier_info_supervisor(correo: str, client: bigquery.Client) -> Lis
     Obtiene información completa de los carriers que puede supervisar un usuario
     """
     try:
-        # Buscar en usuarios (administrativos)
-        query_admin = """
+        # INTENTO 1: Buscar si empresa_carrier contiene IDs numéricos
+        query_admin_numeric = """
         SELECT DISTINCT
-            CAST(SPLIT(empresa_carrier, ',')[OFFSET(0)] AS INT64) as carrier_id
+            SAFE_CAST(SPLIT(empresa_carrier, ',')[OFFSET(0)] AS INT64) as carrier_id
         FROM `datos-clientes-441216.Conciliaciones.usuarios`
         WHERE correo = @correo
+        AND empresa_carrier IS NOT NULL
+        AND empresa_carrier != ''
+        AND REGEXP_CONTAINS(empresa_carrier, r'^[0-9,\s]+$')
         """
         
         job_config = bigquery.QueryJobConfig(
@@ -88,12 +111,30 @@ def obtener_carrier_info_supervisor(correo: str, client: bigquery.Client) -> Lis
             ]
         )
         
-        result = client.query(query_admin, job_config=job_config).result()
+        result = client.query(query_admin_numeric, job_config=job_config).result()
         rows = list(result)
         
         carrier_ids = []
         if rows:
-            carrier_ids = [row.carrier_id for row in rows if row.carrier_id]
+            carrier_ids = [row.carrier_id for row in rows if row.carrier_id is not None]
+        
+        # INTENTO 2: Si no encontró IDs numéricos, buscar por nombre de empresa
+        if not carrier_ids:
+            query_admin_by_name = """
+            SELECT DISTINCT cod.carrier_id
+            FROM `datos-clientes-441216.Conciliaciones.usuarios` u
+            JOIN `datos-clientes-441216.Conciliaciones.COD_pendientes_v1` cod
+                ON UPPER(TRIM(u.empresa_carrier)) = UPPER(TRIM(cod.Carrier))
+            WHERE u.correo = @correo
+            AND u.empresa_carrier IS NOT NULL
+            AND u.empresa_carrier != ''
+            """
+            
+            result_by_name = client.query(query_admin_by_name, job_config=job_config).result()
+            rows_by_name = list(result_by_name)
+            
+            if rows_by_name:
+                carrier_ids = [row.carrier_id for row in rows_by_name if row.carrier_id is not None]
         
         # Si no está en usuarios, buscar en usuarios_BIG
         if not carrier_ids:
