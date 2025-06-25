@@ -36,7 +36,7 @@ def get_bigquery_client() -> bigquery.Client:
     try:
         return bigquery.Client(project=PROJECT_ID)
     except Exception as e:
-        logger.error(f"Error inicializando cliente BigQuery: {e}")
+        
         raise HTTPException(
             status_code=500, 
             detail="Error de configuración de base de datos"
@@ -76,25 +76,54 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
     ruta_local = os.path.join(COMPROBANTES_DIR, nombre_archivo)
     
     try:
-        # Guardar archivo
+        
+        # Crear directorio si no existe
+        os.makedirs(COMPROBANTES_DIR, exist_ok=True)
+        
+        
+        # Leer contenido
         content = await archivo.read()
+       
+        
+        if len(content) == 0:
+            
+            raise ValueError("Archivo vacío")
+        
+        # Guardar archivo
         with open(ruta_local, "wb") as f:
-            f.write(content)
+            bytes_written = f.write(content)
+       
+        
+        # Verificar que se guardó correctamente
+        if not os.path.exists(ruta_local):
+
+            raise FileNotFoundError(f"No se pudo guardar: {ruta_local}")
+        
+        # Verificar tamaño y permisos
+        file_stat = os.stat(ruta_local)
+        
+        
+        # Establecer permisos correctos
+        os.chmod(ruta_local, 0o644)
         
         # URL para acceso
         comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
-        logger.info(f"Comprobante guardado: {nombre_archivo}")
+  
         
         return comprobante_url
         
     except Exception as e:
-        logger.error(f"Error guardando comprobante: {e}")
+
         # Limpiar archivo si hay error
         if os.path.exists(ruta_local):
-            os.remove(ruta_local)
+            try:
+                os.remove(ruta_local)
+
+            except:
+                pass
         raise HTTPException(
             status_code=500,
-            detail="Error guardando comprobante de pago"
+            detail=f"Error guardando comprobante de pago: {str(e)}"
         )
 
 @router.post("/registrar-conductor")
@@ -116,10 +145,6 @@ async def registrar_pago_conductor(
     comprobante_url = None
 
     try:
-        # PASO 1: Validaciones de entrada
-        logger.info(f"Iniciando registro de pago para {correo}")
-        
-        # Validar y convertir valor
         try:
             valor_pago = float(valor_pago_str.replace(',', '').replace('$', ''))
             if valor_pago <= 0:
@@ -132,6 +157,8 @@ async def registrar_pago_conductor(
             fecha_obj = datetime.strptime(fecha_pago, "%Y-%m-%d").date()
             if fecha_obj > date.today():
                 raise HTTPException(status_code=400, detail="La fecha no puede ser futura")
+            elif fecha_obj <= date(2025, 6, 8):
+                raise HTTPException(status_code=400, detail="La fecha no puede ser anterior a 2025-06-09")
         except ValueError:
             raise HTTPException(status_code=400, detail="Formato de fecha inválido (YYYY-MM-DD)")
 
@@ -150,7 +177,7 @@ async def registrar_pago_conductor(
             except ValueError:
                 raise HTTPException(status_code=400, detail="Formato de hora inválido (HH:MM o HH:MM:SS)")
         # PASO 2: Validar referencia única
-        logger.info(f"Validando referencia única: {referencia}")
+        
         verificacion_ref = client.query("""
             SELECT COUNT(*) as total
             FROM `{project}.{dataset}.pagosconductor`
@@ -170,7 +197,7 @@ async def registrar_pago_conductor(
 
         try:
             lista_guias = json.loads(guias)
-            logger.info(f"Procesando {len(lista_guias)} guías")
+            
             
             if not lista_guias:
                 raise HTTPException(status_code=400, detail="Debe asociar al menos una guía")
@@ -184,7 +211,7 @@ async def registrar_pago_conductor(
         if not referencias_guias:
             raise HTTPException(status_code=400, detail="No se encontraron referencias válidas en las guías")
 
-        logger.info(f"Consultando información para {len(referencias_guias)} referencias")
+        
         refs_str = "', '".join(referencias_guias)
         
         query_clientes = f"""
@@ -198,21 +225,21 @@ async def registrar_pago_conductor(
             resultado_clientes = client.query(query_clientes).result()
             clientes_data = {
                 row["referencia"]: {
-                    "cliente": row["Cliente"], 
+                    "cliente": row["cliente"],  # 🔥 CORREGIDO: cambiado de "Cliente" a "cliente"
                     "valor": row["valor"]
                 } for row in resultado_clientes
             }
-            logger.info(f"Información obtenida para {len(clientes_data)} guías")
+            
         except Exception as e:
-            logger.warning(f"Error consultando COD_pendientes_v1: {e}")
+            
             clientes_data = {}
 
         # PASO 6: Guardar comprobante
-        logger.info("Guardando comprobante de pago")
+        
         comprobante_url = await guardar_comprobante(comprobante)
 
         # PASO 7: Preparar datos para inserción
-        logger.info("Preparando datos para inserción en BigQuery")
+        
         creado_en = datetime.utcnow()
         filas = []
 
@@ -250,9 +277,9 @@ async def registrar_pago_conductor(
             )
             resultado_match = list(client.query(query_match, job_config=job_config_match).result())
             estado_conciliacion = "conciliado_automatico" if resultado_match else "pendiente_conciliacion"
-            logger.info(f"🧠 Estado de conciliación determinado: {estado_conciliacion}")
+            
         except Exception as e:
-            logger.warning(f"⚠️ No se pudo verificar conciliación automática: {e}")
+            
             estado_conciliacion = "pendiente_conciliacion"
 
         filas = []
@@ -278,7 +305,7 @@ async def registrar_pago_conductor(
             referencia_value = str(guia.get("referencia", "")).strip()
             
             if not referencia_value:
-                logger.warning(f"Guía {i+1} sin referencia válida, omitiendo")
+                
                 continue
 
             # Obtener datos del cliente
@@ -324,9 +351,6 @@ async def registrar_pago_conductor(
 
         if not filas:
             raise HTTPException(status_code=400, detail="No se procesaron guías válidas")
-
-        # PASO 8: Insertar en BigQuery
-        logger.info(f"Insertando {len(filas)} registros en BigQuery")
         
         # Preparar valores para consulta SQL
         valores_sql = []
@@ -389,67 +413,131 @@ async def registrar_pago_conductor(
             future = executor.submit(lambda: client.query(query).result())
             future.result(timeout=30)
         
-        logger.info("✅ Datos insertados correctamente")
 
-        # PASO 9: Actualizar estado en COD_pendientes_v1
+        
+ # PASO 9: Insertar o actualizar en guias_liquidacion (MERGE/UPSERT por guía)
         try:
-            status_message = "PAGADO - Procesado por conductor"
-            if valor_bonos > 0:
-                status_message += f" (incluye ${valor_bonos} en bonos)"
-                
-            update_query = f"""
-            UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
-            SET Status_Big = @status_message
-            WHERE tracking_number IN ('{refs_str}')
-            """
+
+            for fila in filas:
+                merge_query = f"""
+                MERGE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` AS gl
+                USING (SELECT
+                        @tracking AS tracking_number,
+                        @employee_id AS employee_id,
+                        @correo AS conductor_email,
+                        @cliente AS cliente,
+                        @valor AS valor_guia,
+                        @fecha_pago AS fecha_entrega,
+                        @referencia_pago AS pago_referencia,
+                        @fecha_pago AS fecha_pago,
+                        @valor AS valor_pagado,
+                        @tipo AS metodo_pago,
+                        CURRENT_TIMESTAMP() AS fecha_creacion,
+                        CURRENT_TIMESTAMP() AS fecha_modificacion,
+                        @correo AS creado_por,
+                        @correo AS modificado_por
+                ) AS src
+                ON gl.tracking_number = src.tracking_number
+                WHEN MATCHED THEN
+                  UPDATE SET
+                    pago_referencia = src.pago_referencia,
+                    fecha_pago = src.fecha_pago,
+                    valor_pagado = src.valor_pagado,
+                    metodo_pago = src.metodo_pago,
+                    estado_liquidacion = 'pagado',
+                    fecha_modificacion = CURRENT_TIMESTAMP(),
+                    modificado_por = src.modificado_por
+                WHEN NOT MATCHED THEN
+                  INSERT (
+                    tracking_number, employee_id, conductor_email, cliente, valor_guia, fecha_entrega,
+                    pago_referencia, fecha_pago, valor_pagado, metodo_pago,
+                    fecha_creacion, fecha_modificacion, creado_por, modificado_por, estado_liquidacion
+                  ) VALUES (
+                    src.tracking_number, src.employee_id, src.conductor_email, src.cliente, src.valor_guia, src.fecha_entrega,
+                    src.pago_referencia, src.fecha_pago, src.valor_pagado, src.metodo_pago,
+                    src.fecha_creacion, src.fecha_modificacion, src.creado_por, src.modificado_por, 'pagado'
+                  )
+                """
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("tracking", "STRING", fila['tracking']),
+                        bigquery.ScalarQueryParameter("employee_id", "INTEGER", obtener_employee_id_usuario(correo, client) or 0),
+                        bigquery.ScalarQueryParameter("correo", "STRING", correo),
+                        bigquery.ScalarQueryParameter("cliente", "STRING", fila['cliente']),
+                        bigquery.ScalarQueryParameter("valor", "FLOAT64", fila['valor']),
+                        bigquery.ScalarQueryParameter("fecha_pago", "DATE", fila['fecha_pago']),
+                        bigquery.ScalarQueryParameter("referencia_pago", "STRING", fila['referencia_pago']),
+                        bigquery.ScalarQueryParameter("tipo", "STRING", fila['tipo']),
+                    ]
+                )
+                client.query(merge_query, job_config=job_config).result()
             
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("status_message", "STRING", status_message)
-                ]
-            )
-            
-            client.query(update_query, job_config=job_config).result()
-            logger.info("✅ Status_Big actualizado en COD_pendientes_v1")
         except Exception as e:
-            logger.warning(f"⚠️ Error actualizando Status_Big: {e}")
+            
+
 
         # 🔥 FASE 1: Registrar bono por excedente si aplica
-        try:
-            valor_total_guias = sum(g['valor'] for g in lista_guias)
-            excedente = round(valor_total_combinado - valor_total_guias, 2)
+       # 🔥 FASE 1: Registrar bono por excedente si aplica        try:
+            # Calcular excedente con validación
+            try:
+                valor_total_guias = sum(float(g.get('valor', 0)) for g in lista_guias)
+                excedente = round(valor_total_combinado - valor_total_guias, 2)
+                
+            except Exception as e:
+                
+                return
 
             if excedente > 0:
-                logger.info(f"💸 Excedente detectado: ${excedente} — se registrará como bono")
+                
 
+                # Obtener y validar employee_id
                 employee_id = obtener_employee_id_usuario(correo, client)
                 if not employee_id:
+                    
+                    # Enviar notificación al administrador
+                    await notificar_error_bono(correo, excedente, "No se encontró employee_id")
                     logger.warning(f"⚠️ No se pudo obtener el Employee ID para {correo}, no se registrará bono")
                 else:
-                    bono_id = f"BONO_EXCEDENTE_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{employee_id}"
+                    timestamp_actual = datetime.now()
+                    bono_id = f"BONO_EXCEDENTE_{timestamp_actual.strftime('%Y%m%d_%H%M%S')}_{employee_id}"
+                    
+                    # Construir descripción detallada
+                    descripcion = f"Excedente generado automáticamente del pago ref: {referencia}. Valor total pagado: ${valor_total_combinado}, Valor guías: ${valor_total_guias}"
+                    
                     insertar_bono_query = f"""
                     INSERT INTO `{PROJECT_ID}.{DATASET_CONCILIACIONES}.conductor_bonos` (
                         id, tipo_bono, valor_bono, saldo_disponible, descripcion,
-                        fecha_generacion, referencia_pago_origen, estado_bono, employee_id
+                        fecha_generacion, referencia_pago_origen, estado_bono, employee_id,
+                        conductor_email, fecha_creacion, fecha_modificacion, 
+                        creado_por, modificado_por
                     ) VALUES (
                         @id, 'excedente', @valor, @valor, @descripcion,
-                        CURRENT_TIMESTAMP(), @referencia, 'activo', @employee_id
+                        CURRENT_DATE(), @referencia, 'activo', @employee_id,
+                        @correo, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(),
+                        @creado_por, @modificado_por
                     )
                     """
+                    
+                    # Configuración mejorada de parámetros
                     job_config = bigquery.QueryJobConfig(query_parameters=[
                         bigquery.ScalarQueryParameter("id", "STRING", bono_id),
                         bigquery.ScalarQueryParameter("valor", "FLOAT64", excedente),
-                        bigquery.ScalarQueryParameter("descripcion", "STRING", "Excedente generado automáticamente"),
+                        bigquery.ScalarQueryParameter("descripcion", "STRING", descripcion),
                         bigquery.ScalarQueryParameter("referencia", "STRING", referencia),
                         bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
+                        bigquery.ScalarQueryParameter("correo", "STRING", correo),
+                        bigquery.ScalarQueryParameter("creado_por", "STRING", correo),
+                        bigquery.ScalarQueryParameter("modificado_por", "STRING", correo),
                     ])
                     client.query(insertar_bono_query, job_config=job_config).result()
-                    logger.info(f"✅ Bono de excedente registrado: {bono_id}")
+                    
         except Exception as e:
-            logger.error(f"❌ ERROR GRAVE al registrar bono excedente: {e}")
-        raise HTTPException(status_code=500, detail=f"Fallo insertando bono excedente: {e}")
+            
+            # ⚠️ IMPORTANTE: NO hacer raise aquí a menos que quieras que falle todo el pago
+            # Solo registrar el error pero continuar con el flujo
+            logger.warning("⚠️ Continuando sin registrar bono de excedente")
 
-
+        # ✅ RESPUESTA EXITOSA - Esta debe estar FUERA del try/except del bono
         return {
             "mensaje": "✅ Pago híbrido registrado correctamente",
             "valor_efectivo": valor_pago,
@@ -465,8 +553,7 @@ async def registrar_pago_conductor(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error inesperado registrando pago híbrido: {str(e)}")
-        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+
         
         # Limpiar comprobante si hay error
         if comprobante_url:
@@ -483,7 +570,84 @@ async def registrar_pago_conductor(
             detail="Error interno del servidor procesando el pago híbrido"
         )
 
-# 🔥 MODIFICACIÓN: Actualizar aplicar-bonos para mejor integración
+# 🔥 NUEVA RUTA: Consultar bonos disponibles por conductor
+@router.get("/bonos-disponibles")
+async def obtener_bonos_disponibles(
+    client: bigquery.Client = Depends(get_bigquery_client),
+    current_user: dict = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Obtiene los bonos disponibles del conductor con su saldo total
+    """
+    try:
+        # Obtener employee_id del usuario
+        employee_id = obtener_employee_id_usuario(current_user["email"], client)
+        if not employee_id:
+            raise HTTPException(
+                status_code=404,
+                detail="No se encontró el ID de empleado asociado"
+            )
+
+        # Consultar bonos activos
+        query = """
+        SELECT
+            id,
+            employee_id,
+            tipo_bono,
+            valor_bono,
+            saldo_disponible,
+            referencia_pago_origen,
+            fecha_generacion,
+            estado_bono,
+            descripcion
+        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        WHERE employee_id = @employee_id
+        AND estado_bono = 'activo'
+        AND saldo_disponible > 0
+        AND DATE_DIFF(CURRENT_DATE(), fecha_generacion, DAY) <= 90
+        ORDER BY fecha_generacion ASC
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id)
+            ]
+        )
+
+        bonos = []
+        total_disponible = 0
+
+        # Ejecutar consulta
+        query_job = client.query(query, job_config=job_config)
+        results = query_job.result()
+
+        # Procesar resultados
+        for row in results:
+            bono = {
+                "id": row.id,
+                "tipo_bono": row.tipo_bono,
+                "valor_bono": float(row.valor_bono),
+                "saldo_disponible": float(row.saldo_disponible),
+                "referencia_pago_origen": row.referencia_pago_origen,
+                "fecha_generacion": row.fecha_generacion.isoformat(),
+                "estado_bono": row.estado_bono,
+                "descripcion": row.descripcion
+            }
+            bonos.append(bono)
+            total_disponible += float(row.saldo_disponible)
+
+        return {
+            "bonos": bonos,
+            "total_disponible": total_disponible
+        }
+
+    except Exception as e:
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error consultando bonos disponibles: {str(e)}"
+        )
+
 @router.post("/aplicar-bonos")
 async def aplicar_bonos_conductor(
     datos_bonos: Dict[str, Any],
@@ -491,373 +655,142 @@ async def aplicar_bonos_conductor(
     current_user: dict = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """
-    🆕 ACTUALIZADO: Aplica bonos del conductor con mejor manejo de estado
+    Aplica bonos del conductor a guías específicas
     """
     try:
-        print(f"🎯 ===== APLICANDO BONOS =====")
-        print(f"📧 Usuario: {current_user.get('correo')}")
-        print(f"💰 Datos recibidos: {datos_bonos}")
+        # Validar datos requeridos
+        if "bono_id" not in datos_bonos or "guias" not in datos_bonos:
+            raise HTTPException(
+                status_code=400,
+                detail="Se requiere bono_id y guias"
+            )
 
-        user_email = current_user.get("correo") or current_user.get("sub")
-        if not user_email:
-            raise HTTPException(status_code=401, detail="Usuario no autenticado")
-
-        # Obtener employee_id del usuario
-        employee_id = obtener_employee_id_usuario(user_email, client)
-        if not employee_id:
-            raise HTTPException(status_code=404, detail="Conductor no encontrado")
-
-        bonos_utilizados = datos_bonos.get("bonos_utilizados", [])
-        total_bonos = datos_bonos.get("total_bonos", 0)
-        guias = datos_bonos.get("guias", [])
-
-        if not bonos_utilizados:
-            raise HTTPException(status_code=400, detail="No se especificaron bonos a utilizar")
-
-        # Verificar que los bonos pertenecen al conductor y están disponibles
-        bonos_ids = [bono["bono_id"] for bono in bonos_utilizados]
-        query_verificar = """
-        SELECT 
-            id,
-            saldo_disponible,
-            tipo_bono,
-            valor_bono
-        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
-        WHERE id IN UNNEST(@bonos_ids)
-            AND employee_id = @employee_id
-            AND estado_bono = 'activo'
-            AND saldo_disponible > 0
-        """
+        bono_id = datos_bonos["bono_id"]
+        guias = datos_bonos["guias"]
         
+        # Verificar bono
+        query_bono = """
+        SELECT *
+        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        WHERE id = @bono_id
+        AND estado_bono = 'activo'
+        AND saldo_disponible > 0
+        """
+
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ArrayQueryParameter("bonos_ids", "STRING", bonos_ids),
-                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id)
+                bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id)
             ]
         )
-        
-        result = client.query(query_verificar, job_config=job_config).result()
-        bonos_validos = {row.id: row for row in result}
-        
-        # Verificar que todos los bonos son válidos
-        for bono_data in bonos_utilizados:
-            bono_id = bono_data["bono_id"]
-            valor_utilizado = bono_data["valor_utilizado"]
-            
-            if bono_id not in bonos_validos:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Bono {bono_id} no válido o no disponible"
-                )
-            
-            bono_db = bonos_validos[bono_id]
-            if valor_utilizado > bono_db.saldo_disponible:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Valor solicitado ({valor_utilizado}) mayor al saldo disponible ({bono_db.saldo_disponible}) para bono {bono_id}"
-                )
 
-        # Iniciar transacción para aplicar bonos
-        timestamp_now = datetime.now()
-        referencia_pago = f"BONOS_{timestamp_now.strftime('%Y%m%d_%H%M%S')}_{employee_id}"
-        
-        # 1. Crear registro de uso de bonos
-        for bono_data in bonos_utilizados:
-            bono_id = bono_data["bono_id"]
-            valor_utilizado = bono_data["valor_utilizado"]
-            
-            # Registrar el uso del bono
-            query_uso = """
-            INSERT INTO `datos-clientes-441216.Conciliaciones.conductor_bonos_usos` (
-                id,
-                bono_id,
-                employee_id,
-                valor_utilizado,
-                fecha_uso,
-                referencia_pago,
-                guias_aplicadas,
-                estado_uso,
-                creado_en
-            ) VALUES (
-                @uso_id,
-                @bono_id,
-                @employee_id,
-                @valor_utilizado,
-                @fecha_uso,
-                @referencia_pago,
-                @guias_aplicadas,
-                'aplicado',
-                @creado_en
+        bono_result = client.query(query_bono, job_config=job_config).result()
+        bono = next(iter(bono_result), None)
+
+        if not bono:
+            raise HTTPException(
+                status_code=404,
+                detail="Bono no encontrado o no disponible"
             )
-            """
-            
-            uso_id = f"USO_{timestamp_now.strftime('%Y%m%d_%H%M%S')}_{bono_id}"
-            
-            job_config_uso = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("uso_id", "STRING", uso_id),
-                    bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id),
-                    bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
-                    bigquery.ScalarQueryParameter("valor_utilizado", "FLOAT", float(valor_utilizado)),
-                    bigquery.ScalarQueryParameter("fecha_uso", "TIMESTAMP", timestamp_now),
-                    bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
-                    bigquery.ScalarQueryParameter("guias_aplicadas", "STRING", json.dumps(guias)),
-                    bigquery.ScalarQueryParameter("creado_en", "TIMESTAMP", timestamp_now)
-                ]
-            )
-            
-            client.query(query_uso, job_config=job_config_uso).result()
-            
-            # 2. Actualizar saldo del bono
-            query_actualizar = """
-            UPDATE `datos-clientes-441216.Conciliaciones.conductor_bonos`
-            SET 
-                saldo_disponible = saldo_disponible - @valor_utilizado,
-                estado_bono = CASE 
-                    WHEN saldo_disponible - @valor_utilizado <= 0 THEN 'agotado'
-                    ELSE estado_bono
-                END,
-                fecha_ultima_actualizacion = @timestamp_now
-            WHERE id = @bono_id
-                AND employee_id = @employee_id
-            """
-            
-            job_config_actualizar = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("valor_utilizado", "FLOAT", float(valor_utilizado)),
-                    bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id),
-                    bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
-                    bigquery.ScalarQueryParameter("timestamp_now", "TIMESTAMP", timestamp_now)
-                ]
-            )
-            
-            client.query(query_actualizar, job_config=job_config_actualizar).result()
 
-        print(f"✅ Bonos aplicados exitosamente")
-        print(f"💰 Total aplicado: ${total_bonos}")
-        print(f"📋 Bonos utilizados: {len(bonos_utilizados)}")
+        # Calcular total de guías
+        total_guias = sum(float(guia["valor"]) for guia in guias)
         
-        return {
-            "mensaje": "✅ Bonos aplicados exitosamente",
-            "total_aplicado": total_bonos,
-            "bonos_utilizados": len(bonos_utilizados),
-            "referencia_pago": referencia_pago,
-            "guias_afectadas": len(guias),
-            "timestamp": timestamp_now.isoformat(),
-            "puede_procesar_efectivo": True  # 🔥 Indicar que puede continuar con pagos en efectivo
-        }
+        if total_guias > bono.saldo_disponible:
+            raise HTTPException(
+                status_code=400,
+                detail="Saldo del bono insuficiente"
+            )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error aplicando bonos: {str(e)}")
-        import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Error interno aplicando bonos: {str(e)}")
-
-# 🔥 NUEVA RUTA: Consultar bonos disponibles por conductor
-@router.get("/bonos-disponibles")
-async def obtener_bonos_disponibles(
-    client: bigquery.Client = Depends(get_bigquery_client),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Obtiene los bonos disponibles para el conductor autenticado
-    """
-    try:
-        user_email = current_user.get("correo") or current_user.get("sub")
-        if not user_email:
-            raise HTTPException(status_code=401, detail="Usuario no autenticado")
-
-        employee_id = obtener_employee_id_usuario(user_email, client)
-        if not employee_id:
-            raise HTTPException(status_code=404, detail="Conductor no encontrado")
-
-        query = """
-        SELECT 
-            id,
-            tipo_bono,
-            descripcion,
-            valor_bono,
-            saldo_disponible,
-            fecha_expiracion,
-            estado_bono,
-            fecha_creacion
-        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
-        WHERE employee_id = @employee_id
-            AND estado_bono = 'activo'
-            AND saldo_disponible > 0
-            AND (fecha_expiracion IS NULL OR fecha_expiracion > CURRENT_DATE())
-        ORDER BY fecha_creacion DESC
+        # Actualizar saldo del bono
+        update_query = """
+        UPDATE `datos-clientes-441216.Conciliaciones.conductor_bonos`
+        SET 
+            saldo_disponible = saldo_disponible - @monto_usado,
+            fecha_ultimo_uso = CURRENT_DATE(),
+            fecha_modificacion = CURRENT_TIMESTAMP(),
+            modificado_por = @usuario,
+            estado_bono = CASE 
+                WHEN saldo_disponible - @monto_usado <= 0 THEN 'agotado'
+                ELSE estado_bono
+            END
+        WHERE id = @bono_id
         """
-        
+
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id)
+                bigquery.ScalarQueryParameter("monto_usado", "FLOAT", total_guias),
+                bigquery.ScalarQueryParameter("usuario", "STRING", current_user["email"]),
+                bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id)
             ]
         )
-        
-        result = client.query(query, job_config=job_config).result()
-        
-        bonos = []
-        total_disponible = 0
-        
-        for row in result:
-            bono = {
-                "id": row.id,
-                "tipo": row.tipo_bono,
-                "descripcion": row.descripcion or "",
-                "valor_original": float(row.valor_bono),
-                "saldo_disponible": float(row.saldo_disponible),
-                "fecha_expiracion": str(row.fecha_expiracion) if row.fecha_expiracion else None,
-                "estado": row.estado_bono,
-                "fecha_creacion": row.fecha_creacion.isoformat() if row.fecha_creacion else None
-            }
-            bonos.append(bono)
-            total_disponible += bono["saldo_disponible"]
-        
-        return {
-            "disponible": total_disponible,
-            "detalles": bonos,
-            "total_bonos": len(bonos)
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error obteniendo bonos disponibles: {e}")
-        raise HTTPException(status_code=500, detail="Error obteniendo bonos disponibles")
 
-@router.get("/historial")
-async def historial_pagos(
-    estado: Optional[str] = Query(None, description="Filtrar por estado"),
-    desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
-    hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
-    referencia: Optional[str] = Query(None, description="Buscar por referencia"),
-    limite: int = Query(100, ge=1, le=500, description="Límite de resultados")
-):
-    """
-    Obtiene el historial de pagos con filtros avanzados
-    """
-    client = get_bigquery_client()
+        update_job = client.query(update_query, job_config=job_config)
+        update_job.result()  # Esperar actualización
 
-    try:
-        condiciones = []
-        parametros = []
-
-        # Construir filtros dinámicamente
-        if estado:
-            condiciones.append("estado = @estado")
-            parametros.append(bigquery.ScalarQueryParameter("estado", "STRING", estado))
-
-        if desde:
-            condiciones.append("fecha_pago >= @desde")
-            parametros.append(bigquery.ScalarQueryParameter("desde", "DATE", desde))
-
-        if hasta:
-            condiciones.append("fecha_pago <= @hasta")
-            parametros.append(bigquery.ScalarQueryParameter("hasta", "DATE", hasta))
-
-        if referencia:
-            condiciones.append("referencia_pago LIKE @referencia")
-            parametros.append(bigquery.ScalarQueryParameter("referencia", "STRING", f"%{referencia}%"))
-
-        where_clause = "WHERE " + " AND ".join(condiciones) if condiciones else ""
-
-        query = f"""
-            SELECT
-                referencia_pago,
-                SUM(valor) AS valor,
-                MAX(fecha_pago) AS fecha,
-                MAX(entidad) AS entidad,
-                MAX(estado) AS estado,
-                MAX(tipo) AS tipo,
-                MAX(comprobante) AS imagen,
-                MAX(novedades) AS novedades,
-                COUNT(*) AS num_guias,
-                MAX(correo) AS correo_conductor,
-                MAX(creado_en) AS fecha_creacion,
-                MAX(modificado_en) AS fecha_modificacion,
-                MAX(modificado_por) AS modificado_por
-            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-            {where_clause}
-            GROUP BY referencia_pago
-            ORDER BY MAX(fecha_pago) DESC, MAX(creado_en) DESC
-            LIMIT {limite}
-        """
-
-        job_config = bigquery.QueryJobConfig(query_parameters=parametros)
-        
-        # Ejecutar con timeout
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(lambda: client.query(query, job_config=job_config).result())
-            resultados = future.result(timeout=30)
-
-        historial = []
-        for row in resultados:
-            historial.append({
-                "referencia_pago": row["referencia_pago"],
-                "valor": float(row["valor"]) if row["valor"] else 0.0,
-                "fecha": str(row["fecha"]) if row["fecha"] else None,
-                "entidad": row["entidad"] or "",
-                "estado": row["estado"] or "desconocido",
-                "tipo": row["tipo"] or "",
-                "imagen": row["imagen"] or "",
-                "novedades": row["novedades"] or "",
-                "num_guias": int(row["num_guias"]) if row["num_guias"] else 0,
-                "correo_conductor": row["correo_conductor"] or "",
-                "fecha_creacion": row["fecha_creacion"].isoformat() if row["fecha_creacion"] else None,
-                "fecha_modificacion": row["fecha_modificacion"].isoformat() if row["fecha_modificacion"] else None,
-                "modificado_por": row["modificado_por"] or ""
-            })
-
-        return {
-            "historial": historial,
-            "total_registros": len(historial),
-            "filtros_aplicados": {
-                "estado": estado,
-                "desde": desde,
-                "hasta": hasta,
-                "referencia": referencia,
-                "limite": limite
-            },
-            "timestamp": datetime.now().isoformat()
+        # Registrar uso del bono
+        movimiento = {
+            "id": f"MOV_{uuid4()}",
+            "bono_id": bono_id,
+            "tipo_movimiento": "USO",
+            "valor_movimiento": -total_guias,
+            "saldo_anterior": float(bono.saldo_disponible),
+            "saldo_nuevo": float(bono.saldo_disponible) - total_guias,
+            "fecha_movimiento": datetime.now().isoformat(),
+            "creado_por": current_user["email"],
+            "guias_aplicadas": json.dumps(guias)
         }
 
+        table_id = f"{PROJECT_ID}.{DATASET_CONCILIACIONES}.bono_movimientos"
+        errors = client.insert_rows_json(table_id, [movimiento])
+
+        if errors:
+            
+            raise Exception("Error registrando movimiento del bono")
+
+        return {
+            "mensaje": "Bono aplicado exitosamente",
+            "monto_aplicado": total_guias,
+            "saldo_restante": float(bono.saldo_disponible) - total_guias
+        }
+
+    except HTTPException as http_err:
+        raise http_err
     except Exception as e:
-        logger.error(f"Error obteniendo historial de pagos: {e}")
+        
         raise HTTPException(
             status_code=500,
-            detail="Error obteniendo historial de pagos"
-        )
+            detail=f"Error aplicando bono: {str(e)}"        )
 
 @router.get("/detalles-pago/{referencia_pago}")
-async def obtener_detalles_pago(referencia_pago: str):
+def obtener_detalles_pago(referencia_pago: str):
     """
-    Obtiene los detalles completos de un pago específico incluyendo todas las guías
+    Obtiene los detalles de un pago específico incluyendo todas las guías asociadas
     """
-    client = get_bigquery_client()
-    
     try:
+        client = get_bigquery_client()
+        
+        # Consultar detalles del pago con JOIN para obtener el carrier real
         query = """
-            SELECT 
-                tracking, 
-                referencia, 
-                valor,
-                cliente,
-                entidad,
-                tipo,
-                fecha_pago,
-                hora_pago,
-                estado,
-                novedades,
-                comprobante,
-                creado_en,
-                modificado_en,
-                modificado_por
-            FROM `{project}.{dataset}.pagosconductor`
-            WHERE referencia_pago = @referencia_pago
-            ORDER BY tracking
+        SELECT 
+            pc.referencia_pago,
+            pc.referencia,
+            pc.tracking,
+            pc.valor,
+            pc.cliente,
+            COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier,
+            pc.tipo,
+            pc.fecha_pago,
+            pc.hora_pago,
+            pc.estado_conciliacion as estado,
+            pc.novedades,
+            pc.comprobante
+        FROM `{project}.{dataset}.pagosconductor` pc
+        LEFT JOIN `{project}.{dataset}.COD_pendientes_v1` cod 
+            ON pc.tracking = cod.tracking_number
+        LEFT JOIN `{project}.{dataset}.guias_liquidacion` gl 
+            ON pc.tracking = gl.tracking_number
+        WHERE pc.referencia_pago = @referencia_pago
+        ORDER BY pc.creado_en ASC
         """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
         
         job_config = bigquery.QueryJobConfig(
@@ -866,507 +799,49 @@ async def obtener_detalles_pago(referencia_pago: str):
             ]
         )
         
-        resultado = client.query(query, job_config=job_config).result()
-        detalles = []
+        results = client.query(query, job_config=job_config).result()
         
-        for row in resultado:
-            tracking = row["tracking"] if row["tracking"] else row["referencia"]
-            detalles.append({
-                "tracking": tracking,
-                "referencia": row["referencia"],
-                "valor": float(row["valor"]) if row["valor"] else 0.0,
-                "cliente": row["cliente"] or "Sin Cliente",
-                "entidad": row["entidad"] or "",
-                "tipo": row["tipo"] or "",
-                "fecha_pago": str(row["fecha_pago"]) if row["fecha_pago"] else None,
-                "hora_pago": row["hora_pago"] or "",
-                "estado": row["estado"] or "",
-                "novedades": row["novedades"] or "",
-                "comprobante": row["comprobante"] or "",
-                "creado_en": row["creado_en"].isoformat() if row["creado_en"] else None,
-                "modificado_en": row["modificado_en"].isoformat() if row["modificado_en"] else None,
-                "modificado_por": row["modificado_por"] or ""
-            })
+        detalles = []
+        for row in results:
+            detalle = {
+                "tracking": row.tracking or "N/A",
+                "referencia": row.referencia_pago,
+                "valor": float(row.valor) if row.valor else 0.0,
+                "cliente": row.cliente or "N/A",
+                "carrier": row.carrier or "N/A",
+                "tipo": row.tipo or "N/A",
+                "fecha_pago": row.fecha_pago.isoformat() if row.fecha_pago else "N/A",
+                "hora_pago": row.hora_pago or "N/A",
+                "estado": row.estado or "N/A",
+                "novedades": row.novedades or "",
+                "comprobante": row.comprobante or ""
+            }
+            detalles.append(detalle)
         
         if not detalles:
-            raise HTTPException(status_code=404, detail="Pago no encontrado")
+            raise HTTPException(
+                status_code=404,
+                detail=f"No se encontraron detalles para la referencia de pago: {referencia_pago}"
+            )
         
-        # Calcular resumen
-        valor_total = sum(d["valor"] for d in detalles)
+    
         
         return {
-            "referencia_pago": referencia_pago,
             "detalles": detalles,
-            "resumen": {
-                "total_guias": len(detalles),
-                "valor_total": valor_total,
-                "estado_general": detalles[0]["estado"] if detalles else "desconocido",
-                "entidad": detalles[0]["entidad"] if detalles else "",
-                "tipo": detalles[0]["tipo"] if detalles else "",
-                "fecha_pago": detalles[0]["fecha_pago"] if detalles else None
-            }
+            "total_guias": len(detalles),
+            "valor_total": sum(d["valor"] for d in detalles),
+            "referencia_pago": referencia_pago,
+            "timestamp": datetime.now().isoformat()
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error obteniendo detalles del pago {referencia_pago}: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail="Error obteniendo detalles del pago"
-        )
-
-@router.get("/pagos-conductor")
-async def obtener_pagos():
-    """
-    Obtiene la lista de pagos agrupados por referencia con información resumida
-    """
-    client = get_bigquery_client()
-    
-    try:
-        # Primero verificar esquema de tabla
-        schema_query = """
-        SELECT column_name
-        FROM `{project}.{dataset}.INFORMATION_SCHEMA.COLUMNS`
-        WHERE table_name = 'pagosconductor'
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
         
-        try:
-            schema_result = client.query(schema_query).result()
-            columnas_existentes = [row["column_name"] for row in schema_result]
-            logger.info(f"Columnas disponibles en pagosconductor: {len(columnas_existentes)}")
-        except Exception as e:
-            logger.warning(f"No se pudo verificar esquema: {e}")
-            columnas_existentes = []
-        
-        # Construir query dinámicamente
-        if "valor_total_consignacion" in columnas_existentes:
-            valor_query = "COALESCE(MAX(valor_total_consignacion), SUM(valor))"
-        else:
-            valor_query = "SUM(valor)"
-            
-        if "tracking" in columnas_existentes:
-            tracking_query = "STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia) LIMIT 5)"
-        else:
-            tracking_query = "STRING_AGG(DISTINCT referencia, ', ' ORDER BY referencia LIMIT 5)"
-        
-        query = f"""
-            SELECT 
-                referencia_pago, 
-                {valor_query} AS valor,
-                MAX(fecha_pago) AS fecha, 
-                MAX(COALESCE(entidad, 'Sin Entidad')) AS entidad,
-                MAX(COALESCE(estado, 'pendiente')) AS estado, 
-                MAX(COALESCE(tipo, 'Sin Tipo')) AS tipo,
-                MAX(COALESCE(comprobante, '')) AS imagen,
-                MAX(COALESCE(novedades, '')) AS novedades,
-                COUNT(*) as num_guias,
-                {tracking_query} as trackings_preview,
-                MAX(correo) as correo_conductor,
-                MAX(creado_en) as fecha_creacion,
-                MAX(modificado_en) as fecha_modificacion
-            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-            WHERE referencia_pago IS NOT NULL 
-                AND referencia_pago != ''
-            GROUP BY referencia_pago
-            ORDER BY MAX(fecha_pago) DESC, MAX(creado_en) DESC
-            LIMIT 200
-        """
-        
-        logger.info(f"Ejecutando query de pagos conductor")
-        
-        # Ejecutar con timeout
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(lambda: client.query(query).result())
-            resultados = future.result(timeout=30)
-        
-        pagos = []
-        for row in resultados:
-            pago = {
-                "referencia_pago": row.get("referencia_pago", ""),
-                "valor": float(row.get("valor", 0)) if row.get("valor") else 0.0,
-                "fecha": str(row.get("fecha", "")),
-                "entidad": str(row.get("entidad", "")),
-                "estado": str(row.get("estado", "")),
-                "tipo": str(row.get("tipo", "")),
-                "imagen": str(row.get("imagen", "")),
-                "novedades": str(row.get("novedades", "")),
-                "num_guias": int(row.get("num_guias", 0)),
-                "trackings_preview": str(row.get("trackings_preview", "")),
-                "correo_conductor": str(row.get("correo_conductor", "")),
-                "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
-                "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None
-            }
-            
-            # Limitar preview de trackings
-            if pago["trackings_preview"]:
-                trackings_list = pago["trackings_preview"].split(", ")
-                if len(trackings_list) > 3:
-                    pago["trackings_preview"] = ", ".join(trackings_list[:3]) + f" (+{len(trackings_list)-3} más)"
-            
-            pagos.append(pago)
-        
-        logger.info(f"✅ Obtenidos {len(pagos)} pagos")
-        return pagos
-        
-    except Exception as e:
-        logger.error(f"Error en pagos-conductor: {e}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        # Fallback en caso de error
-        return [{
-            "referencia_pago": "ERROR_LOADING",
-            "valor": 0.0,
-            "fecha": "2025-01-01",
-            "entidad": "Error",
-            "estado": "error",
-            "tipo": "Error",
-            "imagen": "",
-            "novedades": "Error cargando datos del servidor",
-            "num_guias": 0,
-            "trackings_preview": "Error",
-            "correo_conductor": "",
-            "fecha_creacion": None,
-            "fecha_modificacion": None
-        }]
-
-@router.get("/estadisticas")
-async def obtener_estadisticas_pagos():
-    """
-    Obtiene estadísticas generales de los pagos por estado, periodo, etc.
-    """
-    client = get_bigquery_client()
-    
-    try:
-        query = """
-        WITH estadisticas_base AS (
-            SELECT 
-                estado,
-                COUNT(DISTINCT referencia_pago) as pagos_count,
-                COUNT(*) as guias_count,
-                SUM(valor) as valor_total,
-                AVG(valor) as valor_promedio,
-                MIN(fecha_pago) as fecha_min,
-                MAX(fecha_pago) as fecha_max,
-                COUNT(DISTINCT correo) as conductores_count
-            FROM `{project}.{dataset}.pagosconductor`
-            WHERE fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
-            GROUP BY estado
-        ),
-        estadisticas_periodo AS (
-            SELECT 
-                EXTRACT(MONTH FROM fecha_pago) as mes,
-                EXTRACT(YEAR FROM fecha_pago) as año,
-                COUNT(DISTINCT referencia_pago) as pagos_mes,
-                SUM(valor) as valor_mes
-            FROM `{project}.{dataset}.pagosconductor`
-            WHERE fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH)
-            GROUP BY año, mes
-            ORDER BY año DESC, mes DESC
-            LIMIT 12
-        )
-        SELECT 
-            'por_estado' as tipo,
-            estado as categoria,
-            pagos_count as cantidad,
-            valor_total as valor,
-            valor_promedio,
-            conductores_count as conductores,
-            CAST(fecha_min AS STRING) as fecha_min,
-            CAST(fecha_max AS STRING) as fecha_max
-        FROM estadisticas_base
-        
-        UNION ALL
-        
-        SELECT 
-            'por_periodo' as tipo,
-            CONCAT(año, '-', LPAD(CAST(mes AS STRING), 2, '0')) as categoria,
-            pagos_mes as cantidad,
-            valor_mes as valor,
-            CASE WHEN pagos_mes > 0 THEN valor_mes / pagos_mes ELSE 0 END as valor_promedio,
-            0 as conductores,
-            '' as fecha_min,
-            '' as fecha_max
-        FROM estadisticas_periodo
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
-        
-        resultado = client.query(query).result()
-        
-        estadisticas = {
-            "por_estado": [],
-            "por_periodo": [],
-            "resumen_general": {
-                "total_pagos": 0,
-                "total_valor": 0.0,
-                "total_conductores": 0
-            }
-        }
-        
-        for row in resultado:
-            item = {
-                "categoria": row["categoria"],
-                "cantidad": int(row["cantidad"]) if row["cantidad"] else 0,
-                "valor": float(row["valor"]) if row["valor"] else 0.0,
-                "valor_promedio": float(row["valor_promedio"]) if row["valor_promedio"] else 0.0,
-                "conductores": int(row["conductores"]) if row["conductores"] else 0,
-                "fecha_min": row["fecha_min"] if row["fecha_min"] else None,
-                "fecha_max": row["fecha_max"] if row["fecha_max"] else None
-            }
-            
-            if row["tipo"] == "por_estado":
-                estadisticas["por_estado"].append(item)
-                estadisticas["resumen_general"]["total_pagos"] += item["cantidad"]
-                estadisticas["resumen_general"]["total_valor"] += item["valor"]
-                estadisticas["resumen_general"]["total_conductores"] = max(
-                    estadisticas["resumen_general"]["total_conductores"], 
-                    item["conductores"]
-                )
-            else:
-                estadisticas["por_periodo"].append(item)
-        
-        return estadisticas
-        
-    except Exception as e:
-        logger.error(f"Error obteniendo estadísticas: {e}")
         raise HTTPException(
             status_code=500,
-            detail="Error obteniendo estadísticas de pagos"
+            detail=f"Error interno del servidor: {str(e)}"
         )
-
-@router.get("/health")
-def health_check():
-    """Endpoint para verificar que el módulo de pagos está funcionando"""
-    try:
-        client = get_bigquery_client()
-        
-        # Test simple de conectividad
-        test_query = f"""
-        SELECT COUNT(*) as total
-        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-        LIMIT 1
-        """
-        
-        result = client.query(test_query).result()
-        total = next(result)["total"]
-        
-        return {
-            "status": "healthy",
-            "module": "pagos",
-            "bigquery": "connected",
-            "total_records": total,
-            "comprobantes_dir": os.path.exists(COMPROBANTES_DIR),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return {
-            "status": "unhealthy",
-            "module": "pagos", 
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
-
-@router.get("/test-upload")
-def test_upload_directory():
-    """Test para verificar que el directorio de comprobantes funciona"""
-    try:
-        # Verificar directorio
-        if not os.path.exists(COMPROBANTES_DIR):
-            os.makedirs(COMPROBANTES_DIR, exist_ok=True)
-        
-        # Test de escritura
-        test_file = os.path.join(COMPROBANTES_DIR, "test.txt")
-        with open(test_file, "w") as f:
-            f.write("test")
-        
-        # Limpiar test
-        os.remove(test_file)
-        
-        return {
-            "status": "success",
-            "directory": COMPROBANTES_DIR,
-            "writable": True,
-            "max_file_size_mb": MAX_FILE_SIZE // (1024*1024)
-        }
-        
-    except Exception as e:
-        return {
-            "status": "error",
-            "directory": COMPROBANTES_DIR,
-            "writable": False,
-            "error": str(e)
-        }
-
-@router.post("/aplicar-bonos")
-async def aplicar_bonos_conductor(
-    datos_bonos: Dict[str, Any],
-    client: bigquery.Client = Depends(get_bigquery_client),
-    current_user: dict = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """
-    🆕 NUEVO: Aplica bonos del conductor a guías específicas
-    """
-    try:
-        print(f"🎯 ===== APLICANDO BONOS =====")
-        print(f"📧 Usuario: {current_user.get('correo')}")
-        print(f"💰 Datos recibidos: {datos_bonos}")
-
-        user_email = current_user.get("correo") or current_user.get("sub")
-        if not user_email:
-            raise HTTPException(status_code=401, detail="Usuario no autenticado")
-
-        # Obtener employee_id del usuario
-        employee_id = obtener_employee_id_usuario(user_email, client)
-        if not employee_id:
-            raise HTTPException(status_code=404, detail="Conductor no encontrado")
-
-        bonos_utilizados = datos_bonos.get("bonos_utilizados", [])
-        total_bonos = datos_bonos.get("total_bonos", 0)
-        guias = datos_bonos.get("guias", [])
-
-        if not bonos_utilizados:
-            raise HTTPException(status_code=400, detail="No se especificaron bonos a utilizar")
-
-        # Verificar que los bonos pertenecen al conductor y están disponibles
-        bonos_ids = [bono["bono_id"] for bono in bonos_utilizados]
-        query_verificar = """
-        SELECT 
-            id,
-            saldo_disponible,
-            tipo_bono,
-            valor_bono
-        FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
-        WHERE id IN UNNEST(@bonos_ids)
-            AND employee_id = @employee_id
-            AND estado_bono = 'activo'
-            AND saldo_disponible > 0
-        """
-        
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ArrayQueryParameter("bonos_ids", "STRING", bonos_ids),
-                bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id)
-            ]
-        )
-        
-        result = client.query(query_verificar, job_config=job_config).result()
-        bonos_validos = {row.id: row for row in result}
-        
-        # Verificar que todos los bonos son válidos
-        for bono_data in bonos_utilizados:
-            bono_id = bono_data["bono_id"]
-            valor_utilizado = bono_data["valor_utilizado"]
-            
-            if bono_id not in bonos_validos:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Bono {bono_id} no válido o no disponible"
-                )
-            
-            bono_db = bonos_validos[bono_id]
-            if valor_utilizado > bono_db.saldo_disponible:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Valor solicitado ({valor_utilizado}) mayor al saldo disponible ({bono_db.saldo_disponible}) para bono {bono_id}"
-                )
-
-        # Iniciar transacción para aplicar bonos
-        timestamp_now = datetime.now()
-        
-        # 1. Crear registro de uso de bonos
-        for bono_data in bonos_utilizados:
-            bono_id = bono_data["bono_id"]
-            valor_utilizado = bono_data["valor_utilizado"]
-            
-            # Registrar el uso del bono
-            query_uso = """
-            INSERT INTO `datos-clientes-441216.Conciliaciones.conductor_bonos_usos` (
-                id,
-                bono_id,
-                employee_id,
-                valor_utilizado,
-                fecha_uso,
-                referencia_pago,
-                guias_aplicadas,
-                estado_uso,
-                creado_en
-            ) VALUES (
-                @uso_id,
-                @bono_id,
-                @employee_id,
-                @valor_utilizado,
-                @fecha_uso,
-                @referencia_pago,
-                @guias_aplicadas,
-                'aplicado',
-                @creado_en
-            )
-            """
-            
-            uso_id = f"USO_BONO_{timestamp_now.strftime('%Y%m%d_%H%M%S')}_{bono_id}"
-            referencia_pago = f"PAGO_BONOS_{timestamp_now.strftime('%Y%m%d_%H%M%S')}"
-            
-            job_config_uso = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("uso_id", "STRING", uso_id),
-                    bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id),
-                    bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
-                    bigquery.ScalarQueryParameter("valor_utilizado", "FLOAT", float(valor_utilizado)),
-                    bigquery.ScalarQueryParameter("fecha_uso", "TIMESTAMP", timestamp_now),
-                    bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
-                    bigquery.ScalarQueryParameter("guias_aplicadas", "STRING", json.dumps(guias)),
-                    bigquery.ScalarQueryParameter("creado_en", "TIMESTAMP", timestamp_now)
-                ]
-            )
-            
-            client.query(query_uso, job_config=job_config_uso).result()
-            
-            # 2. Actualizar saldo del bono
-            query_actualizar = """
-            UPDATE `datos-clientes-441216.Conciliaciones.conductor_bonos`
-            SET 
-                saldo_disponible = saldo_disponible - @valor_utilizado,
-                estado_bono = CASE 
-                    WHEN saldo_disponible - @valor_utilizado <= 0 THEN 'agotado'
-                    ELSE estado_bono
-                END,
-                fecha_ultima_actualizacion = @timestamp_now
-            WHERE id = @bono_id
-                AND employee_id = @employee_id
-            """
-            
-            job_config_actualizar = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("valor_utilizado", "FLOAT", float(valor_utilizado)),
-                    bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id),
-                    bigquery.ScalarQueryParameter("employee_id", "INTEGER", employee_id),
-                    bigquery.ScalarQueryParameter("timestamp_now", "TIMESTAMP", timestamp_now)
-                ]
-            )
-            
-            client.query(query_actualizar, job_config=job_config_actualizar).result()
-
-        print(f"✅ Bonos aplicados exitosamente")
-        print(f"💰 Total aplicado: ${total_bonos}")
-        print(f"📋 Bonos utilizados: {len(bonos_utilizados)}")
-        
-        return {
-            "mensaje": "Bonos aplicados exitosamente",
-            "total_aplicado": total_bonos,
-            "bonos_utilizados": len(bonos_utilizados),
-            "referencia_pago": referencia_pago,
-            "guias_afectadas": len(guias),
-            "timestamp": timestamp_now.isoformat()
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error aplicando bonos: {str(e)}")
-        import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Error interno aplicando bonos: {str(e)}")
 
 @router.get("/pendientes-contabilidad")
 def obtener_pagos_pendientes_contabilidad(
@@ -1440,29 +915,32 @@ def obtener_pagos_pendientes_contabilidad(
         # Query principal con paginación
         main_query = f"""
         SELECT 
-            referencia_pago,
-            correo as correo_conductor,
-            MAX(fecha_pago) AS fecha,
-            COALESCE(MAX(valor_total_consignacion), SUM(valor)) AS valor,
-            MAX(entidad) AS entidad,
-            MAX(tipo) AS tipo,
-            MAX(comprobante) AS imagen,
+            pc.referencia_pago,
+            pc.correo as correo_conductor,
+            MAX(pc.fecha_pago) AS fecha,
+            COALESCE(MAX(pc.valor_total_consignacion), SUM(pc.valor)) AS valor,
+            MAX(pc.entidad) AS entidad,
+            MAX(pc.tipo) AS tipo,
+            MAX(pc.comprobante) AS imagen,
             COUNT(*) AS num_guias,
-            STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia) LIMIT 5) AS trackings_preview,
-            MAX(estado_conciliacion) as estado_conciliacion,
-            MAX(novedades) as novedades,
-            MAX(creado_en) as fecha_creacion,
-            MAX(modificado_en) as fecha_modificacion
-        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            STRING_AGG(DISTINCT COALESCE(pc.tracking, pc.referencia), ', ' ORDER BY COALESCE(pc.tracking, pc.referencia) LIMIT 5) AS trackings_preview,
+            MAX(pc.estado_conciliacion) as estado_conciliacion,
+            MAX(pc.novedades) as novedades,
+            MAX(pc.creado_en) as fecha_creacion,
+            MAX(pc.modificado_en) as fecha_modificacion,
+            MAX(COALESCE(cod.Carrier, gl.carrier, 'N/A')) as carrier
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+            ON pc.tracking = cod.tracking_number
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+            ON pc.tracking = gl.tracking_number
         {where_clause}
-        GROUP BY referencia_pago, correo
-        ORDER BY MAX(fecha_pago) DESC, MAX(creado_en) DESC
+        GROUP BY pc.referencia_pago, pc.correo
+        ORDER BY MAX(pc.fecha_pago) DESC, MAX(pc.creado_en) DESC
         LIMIT {limit}
         OFFSET {offset}
         """
         
-        logger.info(f"Ejecutando consulta con filtros: referencia={referencia}, estado={estado}, desde={fecha_desde}, hasta={fecha_hasta}")
-        logger.info(f"Paginación: limit={limit}, offset={offset}")
         
         # Configurar parámetros para las consultas
         job_config = bigquery.QueryJobConfig(query_parameters=parametros)
@@ -1505,7 +983,8 @@ def obtener_pagos_pendientes_contabilidad(
                 "trackings_preview": trackings_preview,
                 "correo_conductor": str(row.get("correo_conductor", "")),
                 "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
-                "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None
+                "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
+                "carrier": str(row.get("carrier", "N/A"))
             }
             pagos.append(pago)
         
@@ -1529,7 +1008,7 @@ def obtener_pagos_pendientes_contabilidad(
             "fecha_hasta": fecha_hasta
         }
         
-        logger.info(f"✅ Consulta exitosa: {len(pagos)} pagos obtenidos de {total_registros} totales")
+       
         
         # Retornar respuesta estructurada
         return {
@@ -1544,8 +1023,6 @@ def obtener_pagos_pendientes_contabilidad(
         # Re-lanzar HTTPExceptions
         raise
     except Exception as e:
-        logger.error(f"❌ Error obteniendo pagos pendientes: {str(e)}")
-        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         
         # En caso de error, retornar respuesta de fallback
         return JSONResponse(
@@ -1573,7 +1050,7 @@ def obtener_pagos_pendientes_contabilidad(
                 "timestamp": datetime.now().isoformat()
             }
         )
-@router.post("/pagos/aprobar-pago")
+@router.post("/aprobar-pago")
 def aprobar_pago(payload: dict):
     """
     Aprueba un pago cambiando su estado a conciliado_manual
@@ -1663,7 +1140,7 @@ def aprobar_pago(payload: dict):
         resultado_conteo = client.query(conteo_query, job_config=job_config_conteo).result()
         total_guias = next(resultado_conteo)["total_guias"]
 
-        logger.info(f"✅ Pago {referencia} aprobado por {modificado_por}. {total_guias} guías liberadas.")
+        
 
         return {
             "mensaje": "Pago aprobado y conciliado manualmente",
@@ -1675,7 +1152,7 @@ def aprobar_pago(payload: dict):
         }
 
     except Exception as e:
-        logger.error(f"❌ Error aprobando pago {referencia}: {str(e)}")
+
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={"detail": f"Error interno del servidor: {str(e)}"}
@@ -1777,7 +1254,7 @@ def rechazar_pago(payload: dict):
         resultado_conteo = client.query(conteo_query, job_config=job_config_conteo).result()
         total_guias = next(resultado_conteo)["total_guias"]
 
-        logger.info(f"❌ Pago {referencia_pago} rechazado por {modificado_por}. Razón: {novedad}")
+        
 
         return {
             "mensaje": f"Pago con referencia {referencia_pago} rechazado exitosamente",
@@ -1793,55 +1270,324 @@ def rechazar_pago(payload: dict):
         # Re-lanzar HTTPExceptions
         raise
     except Exception as e:
-        logger.error(f"❌ Error rechazando pago {referencia_pago}: {str(e)}")
+        
         raise HTTPException(
             status_code=500, 
             detail=f"Error interno del servidor: {str(e)}"
         )
-        
-        
-@router.post("/pagos/rechazar-pago")
-def rechazar_pago(payload: dict):
-    referencia_pago = payload.get("referencia_pago")
-    novedad = payload.get("novedad")
-    modificado_por = payload.get("modificado_por")
 
-
-
-    if not referencia_pago or not novedad or not modificado_por:
-        raise HTTPException(
-            status_code=400,
-            detail="Faltan campos requeridos (referencia_pago, novedad, modificado_por)"
-        )
-
+async def notificar_error_bono(correo: str, excedente: float, razon: str):
+    """
+    Notifica a los administradores cuando hay un error al registrar un bono por excedente
+    """
     try:
+        error_log = {
+            "tipo": "error_bono_excedente",
+            "correo_conductor": correo,
+            "excedente": excedente,
+            "razon": razon,
+            "fecha": datetime.now().isoformat()
+        }
+        
+        # Registrar en tabla de errores
         client = bigquery.Client()
-        fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        query = """
-        UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
-        SET estado_conciliacion = 'rechazado',
-            novedades = @novedad,
-            modificado_por = @modificado_por,
-            modificado_en = CURRENT_TIMESTAMP()
-        WHERE referencia_pago = @referencia_pago
+        table_id = f"{PROJECT_ID}.{DATASET_CONCILIACIONES}.errores_bonos"
+        
+        query = f"""
+        INSERT INTO `{table_id}` (
+            tipo_error, correo_conductor, excedente, razon, fecha_error
+        ) VALUES (
+            'error_bono_excedente', @correo, @excedente, @razon, CURRENT_TIMESTAMP()
+        )
         """
+        
+        job_config = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("correo", "STRING", correo),
+            bigquery.ScalarQueryParameter("excedente", "FLOAT64", excedente),
+            bigquery.ScalarQueryParameter("razon", "STRING", razon),
+        ])
+        
+        client.query(query, job_config=job_config).result()
+        
+        
+    except Exception as e:
+        logger.error(f"❌ Error al notificar error de bono: {e}")
 
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
-                bigquery.ScalarQueryParameter("novedad", "STRING", novedad),
-                bigquery.ScalarQueryParameter("modificado_por", "STRING", modificado_por),
-            ]
+@router.get("/historial")
+async def obtener_historial_pagos(
+    limite: int = Query(50, description="Número máximo de registros a devolver (0 = todos)"),
+    offset: int = Query(0, description="Número de registros a omitir"),
+    fecha_inicio: Optional[str] = Query(None, description="Fecha de inicio (YYYY-MM-DD)"),
+    fecha_fin: Optional[str] = Query(None, description="Fecha de fin (YYYY-MM-DD)"),
+    estado: Optional[str] = Query(None, description="Estado del pago"),
+    conductor: Optional[str] = Query(None, description="Email del conductor")
+):
+    """
+    Obtiene el historial de pagos con filtros opcionales
+    limite = 0 devuelve TODOS los registros sin límite
+    """
+    try:
+        client = get_bigquery_client()
+        
+        # Construir la consulta base simplificada
+        query = """
+        SELECT 
+            referencia_pago,
+            fecha_pago,
+            hora_pago,
+            correo as correo_conductor,
+            cliente,
+            tipo,
+            entidad,
+            COALESCE(valor_total_consignacion, valor) as valor_pago,
+            estado_conciliacion,
+            creado_en as fecha_registro,
+            tracking,
+            COUNT(*) OVER (PARTITION BY referencia_pago) as num_guias
+        FROM `{project}.{dataset}.pagosconductor`
+        WHERE 1=1
+        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
+        
+        # Agregar filtros dinámicamente
+        query_params = []
+        
+        if fecha_inicio:
+            query += " AND DATE(fecha_pago) >= @fecha_inicio"
+            query_params.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio))
+        
+        if fecha_fin:
+            query += " AND DATE(fecha_pago) <= @fecha_fin"
+            query_params.append(bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin))
+        
+        if estado:
+            query += " AND estado_conciliacion = @estado"
+            query_params.append(bigquery.ScalarQueryParameter("estado", "STRING", estado))
+        
+        if conductor:
+            query += " AND LOWER(correo) LIKE @conductor"
+            query_params.append(bigquery.ScalarQueryParameter("conductor", "STRING", f"%{conductor.lower()}%"))
+        
+        # Agregar ordenación
+        query += " ORDER BY fecha_pago DESC, hora_pago DESC, creado_en DESC"
+        
+        # Solo agregar límite si es mayor que 0
+        if limite > 0:
+            query += " LIMIT @limite OFFSET @offset"
+            query_params.extend([
+                bigquery.ScalarQueryParameter("limite", "INT64", limite),
+                bigquery.ScalarQueryParameter("offset", "INT64", offset)
+            ])
+        
+       
+        
+        # Ejecutar consulta
+        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
+        results = client.query(query, job_config=job_config).result()
+        
+        # Convertir resultados
+        historial = []
+        for row in results:
+            pago = {
+                "referencia_pago": row.referencia_pago or "",
+                "fecha": row.fecha_pago.isoformat() if row.fecha_pago else None,
+                "hora_pago": str(row.hora_pago) if row.hora_pago else "",
+                "correo_conductor": row.correo_conductor or "",
+                "cliente": row.cliente or "",
+                "tipo": row.tipo or "",
+                "entidad": row.entidad or "",
+                "valor": float(row.valor_pago) if row.valor_pago else 0.0,
+                "estado": row.estado_conciliacion or "pendiente",
+                "fecha_registro": row.fecha_registro.isoformat() if row.fecha_registro else None,
+                "tracking": row.tracking or "",
+                "num_guias": int(row.num_guias) if row.num_guias else 0,
+                "imagen": "",  # Agregar campo imagen vacío por compatibilidad
+                "novedades": ""  # Agregar campo novedades vacío por compatibilidad
+            }
+            historial.append(pago)
+        
+        # Obtener conteo total para paginación - consulta simplificada
+        count_query = """
+        SELECT COUNT(DISTINCT referencia_pago) as total
+        FROM `{project}.{dataset}.pagosconductor`
+        WHERE 1=1
+        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
+        
+        # Aplicar los mismos filtros para el conteo
+        count_params = []
+        
+        if fecha_inicio:
+            count_query += " AND DATE(fecha_pago) >= @fecha_inicio"
+            count_params.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio))
+        
+        if fecha_fin:
+            count_query += " AND DATE(fecha_pago) <= @fecha_fin"
+            count_params.append(bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin))
+        
+        if estado:
+            count_query += " AND estado_conciliacion = @estado"
+            count_params.append(bigquery.ScalarQueryParameter("estado", "STRING", estado))
+        
+        if conductor:
+            count_query += " AND LOWER(correo) LIKE @conductor"
+            count_params.append(bigquery.ScalarQueryParameter("conductor", "STRING", f"%{conductor.lower()}%"))
+        
+        count_job_config = bigquery.QueryJobConfig(query_parameters=count_params)
+        count_result = list(client.query(count_query, job_config=count_job_config).result())
+        total_registros = count_result[0].total if count_result else 0
+        
+        
+        return {
+            "historial": historial,
+            "total": total_registros,
+            "limite": limite,
+            "offset": offset,
+            "tiene_mas": (offset + limite) < total_registros if limite > 0 else False
+        }
+        
+    except Exception as e:
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
-        job = client.query(query, job_config=job_config)
-        job.result()  # esperar a que finalice
-
-        return {
-            "mensaje": f"Pago con referencia {referencia_pago} rechazado exitosamente",
-            "novedad": novedad
+@router.get("/exportar-pendientes-contabilidad")
+def exportar_todos_pagos_pendientes_contabilidad(
+    referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado de conciliación"),
+    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
+):
+    """
+    Exporta TODOS los pagos pendientes de contabilidad que coincidan con los filtros (sin paginación)
+    """
+    try:
+        client = get_bigquery_client()
+        
+        # Construir condiciones de filtro dinámicamente (igual que en la consulta paginada)
+        condiciones = ["1=1"]
+        parametros = []
+        
+        # Filtro por referencia de pago
+        if referencia and referencia.strip():
+            condiciones.append("referencia_pago LIKE @referencia_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
+            )
+        
+        # Filtro por estado (por defecto pendiente_conciliacion si no se especifica)
+        if estado and estado.strip():
+            condiciones.append("estado_conciliacion = @estado_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
+            )
+        else:
+            # Si no se especifica estado, mostrar solo pendientes por defecto
+            condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
+        
+        # Filtro por fecha desde
+        if fecha_desde:
+            try:
+                datetime.strptime(fecha_desde, "%Y-%m-%d")
+                condiciones.append("fecha_pago >= @fecha_desde")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("fecha_desde", "DATE", fecha_desde)
+                )
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_desde inválido (YYYY-MM-DD)")
+        
+        # Filtro por fecha hasta
+        if fecha_hasta:
+            try:
+                datetime.strptime(fecha_hasta, "%Y-%m-%d")
+                condiciones.append("fecha_pago <= @fecha_hasta")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("fecha_hasta", "DATE", fecha_hasta)
+                )
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido (YYYY-MM-DD)")
+        
+        where_clause = "WHERE " + " AND ".join(condiciones)
+        
+        # Query para exportar TODOS los registros (sin LIMIT ni OFFSET)
+        export_query = f"""
+        SELECT 
+            referencia_pago,
+            correo as correo_conductor,
+            MAX(fecha_pago) AS fecha,
+            COALESCE(MAX(valor_total_consignacion), SUM(valor)) AS valor,
+            MAX(entidad) AS entidad,
+            MAX(tipo) AS tipo,
+            MAX(comprobante) AS imagen,
+            COUNT(*) AS num_guias,
+            STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia)) AS trackings_completos,
+            MAX(estado_conciliacion) as estado_conciliacion,
+            MAX(novedades) as novedades,
+            MAX(creado_en) as fecha_creacion,
+            MAX(modificado_en) as fecha_modificacion,
+            MAX(hora_pago) as hora_pago
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        {where_clause}
+        GROUP BY referencia_pago, correo
+        ORDER BY MAX(fecha_pago) DESC, MAX(creado_en) DESC
+        """
+        
+        
+        
+        # Configurar parámetros y ejecutar consulta
+        job_config = bigquery.QueryJobConfig(query_parameters=parametros)
+        
+        # Ejecutar consulta con timeout extendido para exportación
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_export = executor.submit(lambda: client.query(export_query, job_config=job_config).result())
+            export_result = future_export.result(timeout=120)  # 2 minutos para exportación completa
+        
+        # Procesar todos los resultados
+        pagos_exportar = []
+        for row in export_result:
+            pago = {
+                "referencia_pago": row.get("referencia_pago", ""),
+                "valor": float(row.get("valor", 0)) if row.get("valor") else 0.0,
+                "fecha": str(row.get("fecha", "")),
+                "entidad": str(row.get("entidad", "")),
+                "estado_conciliacion": str(row.get("estado_conciliacion", "")),
+                "tipo": str(row.get("tipo", "")),
+                "imagen": str(row.get("imagen", "")),
+                "novedades": str(row.get("novedades", "")),
+                "num_guias": int(row.get("num_guias", 0)),
+                "trackings_completos": str(row.get("trackings_completos", "")),
+                "correo_conductor": str(row.get("correo_conductor", "")),
+                "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
+                "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
+                "hora_pago": str(row.get("hora_pago", ""))
+            }
+            pagos_exportar.append(pago)
+        
+        # Información de la exportación
+        info_exportacion = {
+            "total_registros_exportados": len(pagos_exportar),
+            "filtros_aplicados": {
+                "referencia": referencia,
+                "estado": estado,
+                "fecha_desde": fecha_desde,
+                "fecha_hasta": fecha_hasta
+            },
+            "fecha_exportacion": datetime.now().isoformat()
         }
-
+        
+    
+        
+        return {
+            "pagos": pagos_exportar,
+            "info_exportacion": info_exportacion,
+            "status": "success"
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor en exportación: {str(e)}"
+        )
