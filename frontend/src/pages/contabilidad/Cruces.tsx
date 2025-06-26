@@ -151,7 +151,7 @@ interface LoadingProgress {
 
 const Cruces: React.FC = () => {
   // ✅ CONFIGURACIÓN DE API - Usar servidor local para desarrollo
-  const API_BASE_URL = 'http://localhost:8000';
+  const API_BASE_URL = 'https://api.x-cargo.co';
 
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
