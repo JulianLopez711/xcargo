@@ -177,6 +177,7 @@ const Cruces: React.FC = () => {
     percentage: 0,
     message: "",
   });
+  const [logsProgreso, setLogsProgreso] = useState<string[]>([]);
 
   // ✅ FUNCIÓN HELPER PARA CLASIFICAR SIMILITUD
   const getSimilitudClass = (porcentaje: number): string => {
@@ -339,83 +340,46 @@ const Cruces: React.FC = () => {
     }
   };
 
-  // ✅ FUNCIÓN EJECUTAR CONCILIACIÓN CORREGIDA
+  // ✅ FUNCIÓN EJECUTAR CONCILIACIÓN CON PROGRESO EN TIEMPO REAL Y FALLBACK
   const ejecutarConciliacion = async () => {
     setProcesandoConciliacion(true);
+    setLogsProgreso([]); // Limpiar logs anteriores
     updateProgress(0, 100, "Iniciando conciliación automática...");
 
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/conciliacion/conciliacion-automatica-mejorada`
-      );
-
-      if (!res.ok) {
-        throw new Error(await res.text());
+      // Verificar si el navegador soporta EventSource
+      if (typeof EventSource !== 'undefined') {
+        
+        await ejecutarConciliacionConProgreso();
+      } else {
+        console.warn("EventSource no soportado, usando método tradicional");
+        await ejecutarConciliacionFallback();
       }
-
-      const data: ResumenConciliacionMejorado = await res.json();
-
-      if (!data.resumen) {
-        throw new Error("Datos de conciliación inválidos");
-      }
-
-      const totalProcesados = data.resumen.total_procesados || 0;
-      const totalMovimientos = data.resumen.total_movimientos_banco || 0;
-
-      updateProgress(
-        totalProcesados,
-        totalMovimientos,
-        `Conciliados: ${
-          data.resumen.conciliado_exacto + data.resumen.conciliado_aproximado
-        }`
-      );
-
-      // ✅ CONVERTIR A FORMATO ESPERADO POR EL FRONTEND
-      const resumen = data.resumen;
-
-      const dataConvertida: ResumenConciliacion = {
-        resumen: {
-          total_movimientos_banco: resumen.total_movimientos_banco ?? 0,
-          total_pagos_conductores: resumen.total_pagos_iniciales ?? 0,
-          conciliado_exacto: resumen.conciliado_exacto ?? 0,
-          conciliado_aproximado: resumen.conciliado_aproximado ?? 0,
-          multiple_match: 0,
-          diferencia_valor: 0,
-          diferencia_fecha: 0,
-          sin_match: resumen.sin_match ?? 0,
-        },
-        resultados: data.resultados ?? [],
-        fecha_conciliacion: data.fecha_conciliacion ?? "",
-      };
-
-      setResultadoConciliacion(dataConvertida);
-
-      // ✅ MENSAJE MEJORADO CON DATOS DEL ENDPOINT NUEVO
-      const totalConciliados =
-        (resumen.conciliado_exacto ?? 0) + (resumen.conciliado_aproximado ?? 0);
-      const porcentajeConciliado =
-        (resumen.total_movimientos_banco ?? 0) > 0
-          ? Math.round(
-              (totalConciliados / resumen.total_movimientos_banco!) * 100
-            )
-          : 0;
-
-      setMensaje(
-        `✅ Conciliación completada. ` +
-          `Procesados: ${resumen.total_procesados ?? 0} movimientos. ` +
-          `Conciliados: ${totalConciliados} (${porcentajeConciliado}%). ` +
-          `Referencias únicas usadas: ${
-            resumen.referencias_unicas_utilizadas ?? 0
-          }.`
-      );
-
-      cargarEstadisticas();
     } catch (err: any) {
-      console.error("Error en conciliación:", err);
-      setMensaje("❌ Error ejecutando conciliación: " + err.message);
-      updateProgress(0, 100, "❌ Error en la conciliación");
+      // Si el error es FALLBACK_NEEDED, usar fallback silenciosamente
+      if (err.message === "FALLBACK_NEEDED") {
+        
+        try {
+          await ejecutarConciliacionFallback();
+        } catch (fallbackErr: any) {
+          console.error("Error en fallback también:", fallbackErr);
+          setMensaje("❌ Error ejecutando conciliación: " + fallbackErr.message);
+          updateProgress(0, 100, "❌ Error en la conciliación");
+        }
+      } else {
+        // Para otros errores, mostrar el mensaje
+        console.error("Error en conciliación:", err);
+        try {
+          await ejecutarConciliacionFallback();
+        } catch (fallbackErr: any) {
+          console.error("Error en fallback también:", fallbackErr);
+          setMensaje("❌ Error ejecutando conciliación: " + fallbackErr.message);
+          updateProgress(0, 100, "❌ Error en la conciliación");
+        }
+      }
     } finally {
       setTimeout(() => {
+        
         setProcesandoConciliacion(false);
         setLoadingProgress({
           total: 0,
@@ -424,6 +388,234 @@ const Cruces: React.FC = () => {
           message: "",
         });
       }, 2000);
+    }
+  };
+
+  // Función de conciliación con progreso usando EventSource
+  const ejecutarConciliacionConProgreso = async () => {
+    
+    
+    return new Promise<void>((resolve, reject) => {
+      let eventSource: EventSource | null = null;
+      let resolved = false;
+
+      try {
+        const url = `${API_BASE_URL}/conciliacion/conciliacion-automatica-mejorada`;
+        
+        
+        eventSource = new EventSource(url);
+
+        // Función helper para cerrar y limpiar
+        const cleanup = () => {
+          if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
+            eventSource.close();
+          }
+        };
+
+        // Un solo listener para todos los mensajes
+        eventSource.onmessage = function(event) {
+          if (resolved) return; // Evitar procesamiento múltiple
+
+          try {
+            const data = JSON.parse(event.data);
+            
+            
+            // Agregar el mensaje a los logs de progreso para mostrar en la UI
+            if (data.mensaje) {
+              setLogsProgreso(prev => [...prev.slice(-19), `${new Date().toLocaleTimeString()}: ${data.mensaje}`]);
+            }
+            
+            // Actualizar progreso según el tipo de evento
+            switch (data.tipo) {
+              case 'inicio':
+                updateProgress(
+                  data.porcentaje || 5,
+                  100,
+                  data.mensaje || "Iniciando conciliación..."
+                );
+                break;
+
+              case 'fase':
+                updateProgress(
+                  data.porcentaje || 10,
+                  100,
+                  data.mensaje || "Procesando fase..."
+                );
+                break;
+
+              case 'info':
+                // Para eventos info, usar un porcentaje incremental si no se especifica
+                const currentPercentage = data.porcentaje || 15;
+                updateProgress(
+                  currentPercentage,
+                  100,
+                  data.mensaje || "Procesando información..."
+                );
+                break;
+
+              case 'progreso':
+                updateProgress(
+                  data.porcentaje || 25,
+                  100,
+                  data.mensaje || "Procesando..."
+                );
+                break;
+                
+              case 'exito':
+                updateProgress(
+                  data.porcentaje || 75,
+                  100,
+                  data.mensaje || "Operación exitosa..."
+                );
+                break;
+                
+              case 'completado':
+                updateProgress(100, 100, data.mensaje || "Conciliación completada");
+                
+                
+                
+                // Si tiene resultado, procesarlo
+                if (data.resultado) {
+                  procesarResultadoConciliacion(data.resultado);
+                }
+                
+                resolved = true;
+                cleanup();
+                resolve();
+                break;
+                
+              case 'error':
+                console.warn("Error en EventSource, cambiando a método fallback:", data.mensaje);
+                resolved = true;
+                cleanup();
+                reject(new Error("FALLBACK_NEEDED"));
+                break;
+
+              default:
+                
+                // Para eventos no reconocidos, usar porcentaje incremental
+                const defaultPercentage = data.porcentaje || 20;
+                if (data.mensaje && !data.mensaje.includes('Error')) {
+                  updateProgress(
+                    defaultPercentage,
+                    100,
+                    data.mensaje
+                  );
+                }
+                break;
+            }
+          } catch (parseError: any) {
+            // Log más detallado del error para debugging
+            console.warn("Error parseando evento EventSource:", {
+              error: parseError,
+              eventData: event.data,
+              errorMessage: parseError?.message || "Error desconocido"
+            });
+            
+            // Si el error contiene "Decimal", es el problema conocido
+            if (event.data.includes('Decimal') || parseError?.message?.includes('Decimal')) {
+              
+            }
+            
+            if (!resolved) {
+              resolved = true;
+              cleanup();
+              reject(new Error("FALLBACK_NEEDED"));
+            }
+          }
+        };
+
+        eventSource.onerror = function() {
+          console.warn("Error de conexión EventSource, usando método fallback");
+          if (!resolved) {
+            resolved = true;
+            cleanup();
+            reject(new Error("FALLBACK_NEEDED"));
+          }
+        };
+
+        eventSource.onopen = function() {
+          
+        };
+
+        // Sin timeout fijo - EventSource se maneja naturalmente hasta completarse
+        // Si hay problemas de red, el onerror activará el fallback automáticamente
+
+      } catch (err) {
+        console.error("Error inicializando EventSource:", err);
+        if (!resolved) {
+          resolved = true;
+          reject(new Error("FALLBACK_NEEDED"));
+        }
+      }
+    });
+  };
+
+  // Función de conciliación tradicional como fallback
+  const ejecutarConciliacionFallback = async () => {
+    updateProgress(25, 100, "Ejecutando conciliación ");
+
+    const res = await fetch(
+      `${API_BASE_URL}/conciliacion/conciliacion-automatica-fallback`
+    );
+
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+
+    updateProgress(75, 100, "Procesando resultados...");
+    const data = await res.json();
+
+    if (!data.resumen) {
+      throw new Error("Datos de conciliación inválidos");
+    }
+
+    procesarResultadoConciliacion(data);
+    updateProgress(100, 100, "Conciliación completada");
+  };
+
+  // Función para procesar el resultado de la conciliación
+  const procesarResultadoConciliacion = (data: any) => {
+    
+    
+    try {
+      const dataConvertida: ResumenConciliacion = {
+        resumen: {
+          total_movimientos_banco: data.resumen.total_movimientos_banco ?? 0,
+          total_pagos_conductores: data.resumen.total_pagos_iniciales ?? 0,
+          conciliado_exacto: data.resumen.conciliado_exacto ?? 0,
+          conciliado_aproximado: data.resumen.conciliado_aproximado ?? 0,
+          multiple_match: 0,
+          diferencia_valor: 0,
+          diferencia_fecha: 0,
+          sin_match: data.resumen.sin_match ?? 0,
+        },
+        resultados: data.resultados ?? [],
+        fecha_conciliacion: data.fecha_conciliacion ?? "",
+      };
+
+     
+      setResultadoConciliacion(dataConvertida);
+
+      const totalConciliados = dataConvertida.resumen.conciliado_exacto + dataConvertida.resumen.conciliado_aproximado;
+      const porcentajeConciliado = dataConvertida.resumen.total_movimientos_banco > 0
+        ? Math.round((totalConciliados / dataConvertida.resumen.total_movimientos_banco) * 100)
+        : 0;
+
+      const mensajeResultado = `✅ Conciliación completada. ` +
+        `Procesados: ${data.resumen.total_procesados ?? 0} movimientos. ` +
+        `Conciliados: ${totalConciliados} (${porcentajeConciliado}%). ` +
+        `Referencias únicas usadas: ${data.resumen.referencias_unicas_utilizadas ?? 0}.`;
+
+
+      setMensaje(mensajeResultado);
+
+      // Recargar estadísticas
+      cargarEstadisticas();
+      
+    } catch (error) {
+      console.error("❌ Error procesando resultado:", error);
+      setMensaje("❌ Error procesando resultado de conciliación");
     }
   };
 
@@ -470,20 +662,17 @@ const Cruces: React.FC = () => {
 
   // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIONES BANCARIAS
   const mostrarModalSeleccionTransaccionBanco = async (resultado: ResultadoConciliacion) => {
-    console.log("🔍 Iniciando búsqueda de transacciones bancarias para:", resultado);
     
     try {
       // Intentar usar el endpoint optimizado primero
       let transacciones = [];
       
       if (resultado.referencia_pago) {
-        console.log("🎯 Usando endpoint optimizado con referencia:", resultado.referencia_pago);
         transacciones = await obtenerTransaccionesBancarias(resultado.referencia_pago);
       }
       
       // Si no hay referencia o no se encontraron transacciones, usar búsqueda por criterios
       if (transacciones.length === 0) {
-        console.log("🔄 Usando búsqueda por criterios de valor y fecha");
         
         const fechaInicio = new Date(resultado.fecha_banco);
         fechaInicio.setDate(fechaInicio.getDate() - 7); // 7 días antes
@@ -499,7 +688,7 @@ const Cruces: React.FC = () => {
           estado: 'pendiente' // Solo transacciones no conciliadas
         });
 
-        console.log("🌐 Intentando endpoint de búsqueda:", `${API_BASE_URL}/conciliacion/obtener-movimientos-banco-disponibles?${params.toString()}`);
+  
         
         const res = await fetch(
           `${API_BASE_URL}/conciliacion/obtener-movimientos-banco-disponibles?${params.toString()}`
@@ -508,7 +697,7 @@ const Cruces: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           transacciones = data.transacciones || [];
-          console.log("✅ Endpoint de búsqueda funcionó, transacciones encontradas:", transacciones.length);
+          
         } else {
           console.log("❌ Endpoint de búsqueda falló con status:", res.status);
         }
@@ -516,7 +705,7 @@ const Cruces: React.FC = () => {
 
       // Si aún no hay transacciones, intentar fallback
       if (transacciones.length === 0) {
-        console.log("🔄 Intentando endpoint de fallback...");
+        
         
         const fallbackRes = await fetch(
           `${API_BASE_URL}/conciliacion/pagos-pendientes-conciliar`
@@ -524,7 +713,7 @@ const Cruces: React.FC = () => {
         
         if (fallbackRes.ok) {
           const fallbackData = await fallbackRes.json();
-          console.log("📊 Datos de fallback recibidos:", fallbackData);
+         
           
           // Simular estructura de transacciones bancarias usando los pagos pendientes como base
           transacciones = fallbackData.pagos?.map((pago: any) => ({
@@ -543,7 +732,7 @@ const Cruces: React.FC = () => {
         }
       }
 
-      console.log("🎯 Configurando modal con transacciones:", transacciones.length);
+      
       
       setModalSeleccionTransaccion({
         pago: {
@@ -559,7 +748,7 @@ const Cruces: React.FC = () => {
       if (transacciones.length === 0) {
         setMensaje("⚠️ No se encontraron transacciones bancarias disponibles para conciliar");
       } else {
-        console.log("✅ Modal configurado exitosamente con", transacciones.length, "transacciones");
+        
       }
       
     } catch (err: any) {
@@ -686,7 +875,7 @@ const Cruces: React.FC = () => {
       return pasaFiltroEstado && pasaBusqueda;
     }) || [];
 
-  // Función para actualizar el progreso
+  // Función para actualizar el progreso con detalles mejorados
   const updateProgress = (
     processed: number,
     total: number,
@@ -707,26 +896,48 @@ const Cruces: React.FC = () => {
       top: 0;
       left: 0;
       right: 0;
-      background: rgba(255, 255, 255, 0.9);
-      padding: 1rem;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 1.5rem;
       z-index: 1000;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      backdrop-filter: blur(8px);
+      border-bottom: 3px solid #3b82f6;
     }
 
     .loading-progress {
-      max-width: 600px;
+      max-width: 800px;
       margin: 0 auto;
-      background: #f3f4f6;
-      border-radius: 8px;
+      background: #f8fafc;
+      border-radius: 12px;
       overflow: hidden;
       position: relative;
-      height: 24px;
+      height: 32px;
+      border: 2px solid #e2e8f0;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
     }
 
     .progress-bar {
       height: 100%;
-      background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
-      transition: width 0.3s ease;
+      background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 50%, #2563eb 100%);
+      transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .progress-bar::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+      animation: shimmer 2s infinite;
+    }
+
+    @keyframes shimmer {
+      0% { left: -100%; }
+      100% { left: 100%; }
     }
 
     .progress-text {
@@ -734,11 +945,81 @@ const Cruces: React.FC = () => {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
-      color: #1f2937;
-      font-size: 0.875rem;
-      font-weight: 500;
+      color: #1e293b;
+      font-size: 0.9rem;
+      font-weight: 600;
       white-space: nowrap;
-      text-shadow: 0 0 2px rgba(255,255,255,0.8);
+      text-shadow: 0 1px 3px rgba(255,255,255,0.9);
+      z-index: 10;
+    }
+
+    .progress-details {
+      margin-top: 0.75rem;
+      text-align: center;
+      font-size: 0.85rem;
+      color: #64748b;
+      font-weight: 500;
+    }
+
+    .progress-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #e2e8f0;
+      border-radius: 50%;
+      border-top-color: #3b82f6;
+      animation: spin 1s ease-in-out infinite;
+      margin-right: 8px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .progress-logs {
+      margin-top: 1rem;
+      background: #f8fafc;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      max-height: 200px;
+      overflow: hidden;
+    }
+
+    .logs-header {
+      background: #1e293b;
+      color: white;
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .logs-container {
+      max-height: 160px;
+      overflow-y: auto;
+      padding: 0.5rem;
+    }
+
+    .log-item {
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.75rem;
+      color: #374151;
+      padding: 0.25rem 0;
+      border-bottom: 1px solid #f3f4f6;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .log-item:last-child {
+      border-bottom: none;
+    }
+
+    .log-item:hover {
+      background: #f9fafb;
+      white-space: normal;
+      word-wrap: break-word;
+      overflow: visible;
     }
 
     /* Forzar grid de 3 columnas */
@@ -777,6 +1058,18 @@ const Cruces: React.FC = () => {
       .estadisticas-grid {
         grid-template-columns: repeat(2, 1fr) !important;
         gap: 1rem !important;
+      }
+      
+      .loading-container {
+        padding: 1rem;
+      }
+      
+      .loading-progress {
+        height: 28px;
+      }
+      
+      .progress-text {
+        font-size: 0.8rem;
       }
     }
 
@@ -1645,34 +1938,44 @@ const Cruces: React.FC = () => {
               style={{ width: `${loadingProgress.percentage}%` }}
             />
             <div className="progress-text">
-              {loadingProgress.message || "Procesando..."}
-              {loadingProgress.total > 0 && (
-                <span>
-                  {" "}
-                  ({loadingProgress.processed}/{loadingProgress.total} -{" "}
-                  {loadingProgress.percentage}%)
-                </span>
-              )}
+              <span className="progress-spinner"></span>
+              {loadingProgress.percentage}% - {loadingProgress.message || "Procesando archivo..."}
             </div>
           </div>
+          {loadingProgress.processed > 0 && (
+            <div className="progress-details">
+              📄 Procesando archivo: {loadingProgress.processed} de {loadingProgress.total} líneas
+            </div>
+          )}
         </div>
       )}{" "}
       {procesandoConciliacion && (
         <div className="loading-container">
           <div className="loading-progress">
-            <div className="progress-track">
-              <div
-                className="progress-bar"
-                style={{ width: `${loadingProgress.percentage}%` }}
-              />
-            </div>
+            <div
+              className="progress-bar"
+              style={{ width: `${loadingProgress.percentage}%` }}
+            />
             <div className="progress-text">
-              {loadingProgress.message || "Conciliando..."}
-              {loadingProgress.percentage > 0 && (
-                <span> ({loadingProgress.percentage}%)</span>
-              )}
+              <span className="progress-spinner"></span>
+              {loadingProgress.percentage}% - {loadingProgress.message || "Ejecutando conciliación..."}
             </div>
           </div>
+          {loadingProgress.percentage > 0 && (
+            <div className="progress-details">
+              🔄 Conciliación automática en tiempo real - Procesando pagos y movimientos bancarios
+            </div>
+          )}
+          {logsProgreso.length > 0 && (
+            <div className="progress-logs">
+              <div className="logs-header">📋 Log de Progreso:</div>
+              <div className="logs-container">
+                {logsProgreso.map((log, idx) => (
+                  <div key={idx} className="log-item">{log}</div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
