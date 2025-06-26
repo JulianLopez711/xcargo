@@ -56,7 +56,7 @@ export default function PagosPendientes() {
 
       const [bonosRes, guiasRes] = await withLoading(() => Promise.all([
         // Cargar bonos
-        fetch("http://127.0.0.1:8000/guias/bonos-disponibles", {
+        fetch("https://api.x-cargo.co/guias/bonos-disponibles", {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -67,7 +67,7 @@ export default function PagosPendientes() {
         }),
 
         // Cargar guías pendientes
-        fetch("http://127.0.0.1:8000/guias/pendientes", {
+        fetch("https://api.x-cargo.co/guias/pendientes", {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
@@ -146,7 +146,7 @@ export default function PagosPendientes() {
   const verificarDatosConductor = async () => {
     try {
       const token = getToken();
-      const res = await fetch("http://127.0.0.1:8000/guias/verificar-datos-conductor", {
+      const res = await fetch("https://api.x-cargo.co/guias/verificar-datos-conductor", {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -178,7 +178,7 @@ export default function PagosPendientes() {
   const sincronizarGuias = async () => {
     try {
       const token = getToken();
-      const res = await fetch("http://127.0.0.1:8000/guias/sincronizar-guias-desde-cod", {
+      const res = await fetch("https://api.x-cargo.co/guias/sincronizar-guias-desde-cod", {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
