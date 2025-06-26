@@ -70,9 +70,17 @@ export default function EntregasConciliadas() {
     calidad_minima: ""
   });
 
+  // Filtros aplicados (los que se usan para la API)
+  const [filtrosAplicados, setFiltrosAplicados] = useState<Filtros>({
+    cliente: "",
+    desde: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    hasta: new Date().toISOString().split('T')[0],
+    solo_conciliadas: true,
+    calidad_minima: ""
+  });
+
   // Selección múltiple
   const [entregasSeleccionadas, setEntregasSeleccionadas] = useState<Set<string>>(new Set());
-  const [seleccionarTodas, setSeleccionarTodas] = useState(false);
 
   // Opciones para filtros
   const [clientesDisponibles, setClientesDisponibles] = useState<string[]>([]);
@@ -92,7 +100,7 @@ export default function EntregasConciliadas() {
   }, [user]);
 
   // Cargar datos de entregas conciliadas
-  const cargarEntregas = useCallback(async () => {
+  const cargarEntregas = useCallback(async (filtrosParaAplicar = filtrosAplicados) => {
     if (!user) return;
 
     setLoading(true);
@@ -100,14 +108,14 @@ export default function EntregasConciliadas() {
 
     try {
       const params = new URLSearchParams({
-        solo_conciliadas: filtros.solo_conciliadas.toString(),
-        ...(filtros.cliente && { cliente: filtros.cliente }),
-        ...(filtros.desde && { desde: filtros.desde }),
-        ...(filtros.hasta && { hasta: filtros.hasta })
+        solo_conciliadas: filtrosParaAplicar.solo_conciliadas.toString(),
+        ...(filtrosParaAplicar.cliente && { cliente: filtrosParaAplicar.cliente }),
+        ...(filtrosParaAplicar.desde && { desde: filtrosParaAplicar.desde }),
+        ...(filtrosParaAplicar.hasta && { hasta: filtrosParaAplicar.hasta })
       });
 
       const response = await fetch(
-        `https://api.x-cargo.co/entregas/entregas-consolidadas?${params}`,
+        `http://127.0.0.1:8000/entregas/entregas-consolidadas?${params}`,
         { headers }
       );
 
@@ -125,7 +133,7 @@ export default function EntregasConciliadas() {
         total_entregas: data.total_entregas || 0,
         valor_total: data.valor_total || 0,
         entregas_listas: entregasListas.length,
-        valor_listo: entregasListas.reduce((sum: number, e: EntregaConciliada) => sum + e.valor, 0),
+        valor_listo: entregasListas.reduce((sum: number, e: EntregaConciliada) => sum + (e.valor_tracking || e.valor), 0),
         porcentaje_calidad: data.calidad_datos?.porcentaje_calidad || 0,
         confianza_promedio: data.calidad_datos?.confianza_promedio || 0
       });
@@ -140,16 +148,36 @@ export default function EntregasConciliadas() {
     } finally {
       setLoading(false);
     }
-  }, [user, headers, filtros]);
+  }, [user, headers, filtrosAplicados]);
+
+  // Aplicar filtros
+  const aplicarFiltros = async () => {
+    setFiltrosAplicados({ ...filtros });
+    await cargarEntregas(filtros);
+  };
+
+  // Limpiar filtros
+  const limpiarFiltros = () => {
+    const filtrosVacios = {
+      cliente: "",
+      desde: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      hasta: new Date().toISOString().split('T')[0],
+      solo_conciliadas: true,
+      calidad_minima: ""
+    };
+    setFiltros(filtrosVacios);
+    setFiltrosAplicados(filtrosVacios);
+    cargarEntregas(filtrosVacios);
+  };
 
   // Filtrar entregas según criterios locales
   useEffect(() => {
     let filtradas = [...entregas];
 
     // Filtro por calidad mínima
-    if (filtros.calidad_minima) {
+    if (filtrosAplicados.calidad_minima) {
       const nivelCalidad = { 'Excelente': 3, 'Buena': 2, 'Regular': 1 };
-      const nivelMinimo = nivelCalidad[filtros.calidad_minima as keyof typeof nivelCalidad] || 0;
+      const nivelMinimo = nivelCalidad[filtrosAplicados.calidad_minima as keyof typeof nivelCalidad] || 0;
       
       filtradas = filtradas.filter(e => {
         const nivelActual = nivelCalidad[e.calidad_conciliacion as keyof typeof nivelCalidad] || 0;
@@ -159,7 +187,7 @@ export default function EntregasConciliadas() {
 
     setEntregasFiltradas(filtradas);
     setPaginaActual(1); // Reset página al filtrar
-  }, [entregas, filtros.calidad_minima]);
+  }, [entregas, filtrosAplicados.calidad_minima]);
 
   // Cargar datos al montar y cuando cambien los filtros de API
   useEffect(() => {
@@ -172,24 +200,28 @@ export default function EntregasConciliadas() {
   };
 
   // Selección de entregas
-  const toggleSeleccion = (referencia: string) => {
+  const toggleSeleccion = (tracking: string) => {
     const nuevaSeleccion = new Set(entregasSeleccionadas);
-    if (nuevaSeleccion.has(referencia)) {
-      nuevaSeleccion.delete(referencia);
+    if (nuevaSeleccion.has(tracking)) {
+      nuevaSeleccion.delete(tracking);
     } else {
-      nuevaSeleccion.add(referencia);
+      nuevaSeleccion.add(tracking);
     }
     setEntregasSeleccionadas(nuevaSeleccion);
   };
 
   const toggleSeleccionarTodas = () => {
-    if (seleccionarTodas) {
-      setEntregasSeleccionadas(new Set());
+    if (todasSeleccionadas) {
+      // Deseleccionar solo los de la página actual
+      const nuevaSeleccion = new Set(entregasSeleccionadas);
+      entregasPaginadas.forEach(e => nuevaSeleccion.delete(e.tracking));
+      setEntregasSeleccionadas(nuevaSeleccion);
     } else {
-      const todasLasReferencias = entregasPaginadas.map(e => e.referencia_pago);
-      setEntregasSeleccionadas(new Set(todasLasReferencias));
+      // Seleccionar todos los de la página actual
+      const nuevaSeleccion = new Set(entregasSeleccionadas);
+      entregasPaginadas.forEach(e => nuevaSeleccion.add(e.tracking));
+      setEntregasSeleccionadas(nuevaSeleccion);
     }
-    setSeleccionarTodas(!seleccionarTodas);
   };
 
   // Paginación
@@ -199,9 +231,13 @@ export default function EntregasConciliadas() {
     paginaActual * registrosPorPagina
   );
 
+  // Actualizar estado de "seleccionar todas" basado en la selección actual
+  const todasSeleccionadas = entregasPaginadas.length > 0 && 
+    entregasPaginadas.every(e => entregasSeleccionadas.has(e.tracking));
+
   // Entregas seleccionadas para procesamiento
-  const entregasParaPago = entregas.filter(e => entregasSeleccionadas.has(e.referencia_pago));
-  const totalSeleccionado = entregasParaPago.reduce((sum, e) => sum + e.valor, 0);  // Exportar a Excel
+  const entregasParaPago = entregas.filter(e => entregasSeleccionadas.has(e.tracking));
+  const totalSeleccionado = entregasParaPago.reduce((sum, e) => sum + (e.valor_tracking || e.valor), 0);  // Exportar a Excel
   const exportarExcel = () => {
     const datosExport = entregasFiltradas.map(e => ({
       'Tracking': e.tracking,
@@ -211,7 +247,7 @@ export default function EntregasConciliadas() {
       'Valor Consignación': e.valor,
       'Fecha': e.fecha,
       'Estado Conciliación': e.estado_conciliacion,
-      'Entidad Pago': e.entidad_pago,
+      'Tipo': e.tipo,
       'Confianza %': e.confianza_match,
       'Calidad': e.calidad_conciliacion,
       'Listo Liquidar': e.listo_para_liquidar ? 'Sí' : 'No',
@@ -241,7 +277,7 @@ export default function EntregasConciliadas() {
       fecha: e.fecha,
       tipo: e.tipo,
       cliente: e.cliente,
-      valor: e.valor,
+      valor: e.valor_tracking || e.valor, // Usar valor del tracking
       referencia: e.referencia_pago
     }));
 
@@ -264,7 +300,7 @@ export default function EntregasConciliadas() {
     try {
       const cliente = entregasParaPago[0]?.cliente;
       
-      const response = await fetch('https://api.x-cargo.co/enviar-notificacion-conciliacion/', {
+      const response = await fetch('http://127.0.0.1:8000/enviar-notificacion-conciliacion/', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -339,7 +375,7 @@ export default function EntregasConciliadas() {
         <div className="header-actions">
           <button 
             className="btn-refresh"
-            onClick={cargarEntregas}
+            onClick={() => cargarEntregas()}
             disabled={loading}
           >
             🔄 Actualizar
@@ -460,6 +496,31 @@ export default function EntregasConciliadas() {
             </label>
           </div>
         </div>
+
+        {/* Botones de filtro */}
+        <div className="filtros-acciones">
+          <button 
+            className="btn-aplicar-filtros"
+            onClick={aplicarFiltros}
+            disabled={loading}
+          >
+            🔍 Aplicar Filtros
+          </button>
+          <button 
+            className="btn-limpiar-filtros"
+            onClick={limpiarFiltros}
+            disabled={loading}
+          >
+            🗑️ Limpiar Filtros
+          </button>
+          <div className="filtros-info">
+            {JSON.stringify(filtros) !== JSON.stringify(filtrosAplicados) && (
+              <span className="filtros-pendientes">
+                ⚠️ Hay cambios sin aplicar
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Acciones masivas */}
@@ -516,7 +577,7 @@ export default function EntregasConciliadas() {
                     <th>
                       <input
                         type="checkbox"
-                        checked={seleccionarTodas}
+                        checked={todasSeleccionadas}
                         onChange={toggleSeleccionarTodas}
                       />
                     </th>
@@ -534,14 +595,14 @@ export default function EntregasConciliadas() {
                 <tbody>
                   {entregasPaginadas.map((entrega, index) => (
                     <tr 
-                      key={`${entrega.referencia_pago}-${index}`}
-                      className={entregasSeleccionadas.has(entrega.referencia_pago) ? 'selected' : ''}
+                      key={`${entrega.tracking}-${index}`}
+                      className={entregasSeleccionadas.has(entrega.tracking) ? 'selected' : ''}
                     >
                       <td>
                         <input
                           type="checkbox"
-                          checked={entregasSeleccionadas.has(entrega.referencia_pago)}
-                          onChange={() => toggleSeleccion(entrega.referencia_pago)}
+                          checked={entregasSeleccionadas.has(entrega.tracking)}
+                          onChange={() => toggleSeleccion(entrega.tracking)}
                         />
                       </td>
                       <td className="tracking-cell">
@@ -557,11 +618,7 @@ export default function EntregasConciliadas() {
                           {entrega.valor_banco_conciliado && (
                             <small>Banco: {formatCurrency(entrega.valor_banco_conciliado)}</small>
                           )}
-                          {entrega.diferencia_valor > 1000 && (
-                            <small className="diferencia-alerta">
-                              Dif: {formatCurrency(entrega.diferencia_valor)}
-                            </small>
-                          )}
+                          
                         </div>
                       </td>
                       <td>
