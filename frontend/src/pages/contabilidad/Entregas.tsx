@@ -82,6 +82,10 @@ export default function EntregasConciliadas() {
   // Selección múltiple
   const [entregasSeleccionadas, setEntregasSeleccionadas] = useState<Set<string>>(new Set());
 
+  // Modal de detalles
+  const [entregaDetalle, setEntregaDetalle] = useState<EntregaConciliada | null>(null);
+  const [modalDetalleAbierto, setModalDetalleAbierto] = useState(false);
+
   // Opciones para filtros
   const [clientesDisponibles, setClientesDisponibles] = useState<string[]>([]);
   const [paginaActual, setPaginaActual] = useState(1);
@@ -351,6 +355,18 @@ export default function EntregasConciliadas() {
       'Regular': 'calidad-regular'
     };
     return clases[calidad as keyof typeof clases] || 'calidad-default';
+  };
+
+  // Función para mostrar detalles de entrega
+  const mostrarDetalle = (entrega: EntregaConciliada) => {
+    setEntregaDetalle(entrega);
+    setModalDetalleAbierto(true);
+  };
+
+  // Función para cerrar modal
+  const cerrarModal = () => {
+    setModalDetalleAbierto(false);
+    setEntregaDetalle(null);
   };
 
   if (!user) {
@@ -659,7 +675,7 @@ export default function EntregasConciliadas() {
                       <td className="acciones-cell">
                         <button 
                           className="btn-detalle"
-                          onClick={() => console.log('Ver detalle:', entrega)}
+                          onClick={() => mostrarDetalle(entrega)}
                           title="Ver detalle"
                         >
                           👁️
@@ -739,6 +755,151 @@ export default function EntregasConciliadas() {
           </div>
         </div>
       </div>
+
+      {/* Modal de Detalles */}
+      {modalDetalleAbierto && entregaDetalle && (
+        <div className="modal-overlay" onClick={cerrarModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>📋 Detalle de Entrega</h2>
+              <button className="modal-close" onClick={cerrarModal}>×</button>
+            </div>
+            
+            <div className="modal-body">
+              <div className="detalle-grid">
+                <div className="detalle-section">
+                  <h3>🚚 Información Principal</h3>
+                  <div className="detalle-info">
+                    <div className="info-row">
+                      <span className="label">Tracking:</span>
+                      <span className="value"><strong>{entregaDetalle.tracking}</strong></span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Referencia Pago:</span>
+                      <span className="value">{entregaDetalle.referencia_pago}</span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Cliente:</span>
+                      <span className="value">{entregaDetalle.cliente}</span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Tipo:</span>
+                      <span className="value">{entregaDetalle.tipo}</span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Conductor:</span>
+                      <span className="value">{entregaDetalle.correo_conductor}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="detalle-section">
+                  <h3>💰 Información Financiera</h3>
+                  <div className="detalle-info">
+                    <div className="info-row">
+                      <span className="label">Valor Tracking:</span>
+                      <span className="value"><strong>{formatCurrency(entregaDetalle.valor_tracking || entregaDetalle.valor)}</strong></span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Valor Consignación:</span>
+                      <span className="value">{formatCurrency(entregaDetalle.valor)}</span>
+                    </div>
+                    {entregaDetalle.valor_banco_conciliado && (
+                      <div className="info-row">
+                        <span className="label">Valor Banco:</span>
+                        <span className="value">{formatCurrency(entregaDetalle.valor_banco_conciliado)}</span>
+                      </div>
+                    )}
+                    <div className="info-row">
+                      <span className="label">Diferencia:</span>
+                      <span className={`value ${entregaDetalle.diferencia_valor === 0 ? 'success' : 'warning'}`}>
+                        {formatCurrency(entregaDetalle.diferencia_valor)}
+                      </span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Entidad Pago:</span>
+                      <span className="value">{entregaDetalle.entidad_pago}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="detalle-section">
+                  <h3>📅 Fechas</h3>
+                  <div className="detalle-info">
+                    <div className="info-row">
+                      <span className="label">Fecha Entrega:</span>
+                      <span className="value">{new Date(entregaDetalle.fecha).toLocaleDateString()}</span>
+                    </div>
+                    {entregaDetalle.fecha_conciliacion && (
+                      <div className="info-row">
+                        <span className="label">Fecha Conciliación:</span>
+                        <span className="value">{new Date(entregaDetalle.fecha_conciliacion).toLocaleDateString()}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="detalle-section">
+                  <h3>🎯 Estado y Calidad</h3>
+                  <div className="detalle-info">
+                    <div className="info-row">
+                      <span className="label">Estado:</span>
+                      <span className={`value badge ${getEstadoClass(entregaDetalle.estado_conciliacion)}`}>
+                        {entregaDetalle.estado_conciliacion}
+                      </span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Calidad:</span>
+                      <span className={`value badge ${getCalidadClass(entregaDetalle.calidad_conciliacion)}`}>
+                        {entregaDetalle.calidad_conciliacion}
+                      </span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Confianza:</span>
+                      <span className="value">
+                        <div className="confianza-bar-modal">
+                          <div 
+                            className="confianza-fill"
+                            style={{ width: `${entregaDetalle.confianza_match}%` }}
+                          ></div>
+                          <span className="confianza-text">{entregaDetalle.confianza_match}%</span>
+                        </div>
+                      </span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Listo para Liquidar:</span>
+                      <span className={`value ${entregaDetalle.listo_para_liquidar ? 'success' : 'warning'}`}>
+                        {entregaDetalle.listo_para_liquidar ? '✅ Sí' : '❌ No'}
+                      </span>
+                    </div>
+                    <div className="info-row">
+                      <span className="label">Integridad:</span>
+                      <span className={`value ${entregaDetalle.integridad_ok ? 'success' : 'warning'}`}>
+                        {entregaDetalle.integridad_ok ? '✅ OK' : '❌ Revisar'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {entregaDetalle.observaciones_conciliacion && (
+                  <div className="detalle-section full-width">
+                    <h3>📝 Observaciones</h3>
+                    <div className="observaciones">
+                      {entregaDetalle.observaciones_conciliacion}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={cerrarModal}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
