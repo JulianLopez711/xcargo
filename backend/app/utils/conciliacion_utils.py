@@ -102,8 +102,4 @@ def validar_conciliacion_lista(pago: Dict[str, Any], banco: Dict[str, Any]) -> b
     if estado not in estados_validos:
         return False
         
-<<<<<<< HEAD
     return True
-=======
-    return True
->>>>>>> origin/SergioTest

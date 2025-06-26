@@ -795,10 +795,10 @@ const Cruces: React.FC = () => {
   return (
     <div className="cruces-container">
       <h2 className="titulo">Conciliación Bancaria Inteligente</h2>
+      <h3>Resumen General</h3>
       {/* Estadísticas generales */}
       {estadisticasGenerales && (
         <div className="estadisticas-panel">
-          <h3>Resumen General</h3>
           <div className="estadisticas-grid">
             <div className="stat-card primary">
               <div className="stat-icon">📊</div>
