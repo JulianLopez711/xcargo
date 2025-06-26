@@ -36,7 +36,7 @@ export default function GuiasEntregadas() {
       const token = user?.token || localStorage.getItem("token") || "";
       
       const response = await fetch(
-        `http://127.0.0.1:8000/supervisor/guias-entregadas?limit=${limit}&offset=${page * limit}${filtroConductor ? `&conductor=${filtroConductor}` : ''}`,
+        `https://api.x-cargo.co/supervisor/guias-entregadas?limit=${limit}&offset=${page * limit}${filtroConductor ? `&conductor=${filtroConductor}` : ''}`,
         {
           headers: {
             "Authorization": `Bearer ${token}`,
