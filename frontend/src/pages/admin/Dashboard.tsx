@@ -160,7 +160,7 @@ const cargarDashboardMaster = async () => {
     
     // Hacer la petición
     console.log("🌐 Haciendo petición a /master/dashboard...");
-    const response = await fetch(`http://127.0.0.1:8000/master/dashboard`, {
+    const response = await fetch(`https://api.x-cargo.co/master/dashboard`, {
       method: 'GET',
       headers: headers
     });
@@ -204,7 +204,7 @@ const cargarDashboardMaster = async () => {
     // Cargar resumen de pagos con manejo robusto de errores
     console.log("📊 Intentando cargar resumen de pagos...");
     try {
-      const pagosResp = await fetch("http://127.0.0.1:8000/admin/dashboard-pagos", {
+      const pagosResp = await fetch("https://api.x-cargo.co/admin/dashboard-pagos", {
         headers: headers
       });
       
@@ -291,7 +291,7 @@ const cargarDashboardMaster = async () => {
 
   const exportarDatos = async (formato: string = "json") => {
     try {
-      const response = await fetch(`http://127.0.0.1:8000/master/export/data?formato=${formato}`, {
+      const response = await fetch(`https://api.x-cargo.co/master/export/data?formato=${formato}`, {
         headers: {
           "X-User-Email": user?.email || "",
           "X-User-Role": user?.role || "admin"

@@ -117,7 +117,7 @@ export default function CarrierManagement() {
         params.append("page", page.toString());
         params.append("page_size", pageSize.toString());
 
-        const url = `http://127.0.0.1:8000/master/carriers/guias${
+        const url = `https://api.x-cargo.co/master/carriers/guias${
           params.toString() ? "?" + params.toString() : ""
         }`;
 
@@ -190,7 +190,7 @@ export default function CarrierManagement() {
         if (filtros.estadoPago)
           params.append("estado_pago", filtros.estadoPago);
 
-        const url = `http://127.0.0.1:8000/master/carriers/export?${params.toString()}`;
+        const url = `https://api.x-cargo.co/master/carriers/export?${params.toString()}`;
 
         const response = await fetch(url, {
           headers: getHeaders(),
@@ -298,7 +298,7 @@ export default function CarrierManagement() {
         params.append("page", "1");
         params.append("page_size", "50");
 
-        const url = `http://127.0.0.1:8000/master/carriers/guias?${params.toString()}`;
+        const url = `https://api.x-cargo.co/master/carriers/guias?${params.toString()}`;
 
         console.log("🔍 Carga inicial - Request a:", url);
 

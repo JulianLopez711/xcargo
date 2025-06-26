@@ -141,7 +141,7 @@ const Cruces: React.FC = () => {
   const cargarEstadisticas = async () => {
     try {
       const response = await fetch(
-        "http://127.0.0.1:8000/conciliacion/resumen-conciliacion"
+        "https://api.x-cargo.co/conciliacion/resumen-conciliacion"
       );
       if (!response.ok) {
         throw new Error("Error al obtener estadísticas");
@@ -213,7 +213,7 @@ const Cruces: React.FC = () => {
       const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
       const res = await fetch(
-        "http://127.0.0.1:8000/conciliacion/cargar-banco-excel",
+        "https://api.x-cargo.co/conciliacion/cargar-banco-excel",
         {
           method: "POST",
           body: formData,
@@ -272,7 +272,7 @@ const Cruces: React.FC = () => {
 
     try {
       const res = await fetch(
-        "http://127.0.0.1:8000/conciliacion/conciliacion-automatica-mejorada"
+        "https://api.x-cargo.co/conciliacion/conciliacion-automatica-mejorada"
       );
 
       if (!res.ok) {
@@ -361,7 +361,7 @@ const Cruces: React.FC = () => {
     try {
       const usuario = localStorage.getItem("correo") || "sistema@x-cargo.co";
       const res = await fetch(
-        "http://127.0.0.1:8000/conciliacion/marcar-conciliado-manual",
+        "https://api.x-cargo.co/conciliacion/marcar-conciliado-manual",
         {
           method: "POST",
           headers: {
@@ -398,7 +398,7 @@ const Cruces: React.FC = () => {
   ) => {
     try {
       const res = await fetch(
-        "http://127.0.0.1:8000/conciliacion/marcar-conciliado-manual",
+        "https://api.x-cargo.co/conciliacion/marcar-conciliado-manual",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
