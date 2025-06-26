@@ -49,8 +49,9 @@ export default function GuiasPendientes() {
   // Efecto para manejar el estado indeterminate del checkbox principal
   useEffect(() => {
     if (selectAllCheckboxRef.current) {
-      const someSelected = guias.some(guia => guiasSeleccionadas.includes(guia.tracking_number));
-      const allSelected = guias.length > 0 && guias.every(guia => guiasSeleccionadas.includes(guia.tracking_number));
+      const uniqueTrackings = [...new Set(guias.map(guia => guia.tracking_number))];
+      const someSelected = uniqueTrackings.some(tracking => guiasSeleccionadas.includes(tracking));
+      const allSelected = uniqueTrackings.length > 0 && uniqueTrackings.every(tracking => guiasSeleccionadas.includes(tracking));
       
       selectAllCheckboxRef.current.indeterminate = someSelected && !allSelected;
     }
@@ -83,7 +84,7 @@ export default function GuiasPendientes() {
       if (filtroTracking) queryParams.append("tracking", filtroTracking);
       if (filtroCiudad) queryParams.append("ciudad", filtroCiudad);
       if (filtroFecha) queryParams.append("fecha", filtroFecha);      const response = await fetch(
-        `https://api.x-cargo.co/supervisor/guias-pendientes?${queryParams.toString()}`,
+        `http://127.0.0.1:8000/supervisor/guias-pendientes?${queryParams.toString()}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -95,6 +96,19 @@ export default function GuiasPendientes() {
 
       if (response.ok) {
         const data = await response.json();
+        
+        // 🔍 Detectar y alertar sobre tracking numbers duplicados
+        const trackingNumbers = data.guias.map((g: Guia) => g.tracking_number);
+        const duplicados = trackingNumbers.filter((tracking: string, index: number) => 
+          trackingNumbers.indexOf(tracking) !== index
+        );
+        
+        if (duplicados.length > 0) {
+          console.warn("⚠️ Tracking numbers duplicados detectados:", [...new Set(duplicados)]);
+          // Opcional: mostrar alerta al usuario
+          // alert(`⚠️ Se detectaron tracking numbers duplicados: ${[...new Set(duplicados)].join(', ')}`);
+        }
+        
         setGuias(data.guias);
         setTotal(data.total);
         setError("");
@@ -115,10 +129,14 @@ export default function GuiasPendientes() {
       minimumFractionDigits: 0,
     }).format(amount);
   };
-  // Funciones para manejo de selección - MEJORADAS para persistir entre páginas
+  // Funciones para manejo de selección - MEJORADAS para persistir entre páginas y manejar duplicados
   const toggleSeleccion = (tracking: string) => {
+    // Buscar la primera ocurrencia de la guía con este tracking
     const guia = guias.find(g => g.tracking_number === tracking);
-    if (!guia) return;
+    if (!guia) {
+      console.warn(`⚠️ No se encontró guía con tracking: ${tracking}`);
+      return;
+    }
 
     setGuiasSeleccionadas((prev) => {
       const newSelected = prev.includes(tracking) 
@@ -141,9 +159,10 @@ export default function GuiasPendientes() {
   };
 
   const toggleTodos = () => {
-    const currentPageTrackings = guias.map(g => g.tracking_number);
+    // Obtener tracking numbers únicos de la página actual
+    const currentPageTrackings = [...new Set(guias.map(g => g.tracking_number))];
     
-    // Verificar si todas las guías de la página actual están seleccionadas
+    // Verificar si todas las guías únicas de la página actual están seleccionadas
     const allCurrentSelected = currentPageTrackings.every(tracking => 
       guiasSeleccionadas.includes(tracking)
     );
@@ -159,7 +178,7 @@ export default function GuiasPendientes() {
         return newData;
       });
     } else {
-      // Seleccionar todas las guías de la página actual
+      // Seleccionar todas las guías únicas de la página actual
       const newSelections = currentPageTrackings.filter(tracking => 
         !guiasSeleccionadas.includes(tracking)
       );
@@ -167,9 +186,17 @@ export default function GuiasPendientes() {
       setGuiasSeleccionadas(prev => [...prev, ...newSelections]);
       setGuiasSeleccionadasData(prevData => {
         const newData = new Map(prevData);
+        // Solo agregar la primera ocurrencia de cada tracking único
+        const uniqueGuias = new Map<string, Guia>();
         guias.forEach(guia => {
-          if (!prevData.has(guia.tracking_number)) {
-            newData.set(guia.tracking_number, guia);
+          if (!uniqueGuias.has(guia.tracking_number)) {
+            uniqueGuias.set(guia.tracking_number, guia);
+          }
+        });
+        
+        uniqueGuias.forEach((guia, tracking) => {
+          if (!prevData.has(tracking)) {
+            newData.set(tracking, guia);
           }
         });
         return newData;
@@ -414,10 +441,12 @@ export default function GuiasPendientes() {
               type="checkbox"
               checked={
                 guias.length > 0 && 
-                guias.every(guia => guiasSeleccionadas.includes(guia.tracking_number))
+                [...new Set(guias.map(guia => guia.tracking_number))].every(tracking => 
+                  guiasSeleccionadas.includes(tracking)
+                )
               }
               onChange={toggleTodos}
-              title="Seleccionar/Deseleccionar todas las guías de esta página"
+              title="Seleccionar/Deseleccionar todas las guías únicas de esta página"
             />
           </div>
           <div className="header-cell">Tracking</div>
@@ -427,8 +456,8 @@ export default function GuiasPendientes() {
           <div className="header-cell">Valor</div>
           <div className="header-cell">Estado</div>
           <div className="header-cell">Última Actualización</div>
-        </div>        {guias.map((guia) => (
-          <div key={guia.tracking_number} className="table-row">
+        </div>        {guias.map((guia, index) => (
+          <div key={`${guia.tracking_number}-${index}-${page}`} className="table-row">
             <div className="table-cell checkbox-cell">
               <input
                 type="checkbox"

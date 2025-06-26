@@ -119,7 +119,7 @@ export default function EntregasConciliadas() {
       });
 
       const response = await fetch(
-        `https://api.x-cargo.co/entregas/entregas-consolidadas?${params}`,
+        `http://127.0.0.1:8000/entregas/entregas-consolidadas?${params}`,
         { headers }
       );
 
@@ -304,7 +304,7 @@ export default function EntregasConciliadas() {
     try {
       const cliente = entregasParaPago[0]?.cliente;
       
-      const response = await fetch('https://api.x-cargo.co/enviar-notificacion-conciliacion/', {
+      const response = await fetch('http://127.0.0.1:8000/enviar-notificacion-conciliacion/', {
         method: 'POST',
         headers,
         body: JSON.stringify({
