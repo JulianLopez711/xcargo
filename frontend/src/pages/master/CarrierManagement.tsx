@@ -164,6 +164,14 @@ export default function CarrierManagement() {
         if (!response.ok) {
           const errorText = await response.text();
           console.error("❌ Error response:", errorText);
+          
+          // Manejo específico de errores de validación
+          if (response.status === 400) {
+            throw new Error(`Validación: ${errorText}`);
+          } else if (response.status === 504) {
+            throw new Error("Consulta demoró demasiado tiempo. Intenta reducir el rango de fechas o usar más filtros.");
+          }
+          
           throw new Error(`Error ${response.status}: ${response.statusText}`);
         }
 
@@ -210,7 +218,31 @@ export default function CarrierManagement() {
     async (formato: "csv" | "json" = "csv") => {
       if (!user) return;
 
+      // Validar filtros antes de exportar
+      if (filtros.fechaInicio && !filtros.fechaInicio.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        setError("Formato de fecha inicio inválido para exportación. Use YYYY-MM-DD");
+        return;
+      }
+      
+      if (filtros.fechaFin && !filtros.fechaFin.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        setError("Formato de fecha fin inválido para exportación. Use YYYY-MM-DD");
+        return;
+      }
+      
+      if (filtros.fechaInicio && filtros.fechaFin) {
+        const fechaInicio = new Date(filtros.fechaInicio);
+        const fechaFin = new Date(filtros.fechaFin);
+        
+        if (fechaFin < fechaInicio) {
+          setError("La fecha fin no puede ser anterior a la fecha inicio para exportación");
+          return;
+        }
+      }
+
       try {
+        console.log("📤 Iniciando exportación en formato:", formato);
+        console.log("🔍 Filtros para exportación:", filtros);
+        
         const params = new URLSearchParams();
         params.append("formato", formato);
         if (filtros.fechaInicio)
@@ -221,12 +253,20 @@ export default function CarrierManagement() {
           params.append("estado_pago", filtros.estadoPago);
 
         const url = `https://api.x-cargo.co/master/carriers/export?${params.toString()}`;
+        console.log("📡 URL de exportación:", url);
 
         const response = await fetch(url, {
           headers: getHeaders(),
         });
 
         if (!response.ok) {
+          const errorText = await response.text();
+          console.error("❌ Error en exportación:", errorText);
+          
+          if (response.status === 400) {
+            throw new Error(`Validación en exportación: ${errorText}`);
+          }
+          
           throw new Error(`Error al exportar: ${response.statusText}`);
         }
 
@@ -278,17 +318,48 @@ export default function CarrierManagement() {
     }));
   };
   const aplicarFiltros = () => {
+    // Validar formato de fechas antes de enviar
+    if (filtros.fechaInicio && !filtros.fechaInicio.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      setError("Formato de fecha inicio inválido. Use YYYY-MM-DD");
+      return;
+    }
+    
+    if (filtros.fechaFin && !filtros.fechaFin.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      setError("Formato de fecha fin inválido. Use YYYY-MM-DD");
+      return;
+    }
+    
+    // Validar que fecha fin no sea anterior a fecha inicio
+    if (filtros.fechaInicio && filtros.fechaFin) {
+      const fechaInicio = new Date(filtros.fechaInicio);
+      const fechaFin = new Date(filtros.fechaFin);
+      
+      if (fechaFin < fechaInicio) {
+        setError("La fecha fin no puede ser anterior a la fecha inicio");
+        return;
+      }
+    }
+    
+    console.log("🔍 Aplicando filtros:", filtros);
+    setError(null); // Limpiar errores previos
     setCurrentPage(1); // Resetear a la primera página cuando se aplican filtros
     cargarDatos(1);
   };
   const limpiarFiltros = () => {
+    console.log("🧹 Limpiando todos los filtros");
     setFiltros({
       carrier: "",
       estadoPago: "",
       fechaInicio: "",
       fechaFin: "",
     });
+    setError(null); // Limpiar errores al limpiar filtros
     setCurrentPage(1); // Resetear a la primera página
+    
+    // Recargar datos con filtros limpios
+    setTimeout(() => {
+      cargarDatos(1);
+    }, 100);
   };
 
   const irAPagina = (pagina: number) => {
@@ -353,6 +424,14 @@ export default function CarrierManagement() {
         if (!response.ok) {
           const errorText = await response.text();
           console.error("❌ Error en carga inicial:", errorText);
+          
+          // Manejo específico de errores de validación
+          if (response.status === 400) {
+            throw new Error(`Validación: ${errorText}`);
+          } else if (response.status === 504) {
+            throw new Error("Consulta demoró demasiado tiempo. Intenta reducir el rango de fechas o usar más filtros.");
+          }
+          
           throw new Error(`Error ${response.status}: ${response.statusText}`);
         }
 
