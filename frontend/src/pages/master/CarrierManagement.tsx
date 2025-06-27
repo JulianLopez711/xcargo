@@ -73,6 +73,10 @@ interface FiltrosState {
 export default function CarrierManagement() {
   const { user } = useAuth();
   const [data, setData] = useState<CarrierDataResponse | null>(null);
+  const [ordenCampo, setOrdenCampo] = useState<
+    keyof GuiaCarrier | "diferencia_dias"
+  >("diferencia_dias");
+  const [ordenAscendente, setOrdenAscendente] = useState(false);
   const [filtros, setFiltros] = useState<FiltrosState>({
     carrier: "",
     estadoPago: "",
@@ -80,13 +84,39 @@ export default function CarrierManagement() {
     fechaFin: "",
   });
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(100);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [vistaActual, setVistaActual] = useState<"resumen" | "detalle">(
     "detalle"
   );
   const mountedRef = useRef(true);
+  const ordenarGuias = (campo: keyof GuiaCarrier | "diferencia_dias") => {
+    if (!data) return;
+
+    const ascendente = campo === ordenCampo ? !ordenAscendente : true;
+
+    const guiasOrdenadas = [...data.guias].sort((a, b) => {
+      const aValue =
+        campo === "diferencia_dias" ? diasDesde(a.Status_Date) : a[campo];
+      const bValue =
+        campo === "diferencia_dias" ? diasDesde(b.Status_Date) : b[campo];
+
+      if (typeof aValue === "string") {
+        return ascendente
+          ? aValue.localeCompare(bValue as string)
+          : (bValue as string).localeCompare(aValue);
+      }
+
+      return ascendente
+        ? (aValue as number) - (bValue as number)
+        : (bValue as number) - (aValue as number);
+    });
+
+    setData({ ...data, guias: guiasOrdenadas });
+    setOrdenCampo(campo);
+    setOrdenAscendente(ascendente);
+  };
 
   const getHeaders = useCallback((): Record<string, string> => {
     if (!user) return {};
@@ -281,6 +311,13 @@ export default function CarrierManagement() {
       cargarDatos(nuevaPagina);
     }
   };
+  function diasDesde(fecha: string | Date): number {
+    const f = new Date(fecha);
+    const hoy = new Date();
+    f.setHours(0, 0, 0, 0);
+    hoy.setHours(0, 0, 0, 0);
+    return Math.floor((hoy.getTime() - f.getTime()) / (1000 * 60 * 60 * 24));
+  }
 
   // useEffect ÚNICO para carga inicial - SIN dependencias problemáticas
   useEffect(() => {
@@ -296,7 +333,7 @@ export default function CarrierManagement() {
 
         const params = new URLSearchParams();
         params.append("page", "1");
-        params.append("page_size", "50");
+        params.append("page_size", "100");
 
         const url = `https://api.x-cargo.co/master/carriers/guias?${params.toString()}`;
 
@@ -447,6 +484,8 @@ export default function CarrierManagement() {
               <option value={50}>50</option>
               <option value={100}>100</option>
               <option value={200}>200</option>
+              <option value={500}>500</option>
+              <option value={1000}>1000</option>
             </select>
           </div>
         </div>
@@ -636,17 +675,29 @@ export default function CarrierManagement() {
                 <table className="guias-table">
                   <thead>
                     <tr>
-                      <th>Tracking</th>
-                      <th>Cliente</th>
-                      <th>Carrier</th>
-                      <th>Conductor</th>
-                      <th>Ciudad</th>
-                      <th>Valor</th>
-                      <th>Fecha Entrega</th>
-                      <th>Estado Pago</th>
+                      <th onClick={() => ordenarGuias("tracking_number")}>
+                        Tracking
+                      </th>
+                      <th onClick={() => ordenarGuias("Cliente")}>Cliente</th>
+                      <th onClick={() => ordenarGuias("Carrier")}>Carrier</th>
+                      <th onClick={() => ordenarGuias("Empleado")}>
+                        Conductor
+                      </th>
+                      <th onClick={() => ordenarGuias("Ciudad")}>Ciudad</th>
+                      <th onClick={() => ordenarGuias("Valor")}>Valor</th>
+                      <th onClick={() => ordenarGuias("Status_Date")}>
+                        Fecha Entrega
+                      </th>
+                      <th onClick={() => ordenarGuias("diferencia_dias")}>
+                        Días
+                      </th>
+                      <th onClick={() => ordenarGuias("estado_pago")}>
+                        Estado Pago
+                      </th>
                       <th>Referencia</th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {data.guias.length === 0 ? (
                       <tr>
@@ -670,6 +721,8 @@ export default function CarrierManagement() {
                           <td>
                             {new Date(guia.Status_Date).toLocaleDateString()}
                           </td>
+                          <td>{diasDesde(guia.Status_Date)}</td>
+
                           <td>
                             <span
                               className={`estado-badge ${guia.estado_pago}`}

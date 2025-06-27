@@ -246,7 +246,7 @@ async def get_carriers_guias_entregadas(
     carrier: Optional[str] = Query(None, description="Filtro por carrier"),
     estado_pago: Optional[str] = Query(None, description="Filtro por estado: pendiente|pagado"),
     page: int = Query(1, ge=1, description="Número de página (inicia en 1)"),
-    page_size: int = Query(50, ge=1, le=200, description="Registros por página (máximo 200)"),
+    page_size: int = Query(100, ge=1, le=1000, description="Registros por página (máximo 1000)"),
     current_user: dict = Depends(verificar_master)
 ):
     """
