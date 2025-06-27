@@ -77,6 +77,7 @@ export default function GuiasPendientes() {
       const queryParams = new URLSearchParams({
         limit: limit.toString(),
         offset: (page * limit).toString(),
+        estado_liquidacion: "pendiente", // 🔥 FILTRO POR DEFECTO: Solo mostrar guías pendientes de pago
       });
 
       if (filtroConductor) queryParams.append("conductor", filtroConductor);
