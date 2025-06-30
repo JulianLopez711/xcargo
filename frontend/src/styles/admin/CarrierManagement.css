@@ -8,6 +8,11 @@
   margin: 0 auto;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
+.guias-table th {
+  cursor: pointer;
+  user-select: none;
+}
+
 
 /* ========================================
    HEADER SECTION

@@ -137,7 +137,7 @@ END as listo_para_liquidar,                  CASE
             tracking,
             referencia_pago,
             cliente,
-            valor_consignacion as valor,
+            valor_consignacion,
             valor_tracking,
             DATE(fecha_pago) as fecha,
             correo_conductor,
@@ -184,7 +184,7 @@ END as listo_para_liquidar,                  CASE
             'sin_conciliar': 0        }
         
         for row in resultados:
-            valor_consignacion = float(row["valor"])
+            valor_consignacion = float(row["valor_consignacion"])
             valor_tracking = float(row["valor_tracking"]) if row["valor_tracking"] else valor_consignacion
             diferencia_valor = float(row["diferencia_valor"]) if row["diferencia_valor"] else 0
             
@@ -193,8 +193,8 @@ END as listo_para_liquidar,                  CASE
                 "fecha": row["fecha"].isoformat(),
                 "tipo": row["tipo"],
                 "cliente": row["cliente"],
-                "valor": valor_consignacion,
-                "valor_tracking": valor_tracking,
+                "valor": valor_consignacion,  # Este es el valor de consignación
+                "valor_tracking": valor_tracking,  # Este es el valor del tracking
                 "estado_conciliacion": row["estado_conciliacion"],
                 "referencia_pago": row["referencia_pago"],
                 "correo_conductor": row["correo_conductor"],

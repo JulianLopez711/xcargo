@@ -246,7 +246,7 @@ async def get_carriers_guias_entregadas(
     carrier: Optional[str] = Query(None, description="Filtro por carrier"),
     estado_pago: Optional[str] = Query(None, description="Filtro por estado: pendiente|pagado"),
     page: int = Query(1, ge=1, description="Número de página (inicia en 1)"),
-    page_size: int = Query(50, ge=1, le=200, description="Registros por página (máximo 200)"),
+    page_size: int = Query(100, ge=1, le=1000, description="Registros por página (máximo 1000)"),
     current_user: dict = Depends(verificar_master)
 ):
     """
@@ -255,33 +255,61 @@ async def get_carriers_guias_entregadas(
     """
     try:
         logger.info(f"📦 Obteniendo guías de carriers para {current_user.get('correo', 'usuario desconocido')}")
+        logger.info(f"🔍 Filtros recibidos: fecha_inicio={fecha_inicio}, fecha_fin={fecha_fin}, carrier={carrier}, estado_pago={estado_pago}")
         
         # Construir filtros dinámicos
         filtros_where = []
         query_params = []
         
-        # Filtro de fechas
+        # Filtro de fechas con validación
         if fecha_inicio:
-            filtros_where.append("DATE(cod.Status_Date) >= @fecha_inicio")
-            query_params.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio))
+            try:
+                # Validar formato de fecha
+                fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d')
+                filtros_where.append("DATE(cod.Status_Date) >= @fecha_inicio")
+                query_params.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio))
+                logger.info(f"✅ Filtro fecha_inicio aplicado: {fecha_inicio}")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Formato de fecha_inicio inválido: {fecha_inicio}. Use YYYY-MM-DD")
         else:
             # Por defecto, últimos 7 días para optimizar rendimiento
             filtros_where.append("DATE(cod.Status_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)")
+            logger.info("📅 Usando filtro por defecto: últimos 7 días")
             
         if fecha_fin:
-            filtros_where.append("DATE(cod.Status_Date) <= @fecha_fin")
-            query_params.append(bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin))
+            try:
+                # Validar formato de fecha
+                fecha_fin_obj = datetime.strptime(fecha_fin, '%Y-%m-%d')
+                
+                # Validar que fecha_fin no sea anterior a fecha_inicio
+                if fecha_inicio:
+                    fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d')
+                    if fecha_fin_obj < fecha_inicio_obj:
+                        raise HTTPException(status_code=400, detail="La fecha_fin no puede ser anterior a fecha_inicio")
+                
+                filtros_where.append("DATE(cod.Status_Date) <= @fecha_fin")
+                query_params.append(bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin))
+                logger.info(f"✅ Filtro fecha_fin aplicado: {fecha_fin}")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Formato de fecha_fin inválido: {fecha_fin}. Use YYYY-MM-DD")
             
         # Filtro por carrier
         if carrier:
             filtros_where.append("LOWER(cod.Carrier) LIKE LOWER(@carrier)")
             query_params.append(bigquery.ScalarQueryParameter("carrier", "STRING", f"%{carrier}%"))
+            logger.info(f"✅ Filtro carrier aplicado: {carrier}")
         
-        # Filtro por estado de pago
-        if estado_pago and estado_pago in ['pendiente', 'pagado']:
-            query_params.append(bigquery.ScalarQueryParameter("estado_pago", "STRING", estado_pago))
+        # Filtro por estado de pago - agregar parámetro siempre para evitar duplicaciones
+        estado_pago_value = estado_pago if estado_pago and estado_pago in ['pendiente', 'pagado'] else None
+        query_params.append(bigquery.ScalarQueryParameter("estado_pago", "STRING", estado_pago_value))
+        if estado_pago_value:
+            logger.info(f"✅ Filtro estado_pago aplicado: {estado_pago_value}")
+        else:
+            logger.info("📋 No se aplicó filtro de estado_pago (mostrando todos)")
         
         where_clause = " AND ".join(filtros_where) if filtros_where else "1=1"
+        logger.info(f"🔍 WHERE clause construido: {where_clause}")
+        logger.info(f"📋 Total parámetros de query: {len(query_params)}")
         
         # Calcular offset
         offset = (page - 1) * page_size
@@ -427,10 +455,6 @@ async def get_carriers_guias_entregadas(
             bigquery.ScalarQueryParameter("page_size", "INT64", page_size),
             bigquery.ScalarQueryParameter("offset", "INT64", offset)
         ])
-        
-        # Si no hay filtro de estado_pago, agregar NULL
-        if not (estado_pago and estado_pago in ['pendiente', 'pagado']):
-            query_params.append(bigquery.ScalarQueryParameter("estado_pago", "STRING", None))
         
         logger.info(f"🔍 Ejecutando query optimizado de carriers - Página {page}, Tamaño {page_size}...")
         
@@ -583,18 +607,126 @@ async def export_carriers_data(
     📤 EXPORTAR: Exporta datos de carriers en diferentes formatos
     """
     try:
-        # Obtener los datos usando el endpoint anterior
-        data = await get_carriers_guias_entregadas(
-            fecha_inicio=fecha_inicio,
-            fecha_fin=fecha_fin,
-            carrier=carrier,
-            estado_pago=estado_pago,
-            current_user=current_user        )
+        logger.info(f"📤 Exportando datos de carriers en formato {formato}")
+        logger.info(f"🔍 Filtros recibidos para exportación: fecha_inicio={fecha_inicio}, fecha_fin={fecha_fin}, carrier={carrier}, estado_pago={estado_pago}")
+        
+        # Construir filtros dinámicos para exportación
+        filtros_where = []
+        query_params = []
+        
+        # Filtro de fechas con validación (igual que en endpoint principal)
+        if fecha_inicio:
+            try:
+                # Validar formato de fecha
+                fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d')
+                filtros_where.append("DATE(cod.Status_Date) >= @fecha_inicio")
+                query_params.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio))
+                logger.info(f"✅ Filtro fecha_inicio aplicado en exportación: {fecha_inicio}")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Formato de fecha_inicio inválido: {fecha_inicio}. Use YYYY-MM-DD")
+        else:
+            # Por defecto, últimos 30 días para exportación
+            filtros_where.append("DATE(cod.Status_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)")
+            logger.info("📅 Usando filtro por defecto en exportación: últimos 30 días")
+            
+        if fecha_fin:
+            try:
+                # Validar formato de fecha
+                fecha_fin_obj = datetime.strptime(fecha_fin, '%Y-%m-%d')
+                
+                # Validar que fecha_fin no sea anterior a fecha_inicio
+                if fecha_inicio:
+                    fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d')
+                    if fecha_fin_obj < fecha_inicio_obj:
+                        raise HTTPException(status_code=400, detail="La fecha_fin no puede ser anterior a fecha_inicio")
+                
+                filtros_where.append("DATE(cod.Status_Date) <= @fecha_fin")
+                query_params.append(bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin))
+                logger.info(f"✅ Filtro fecha_fin aplicado en exportación: {fecha_fin}")
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Formato de fecha_fin inválido: {fecha_fin}. Use YYYY-MM-DD")
+            
+        # Filtro por carrier
+        if carrier:
+            filtros_where.append("LOWER(cod.Carrier) LIKE LOWER(@carrier)")
+            query_params.append(bigquery.ScalarQueryParameter("carrier", "STRING", f"%{carrier}%"))
+            logger.info(f"✅ Filtro carrier aplicado en exportación: {carrier}")
+        
+        # Filtro por estado de pago - agregar parámetro siempre para evitar duplicaciones
+        estado_pago_value = estado_pago if estado_pago and estado_pago in ['pendiente', 'pagado'] else None
+        query_params.append(bigquery.ScalarQueryParameter("estado_pago", "STRING", estado_pago_value))
+        if estado_pago_value:
+            logger.info(f"✅ Filtro estado_pago aplicado en exportación: {estado_pago_value}")
+        
+        where_clause = " AND ".join(filtros_where) if filtros_where else "1=1"
+        logger.info(f"🔍 WHERE clause construido para exportación: {where_clause}")
+        logger.info(f"📋 Total parámetros de query para exportación: {len(query_params)}")
+        
+        # Query simplificada para exportación (sin paginación)
+        export_query = f"""
+        SELECT 
+            cod.tracking_number,
+            cod.Cliente,
+            cod.Ciudad,
+            cod.Departamento,
+            CAST(cod.Valor AS FLOAT64) as Valor,
+            cod.Status_Date,
+            cod.Status_Big,
+            cod.Carrier,
+            cod.carrier_id,
+            cod.Empleado,
+            cod.Employee_id,
+            -- Verificar estado de pago
+            CASE 
+                WHEN gl.tracking_number IS NOT NULL AND gl.estado_liquidacion IN ('pagado', 'liquidado', 'procesado') THEN 'pagado'
+                ELSE 'pendiente'
+            END as estado_pago,
+            gl.pago_referencia,
+            gl.fecha_entrega as fecha_liquidacion
+        FROM `{PROJECT_ID}.{DATASET}.COD_pendientes_v1` cod
+        LEFT JOIN `{PROJECT_ID}.{DATASET}.guias_liquidacion` gl
+            ON cod.tracking_number = gl.tracking_number
+        WHERE cod.Status_Big = '360 - Entregado al cliente'
+            AND cod.Valor > 0
+            AND {where_clause}
+            AND (@estado_pago IS NULL OR 
+                 (CASE 
+                    WHEN gl.tracking_number IS NOT NULL AND gl.estado_liquidacion IN ('pagado', 'liquidado', 'procesado') THEN 'pagado'
+                    ELSE 'pendiente'
+                  END) = @estado_pago)
+        ORDER BY cod.Status_Date DESC
+        LIMIT 50000  -- Límite para exportación
+        """
+        
+        # Ejecutar query para exportación
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=query_params,
+            use_query_cache=True,
+            job_timeout_ms=120000  # 2 minutos para exportación
+        )
+        
+        query_job = bq_client.query(export_query, job_config=job_config)
+        results = query_job.result(timeout=90)  # 90 segundos timeout
+        
+        # Convertir resultados a lista de diccionarios
+        guias_data = [dict(row) for row in results]
+        
+        logger.info(f"✅ Obtenidos {len(guias_data)} registros para exportación")
         
         if formato == "json":
-            return data
+            return {
+                "guias": guias_data,
+                "total_registros": len(guias_data),
+                "filtros_aplicados": {
+                    "fecha_inicio": fecha_inicio,
+                    "fecha_fin": fecha_fin,
+                    "carrier": carrier,
+                    "estado_pago": estado_pago
+                },
+                "fecha_exportacion": datetime.now().isoformat()
+            }
         elif formato == "csv":
-            # Convertir a CSV (implementación básica)
+            # Convertir a CSV
             output = io.StringIO()
             writer = csv.writer(output)
             
@@ -607,7 +739,7 @@ async def export_carriers_data(
             writer.writerow(headers)
             
             # Escribir datos
-            for guia in data["guias"]:
+            for guia in guias_data:
                 writer.writerow([
                     guia.get("tracking_number", ""),
                     guia.get("Cliente", ""),

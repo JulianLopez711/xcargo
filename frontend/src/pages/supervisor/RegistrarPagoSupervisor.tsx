@@ -347,15 +347,12 @@ export default function RegistrarPagoSupervisor() {
     try {
       const token = user?.token || localStorage.getItem("token") || "";
       
-      // 🔥 ENDPOINT ESPECÍFICO PARA SUPERVISOR
+      // 🔥 USAR ENDPOINT CORRECTO PARA PAGOS DE CONDUCTOR/SUPERVISOR
       for (const p of pagosCargados) {
         const formData = new FormData();
 
-        // Datos específicos del supervisor
-        formData.append("supervisor_email", supervisor?.email || user?.email || "");
-        formData.append("supervisor_nombre", supervisor?.nombre || user?.nombre || "");
-        
-        // Datos del pago
+        // Parámetros requeridos por el endpoint /pagos/registrar-conductor
+        formData.append("correo", supervisor?.email || user?.email || "");
         formData.append("valor_pago_str", parseValorMonetario(p.datos.valor).toString());
         formData.append("fecha_pago", p.datos.fecha);
         formData.append("hora_pago", normalizarHoraParaEnvio(p.datos.hora));
@@ -364,11 +361,12 @@ export default function RegistrarPagoSupervisor() {
         formData.append("referencia", p.datos.referencia);
         formData.append("comprobante", p.archivo);
 
-        // Guías adaptadas para supervisor
-        const guiasConDetalles = guias.map((g) => ({
+        // Guías en formato esperado por /pagos/registrar-conductor
+        const guiasParaPago = guias.map((g) => ({
           referencia: String(g.referencia).trim(),
           tracking: g.tracking || g.referencia,
           valor: Number(g.valor),
+          // Campos adicionales para compatibilidad
           conductor: g.conductor || "No especificado",
           cliente: g.cliente || "No especificado",
           ciudad: g.ciudad || "",
@@ -378,36 +376,41 @@ export default function RegistrarPagoSupervisor() {
           liquidacion_id: g.liquidacion_id
         }));
 
-        formData.append("guias", JSON.stringify(guiasConDetalles));
+        formData.append("guias", JSON.stringify(guiasParaPago));
 
-        // 🔥 USAR ENDPOINT ESPECÍFICO PARA SUPERVISOR
-        const endpoint = "https://api.x-cargo.co/supervisor/registrar-pago-guias";
+        console.log("📤 Enviando datos de pago:");
+        console.log("- Correo:", supervisor?.email || user?.email);
+        console.log("- Valor:", parseValorMonetario(p.datos.valor));
+        console.log("- Guías:", guiasParaPago.length);
+        console.log("- Referencia:", p.datos.referencia);
+
+        // 🔥 USAR ENDPOINT CORRECTO PARA PAGOS DE CONDUCTOR/SUPERVISOR
+        const endpoint = "https://api.x-cargo.co/pagos/registrar-conductor";
 
         const response = await fetch(endpoint, {
           method: "POST",
           headers: {
             'Authorization': `Bearer ${token}`,
-            'X-User-Email': user?.email || "",
-            'X-User-Role': user?.role || "supervisor"
           },
           body: formData,
         });
 
         const result = await response.json();
         if (!response.ok) {
-          throw new Error(result.detail || "Error al registrar pago");
+          console.error("❌ Error response:", result);
+          throw new Error(result.detail || result.message || `Error ${response.status}: ${response.statusText}`);
         }
 
-        console.log("✅ Pago de supervisor registrado:", result);
+        console.log("✅ Pago registrado exitosamente:", result);
       }
 
-      const mensajeExito = `✅ Pago registrado exitosamente por supervisor: ${pagosCargados.length} comprobante(s) por ${totales.totalPagosEfectivo.toLocaleString()}.`;
+      const mensajeExito = `✅ Pago registrado exitosamente: ${pagosCargados.length} comprobante(s) por ${totales.totalPagosEfectivo.toLocaleString()}.`;
 
       alert(mensajeExito);
       navigate("/supervisor/guias-pendientes");
 
     } catch (error: any) {
-      console.error("❌ Error registrando pago de supervisor:", error);
+      console.error("❌ Error registrando pago:", error);
       alert(`❌ Error: ${error.message}`);
     } finally {
       setCargando(false);

@@ -129,6 +129,18 @@ export default function EntregasConciliadas() {
 
       const data = await response.json();
       
+      // Debug: Verificar algunos datos de ejemplo
+      if (data.entregas && data.entregas.length > 0) {
+        console.log("🔍 Ejemplo de datos recibidos:");
+        console.table(data.entregas.slice(0, 3).map((e: EntregaConciliada) => ({
+          tracking: e.tracking,
+          valor_consignacion: e.valor,
+          valor_tracking: e.valor_tracking,
+          son_diferentes: e.valor !== e.valor_tracking,
+          cliente: e.cliente
+        })));
+      }
+      
       setEntregas(data.entregas || []);
       
       // Calcular estadísticas
@@ -241,22 +253,18 @@ export default function EntregasConciliadas() {
 
   // Entregas seleccionadas para procesamiento
   const entregasParaPago = entregas.filter(e => entregasSeleccionadas.has(e.tracking));
-  const totalSeleccionado = entregasParaPago.reduce((sum, e) => sum + (e.valor_tracking || e.valor), 0);  // Exportar a Excel
+  const totalSeleccionado = entregasParaPago.reduce((sum, e) => sum + (e.valor_tracking || e.valor), 0);
   const exportarExcel = () => {
     const datosExport = entregasFiltradas.map(e => ({
       'Tracking': e.tracking,
       'Referencia Pago': e.referencia_pago,
       'Cliente': e.cliente,
-      'Valor Tracking': e.valor_tracking || e.valor, // Valor real del tracking
-      'Valor Consignación': e.valor,
+      'Valor Tracking': e.valor_tracking || 0, // Valor real del tracking (desde guias_liquidacion o COD_pendientes)
+      'Valor Consignación': e.valor_banco_conciliado, // Valor que consignó el conductor (desde pagosconductor)
       'Fecha': e.fecha,
       'Estado Conciliación': e.estado_conciliacion,
       'Tipo': e.tipo,
-      'Confianza %': e.confianza_match,
-      'Calidad': e.calidad_conciliacion,
-      'Listo Liquidar': e.listo_para_liquidar ? 'Sí' : 'No',
       'Conductor': e.correo_conductor,
-      'Diferencia Valor': e.diferencia_valor,
       'Observaciones': e.observaciones_conciliacion || ''
     }));
 
@@ -599,7 +607,7 @@ export default function EntregasConciliadas() {
                     </th>
                     <th>Tracking</th>
                     <th>Cliente</th>
-                    <th>Valor</th>
+                    <th>Valores</th>
                     <th>Fecha</th>
                     <th>Estado</th>
                     <th>Calidad</th>
@@ -630,11 +638,11 @@ export default function EntregasConciliadas() {
                       <td>{entrega.cliente}</td>
                       <td className="valor-cell">
                         <div className="valor-info">
-                          <strong>{formatCurrency(entrega.valor)}</strong>
+                          <div><strong>Consig:</strong> {formatCurrency(entrega.valor)}</div>
+                          <div><small>Track: {formatCurrency(entrega.valor_tracking || entrega.valor)}</small></div>
                           {entrega.valor_banco_conciliado && (
                             <small>Banco: {formatCurrency(entrega.valor_banco_conciliado)}</small>
                           )}
-                          
                         </div>
                       </td>
                       <td>
