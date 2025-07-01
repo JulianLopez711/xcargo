@@ -573,25 +573,50 @@ async def conciliacion_mensual(
         # Intentar usar tabla de conciliación real primero
         dias_conciliacion = []
         
-        # OPCIÓN 1: Buscar tabla específica de conciliación
+        # OPCIÓN 1: Construir conciliación usando banco_movimientos y pagosconductor (SOLO DATOS REALES)
         try:
-            # Verificar si existe una tabla de conciliación diaria
+            # Usar banco_movimientos para obtener los valores reales del banco - SIN ESTIMACIONES
             query_conciliacion = f"""
+            WITH datos_soportes AS (
+                SELECT
+                    DATE(fecha_pago) as fecha,
+                    SUM(SAFE_CAST(valor AS FLOAT64)) as valor_soportes,
+                    COUNT(DISTINCT tracking) as guias_soportes,
+                    COUNT(*) as movimientos_soportes
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
+                    AND estado IN ('aprobado', 'pagado')
+                    AND valor IS NOT NULL
+                    AND SAFE_CAST(valor AS FLOAT64) > 0
+                GROUP BY DATE(fecha_pago)
+            ),
+            datos_banco AS (
+                SELECT
+                    DATE(fecha) as fecha,
+                    SUM(SAFE_CAST(valor_banco AS FLOAT64)) as valor_banco_real,
+                    COUNT(*) as movimientos_banco
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
+                WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
+                    AND valor_banco IS NOT NULL
+                    AND SAFE_CAST(valor_banco AS FLOAT64) > 0
+                GROUP BY DATE(fecha)
+            )
             SELECT
-                DATE(fecha_pago) as fecha,
-                COALESCE(SUM(SAFE_CAST(valor_soportes AS FLOAT64)), 0) as soportes,
-                COALESCE(SUM(SAFE_CAST(valor_banco AS FLOAT64)), 0) as banco,
-                COALESCE(SUM(SAFE_CAST(valor_soportes AS FLOAT64)), 0) - COALESCE(SUM(SAFE_CAST(valor_banco AS FLOAT64)), 0) as diferencia,
-                COUNT(DISTINCT tracking_number) as guias,
-                COUNT(*) as movimientos,
+                COALESCE(ds.fecha, db.fecha) as fecha,
+                COALESCE(ds.valor_soportes, 0) as soportes,
+                COALESCE(db.valor_banco_real, 0) as banco,  -- SOLO datos reales, no estimaciones
+                COALESCE(ds.valor_soportes, 0) - COALESCE(db.valor_banco_real, 0) as diferencia,
+                COALESCE(ds.guias_soportes, 0) as guias,
+                COALESCE(ds.movimientos_soportes, 0) + COALESCE(db.movimientos_banco, 0) as movimientos,
                 CASE
-                    WHEN COALESCE(SUM(SAFE_CAST(valor_soportes AS FLOAT64)), 0) = 0 THEN 0
-                    ELSE ROUND(100 * (1 - ABS(COALESCE(SUM(SAFE_CAST(valor_soportes AS FLOAT64)), 0) - COALESCE(SUM(SAFE_CAST(valor_banco AS FLOAT64)), 0)) / GREATEST(COALESCE(SUM(SAFE_CAST(valor_soportes AS FLOAT64)), 0), 1)), 1)
+                    WHEN COALESCE(ds.valor_soportes, 0) = 0 AND COALESCE(db.valor_banco_real, 0) = 0 THEN 0
+                    WHEN COALESCE(ds.valor_soportes, 0) = 0 THEN 0
+                    ELSE ROUND(100 * (1 - ABS(COALESCE(ds.valor_soportes, 0) - COALESCE(db.valor_banco_real, 0)) / GREATEST(COALESCE(ds.valor_soportes, 0), 1)), 1)
                 END as avance
-            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.conciliacion_diaria`
-            WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
-            GROUP BY DATE(fecha_pago)
-            ORDER BY DATE(fecha_pago)
+            FROM datos_soportes ds
+            FULL OUTER JOIN datos_banco db ON ds.fecha = db.fecha
+            WHERE COALESCE(ds.fecha, db.fecha) IS NOT NULL
+            ORDER BY COALESCE(ds.fecha, db.fecha)
             """
             
             job_config = bigquery.QueryJobConfig(
@@ -620,171 +645,21 @@ async def conciliacion_mensual(
                 })
                 
             if dias_conciliacion:
-                logger.info(f"✅ Datos de conciliación obtenidos: {len(dias_conciliacion)} días")
+                logger.info(f"✅ Datos de conciliación obtenidos usando banco_movimientos: {len(dias_conciliacion)} días")
                 return dias_conciliacion
+            else:
+                logger.info("⚠️ No se encontraron datos en banco_movimientos para el período solicitado")
+                return []  # Retornar array vacío si no hay datos reales
                 
-        except gcp_exceptions.NotFound:
-            logger.info("Tabla conciliacion_diaria no encontrada, intentando construir desde pagosconductor")
         except Exception as e:
-            logger.warning(f"Error consultando conciliacion_diaria: {e}")
+            logger.warning(f"Error consultando con banco_movimientos: {e}")
+            logger.info("⚠️ No se pudieron obtener datos de banco_movimientos")
+            return []  # Retornar array vacío en caso de error
 
-        # OPCIÓN 2: Construir conciliación desde tabla de pagos reales
-        if tablas_disponibles.get("pagosconductor", False):
-            logger.info("Construyendo conciliación desde tabla pagosconductor")
-            
-            query_pagos = f"""
-            WITH datos_diarios AS (
-                SELECT
-                    DATE(fecha_pago) as fecha,
-                    COUNT(*) as total_transacciones,
-                    COUNT(DISTINCT cliente) as clientes_unicos,
-                    COUNT(DISTINCT tracking) as guias_estimadas,
-                    SUM(SAFE_CAST(valor AS FLOAT64)) as valor_total,
-                    -- Estimar soportes vs banco basado en estado de pagos
-                    SUM(CASE 
-                        WHEN UPPER(estado) LIKE '%PAGADO%' OR UPPER(estado) LIKE '%APROBADO%' 
-                        THEN SAFE_CAST(valor AS FLOAT64) 
-                        ELSE 0 
-                    END) as soportes_estimados,
-                    SUM(CASE 
-                        WHEN UPPER(estado) LIKE '%PROCESADO%' OR UPPER(estado) LIKE '%BANCO%'
-                        THEN SAFE_CAST(valor AS FLOAT64) 
-                        ELSE SAFE_CAST(valor AS FLOAT64) * 0.98  -- Estimación: 98% llega al banco
-                    END) as banco_estimado
-                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-                WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
-                    AND valor IS NOT NULL 
-                    AND SAFE_CAST(valor AS FLOAT64) > 0
-                GROUP BY DATE(fecha_pago)
-            )
-            SELECT
-                fecha,
-                COALESCE(soportes_estimados, valor_total) as soportes,
-                COALESCE(banco_estimado, valor_total * 0.98) as banco,
-                COALESCE(soportes_estimados, valor_total) - COALESCE(banco_estimado, valor_total * 0.98) as diferencia,
-                guias_estimadas as guias,
-                total_transacciones as movimientos,
-                -- Calcular avance basado en volumen y estados
-                CASE 
-                    WHEN valor_total = 0 THEN 0
-                    WHEN ABS(COALESCE(soportes_estimados, valor_total) - COALESCE(banco_estimado, valor_total * 0.98)) <= 50000 THEN 100
-                    WHEN total_transacciones >= 10 THEN GREATEST(60, 100 - (ABS(COALESCE(soportes_estimados, valor_total) - COALESCE(banco_estimado, valor_total * 0.98)) / GREATEST(valor_total, 1) * 100))
-                    ELSE GREATEST(30, 80 - (ABS(COALESCE(soportes_estimados, valor_total) - COALESCE(banco_estimado, valor_total * 0.98)) / GREATEST(valor_total, 1) * 200))
-                END as avance
-            FROM datos_diarios
-            ORDER BY fecha
-            """
-            
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio),
-                    bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin),
-                ]
-            )
-
-            result = client.query(query_pagos, job_config=job_config)
-            
-            # Timeout manual
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(lambda: list(result.result()))
-                rows = future.result(timeout=30)
-                
-            for row in rows:
-                dias_conciliacion.append({
-                    "fecha": str(row.fecha),
-                    "soportes": int(row.soportes) if row.soportes else 0,
-                    "banco": int(row.banco) if row.banco else 0,
-                    "diferencia": int(row.diferencia) if row.diferencia else 0,
-                    "guias": int(row.guias) if row.guias else 0,
-                    "movimientos": int(row.movimientos) if row.movimientos else 0,
-                    "avance": round(float(row.avance), 1) if row.avance is not None else 0.0
-                })
-                
-            if dias_conciliacion:
-                logger.info(f"✅ Conciliación construida desde pagosconductor: {len(dias_conciliacion)} días")
-                return dias_conciliacion
-        
-        # OPCIÓN 3: Usar COD_pendientes_v1 si es lo único disponible
-        if tablas_disponibles.get("COD_pendientes_v1", False):
-            logger.info("Construyendo conciliación desde tabla COD_pendientes_v1")
-            
-            query_cod = f"""
-            WITH datos_diarios AS (
-                SELECT
-                    DATE(Status_Date) as fecha,
-                    COUNT(*) as total_guias,
-                    COUNT(DISTINCT Cliente) as clientes_unicos,
-                    SUM(SAFE_CAST(Valor AS FLOAT64)) as valor_total,
-                    -- Separar entregados vs pendientes
-                    SUM(CASE 
-                        WHEN UPPER(Status_Big) LIKE '%ENTREGADO%' OR UPPER(Status_Big) LIKE '%360%'
-                        THEN SAFE_CAST(Valor AS FLOAT64) 
-                        ELSE 0 
-                    END) as valor_entregado,
-                    COUNT(CASE 
-                        WHEN UPPER(Status_Big) LIKE '%ENTREGADO%' OR UPPER(Status_Big) LIKE '%360%'
-                        THEN 1 
-                    END) as guias_entregadas
-                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
-                WHERE DATE(Status_Date) BETWEEN @fecha_inicio AND @fecha_fin
-                    AND Valor IS NOT NULL 
-                    AND SAFE_CAST(Valor AS FLOAT64) > 0
-                GROUP BY DATE(Status_Date)
-            )
-            SELECT
-                fecha,
-                valor_entregado as soportes,
-                valor_entregado * 0.95 as banco,  -- Estimación: 95% de lo entregado llega al banco
-                valor_entregado * 0.05 as diferencia,
-                guias_entregadas as guias,
-                total_guias as movimientos,
-                CASE 
-                    WHEN valor_entregado = 0 THEN 0
-                    WHEN guias_entregadas >= 50 THEN 90
-                    WHEN guias_entregadas >= 20 THEN 75
-                    ELSE 60
-                END as avance
-            FROM datos_diarios
-            WHERE valor_entregado > 0
-            ORDER BY fecha
-            """
-            
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio),
-                    bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin),
-                ]
-            )
-
-            result = client.query(query_cod, job_config=job_config)
-            
-            # Timeout manual
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(lambda: list(result.result()))
-                rows = future.result(timeout=30)
-                
-            for row in rows:
-                dias_conciliacion.append({
-                    "fecha": str(row.fecha),
-                    "soportes": int(row.soportes) if row.soportes else 0,
-                    "banco": int(row.banco) if row.banco else 0,
-                    "diferencia": int(row.diferencia) if row.diferencia else 0,
-                    "guias": int(row.guias) if row.guias else 0,
-                    "movimientos": int(row.movimientos) if row.movimientos else 0,
-                    "avance": round(float(row.avance), 1) if row.avance is not None else 0.0
-                })
-                
-            if dias_conciliacion:
-                logger.info(f"✅ Conciliación construida desde COD_pendientes_v1: {len(dias_conciliacion)} días")
-                return dias_conciliacion
-
-        # Si no hay datos reales disponibles
-        logger.warning(f"No se encontraron datos de conciliación para {mes}")
-        raise HTTPException(
-            status_code=404, 
-            detail=f"No se encontraron datos de conciliación para el mes {mes}. Verifique que existan transacciones en las tablas de datos."
-        )
-
+        # NOTA: Se han deshabilitado las opciones de fallback con estimaciones
+        # para garantizar que solo se muestren datos reales de banco_movimientos
+        logger.info("📊 No hay datos disponibles en banco_movimientos para este período")
+        return []
     except HTTPException:
         raise
     except concurrent.futures.TimeoutError:
