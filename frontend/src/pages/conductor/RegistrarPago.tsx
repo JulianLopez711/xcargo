@@ -290,7 +290,7 @@ export default function RegistrarPago() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
+      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -474,7 +474,7 @@ export default function RegistrarPago() {
             }))
           };
 
-          const responseBonos = await fetch("http://127.0.0.1:8000/pagos/aplicar-bonos", {
+          const responseBonos = await fetch("https://api.x-cargo.co/pagos/aplicar-bonos", {
             method: "POST",
             headers: {
               'Authorization': `Bearer ${getToken()}`,
@@ -522,7 +522,7 @@ export default function RegistrarPago() {
           }))
         };
 
-        const responseBonos = await fetch("http://127.0.0.1:8000/pagos/aplicar-bonos", {
+        const responseBonos = await fetch("https://api.x-cargo.co/pagos/aplicar-bonos", {
           method: "POST",
           headers: {
             'Authorization': `Bearer ${getToken()}`,
@@ -589,8 +589,8 @@ export default function RegistrarPago() {
           }
 
           const endpoint = (referenciaBonos && montoBonosUsar > 0) 
-            ? "http://127.0.0.1:8000/pagos/registrar-conductor-con-bonos"
-            : "http://127.0.0.1:8000/pagos/registrar-conductor";
+            ? "https://api.x-cargo.co/pagos/registrar-conductor-con-bonos"
+            : "https://api.x-cargo.co/pagos/registrar-conductor";
 
           const response = await fetch(endpoint, {
             method: "POST",
@@ -721,7 +721,7 @@ export default function RegistrarPago() {
       formData.append('sobrante', totales.sobrante.toString());
 
       // Enviar al backend
-      const response = await fetch('http://127.0.0.1:8000/pagos/registrar-conductor', {
+      const response = await fetch('https://api.x-cargo.co/pagos/registrar-conductor', {
         method: 'POST',
         body: formData,
         headers: {
@@ -758,7 +758,7 @@ export default function RegistrarPago() {
   useEffect(() => {
     const cargarBonos = async () => {
       try {
-        const response = await fetch('http://127.0.0.1:8000/pagos/bonos-disponibles', {
+        const response = await fetch('https://api.x-cargo.co/pagos/bonos-disponibles', {
           headers: {
             'Authorization': `Bearer ${getToken()}`
           }

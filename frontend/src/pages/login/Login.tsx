@@ -26,7 +26,7 @@ const XCargoLogin: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/auth/login", {
+      const res = await fetch("https://api.x-cargo.co/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ correo: email.toLowerCase().trim(), password }),
@@ -71,7 +71,7 @@ const XCargoLogin: React.FC = () => {
         const formData = new FormData();
         formData.append("correo", data.correo);
 
-        await fetch("http://127.0.0.1:8000/auth/solicitar-codigo", {
+        await fetch("https://api.x-cargo.co/auth/solicitar-codigo", {
           method: "POST",
           body: formData
         });

@@ -221,7 +221,7 @@ export default function RegistrarPagoSupervisor() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
+      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -379,7 +379,7 @@ export default function RegistrarPagoSupervisor() {
         formData.append("guias", JSON.stringify(guiasParaPago));
 
         // 🔥 USAR ENDPOINT CORRECTO PARA PAGOS DE CONDUCTOR/SUPERVISOR
-        const endpoint = "http://127.0.0.1:8000/pagos/registrar-conductor";
+        const endpoint = "https://api.x-cargo.co/pagos/registrar-conductor";
 
         const response = await fetch(endpoint, {
           method: "POST",
