@@ -119,7 +119,7 @@ export default function EntregasConciliadas() {
       });
 
       const response = await fetch(
-        `https://api.x-cargo.co/entregas/entregas-consolidadas?${params}`,
+        `http://127.0.0.1:8000/entregas/entregas-consolidadas?${params}`,
         { headers }
       );
 
@@ -312,7 +312,7 @@ export default function EntregasConciliadas() {
     try {
       const cliente = entregasParaPago[0]?.cliente;
       
-      const response = await fetch('https://api.x-cargo.co/enviar-notificacion-conciliacion/', {
+      const response = await fetch('http://127.0.0.1:8000/enviar-notificacion-conciliacion/', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -872,18 +872,6 @@ export default function EntregasConciliadas() {
                           ></div>
                           <span className="confianza-text">{entregaDetalle.confianza_match}%</span>
                         </div>
-                      </span>
-                    </div>
-                    <div className="info-row">
-                      <span className="label">Listo para Liquidar:</span>
-                      <span className={`value ${entregaDetalle.listo_para_liquidar ? 'success' : 'warning'}`}>
-                        {entregaDetalle.listo_para_liquidar ? '✅ Sí' : '❌ No'}
-                      </span>
-                    </div>
-                    <div className="info-row">
-                      <span className="label">Integridad:</span>
-                      <span className={`value ${entregaDetalle.integridad_ok ? 'success' : 'warning'}`}>
-                        {entregaDetalle.integridad_ok ? '✅ OK' : '❌ Revisar'}
                       </span>
                     </div>
                   </div>

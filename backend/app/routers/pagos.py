@@ -107,7 +107,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
         os.chmod(ruta_local, 0o644)
         
         # URL para acceso
-        comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
+        comprobante_url = f"http://127.0.0.1:8000/static/{nombre_archivo}"
   
         
         return comprobante_url
@@ -179,15 +179,24 @@ async def registrar_pago_conductor(
         # PASO 2: Validar referencia única
         
         verificacion_ref = client.query("""
-            SELECT COUNT(*) as total
-            FROM `{project}.{dataset}.pagosconductor`
-            WHERE referencia_pago = @referencia
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES), 
-        job_config=bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia)
-            ]
-        )).result()
+                SELECT COUNT(*) as total
+                FROM `{project}.{dataset}.pagosconductor`
+                WHERE referencia_pago = @referencia
+                AND valor_total_consignacion = @valor
+                AND fecha_pago = @fecha
+                AND hora_pago = @hora
+            """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES),
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("referencia", "STRING", referencia),
+                        bigquery.ScalarQueryParameter("valor", "FLOAT64", valor_pago),
+                        bigquery.ScalarQueryParameter("fecha", "DATE", fecha_pago),
+                        bigquery.ScalarQueryParameter("hora", "TIME", hora_pago),
+                    ]
+                )
+            ).result()
+
+
 
         if next(verificacion_ref)["total"] > 0:
             raise HTTPException(

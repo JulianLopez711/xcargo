@@ -318,68 +318,37 @@ class EnhancedOCRExtractor:
             
             # Prompt mejorado para OpenAI
             prompt = """
-    Eres un experto en análisis y extracción de datos de comprobantes de pago colombianos. Tu tarea es analizar cuidadosamente la información y extraer solo los datos financieros más relevantes, siguiendo las reglas de validación estrictas que se describen a continuación.
+                Eres un experto en análisis y extracción de datos de comprobantes de pago colombianos. 
+                Tu tarea es analizar cuidadosamente la imagen y extraer solo los datos financieros más relevantes, 
+                siguiendo estrictamente las reglas de validación que se describen a continuación.
 
-    Extrae EXCLUSIVAMENTE los siguientes campos en formato JSON:
-    {
-    "valor": "solo números, sin símbolos ni comas",
-    "fecha": "formato YYYY-MM-DD si encuentras fecha",
-    "hora": "formato HH:MM:SS si encuentras hora",
-    "entidad": "nombre exacto de la entidad emisora del comprobante (ej: Nequi, Bancolombia, Daviplata, etc.)",
-    "referencia": "número de referencia/autorización/recibo, siempre el más relevante y completo",
-    "estado": "estado de la transacción si está visible, en otro caso usa null",
-    "descripcion": "descripción o concepto del pago, si existe",
-    "tipo_comprobante": "nequi, transferencia o consignacion — según las reglas abajo"
-    }
+                Extrae EXCLUSIVAMENTE los siguientes campos en formato JSON:
 
-    REGLAS CRÍTICAS:
-    - Si no encuentras un campo, usa null (sin comillas).
-    - El valor debe ser SOLO números (ej: "150000" no "$150,000").
-    - La entidad SIEMPRE es el nombre exacto de la app o banco que EMITE el comprobante, nunca el receptor ni la red (ejemplo: "Nequi" si el comprobante es de la app Nequi, aunque aparezca Bancolombia como banco destino; "Bancolombia" si el comprobante es de corresponsal o sucursal de Bancolombia).
-    - El campo "referencia" debe ser el número de referencia/autorización/recibo principal, o ambos si es relevante, siempre lo más completo posible.
-    - Sé extremadamente preciso con los números, fechas y referencias.
-    - NO agregues texto adicional, solo el JSON solicitado.
+                {
+                "valor": "solo números, sin símbolos ni comas",
+                "fecha": "formato YYYY-MM-DD si encuentras fecha",
+                "hora": "formato HH:MM:SS si encuentras hora",
+                "entidad": "nombre exacto de la entidad emisora del comprobante (ej: Nequi, Bancolombia, Daviplata, etc.)",
+                "referencia": "número de referencia/autorización o recibo, siempre el más relevante y completo",
+                "estado": "estado de la transacción si está visible; en otro caso, null",
+                "descripcion": "concepto del pago si está presente",
+                "tipo_comprobante": "nequi, transferencia o consignacion — según las reglas a continuación"
+                }
 
-    REGLAS PARA "tipo_comprobante":
-    - Solo acepta los siguientes valores: "nequi", "transferencia", "consignacion".
-    - Si el comprobante es de la app Nequi (por diseño, logo, colores, QR con "N", instrucciones que mencionan Nequi, o la app emisora es Nequi), entonces "tipo_comprobante" debe ser "nequi", aunque aparezca Bancolombia como banco destino.
-    - Si el comprobante contiene palabras como "Consignación", "Consignacion", "Depósito", "Deposito", "Corresponsal", "Recibo" (especialmente en recibos físicos de Redeban, cajero, taquilla o corresponsal bancario), entonces "tipo_comprobante" debe ser "consignacion".
-    - Si el comprobante corresponde a transferencias digitales (por app bancaria, PSE, entre cuentas de bancos diferentes que no sean Nequi), y NO cumple los criterios anteriores, entonces "tipo_comprobante" debe ser "transferencia".
-    - No aceptes otros valores. Si tienes dudas, prioriza "nequi" si es de Nequi, "consignacion" si hay indicios de consignación, de lo contrario usa "transferencia".
+                REGLAS PARA tipo_comprobante:
+                - Solo acepta estos valores exactos: "nequi", "transferencia", "consignacion".
+                - Si el comprobante es de la app Nequi (por diseño, logo, colores, QR, o menciones de la app emisora), entonces tipo_comprobante = "nequi", aunque el banco destino sea otro.
+                - Si aparece la palabra "Redeban" en cualquier parte del comprobante, entonces tipo_comprobante = "consignacion".
+                - Si contiene términos como "consignación", "consignacion", "depósito", "deposito", "recibo", "corresponsal", "taquilla", o si parece un recibo físico, entonces tipo_comprobante = "consignacion".
+                - Si es una transferencia digital (por app bancaria, entre cuentas, PSE, etc.) y no aplica lo anterior, entonces tipo_comprobante = "transferencia".
+                - No infieras, si hay duda, aplica las reglas literalmente. Nunca inventes ni uses otros valores.
 
-    EJEMPLOS DE USO (NO INCLUYAS EN LA RESPUESTA, SOLO PARA TU CRITERIO):
+                OTRAS REGLAS:
+                - Si no encuentras un campo, usa null (sin comillas).
+                - No agregues texto adicional. Solo devuelve el JSON limpio y válido.
 
-    // Ejemplo 1: Comprobante Nequi (aunque diga Bancolombia como destino)
-    {
-    "valor": "168000",
-    "fecha": "2025-06-12",
-    "hora": "13:10:00",
-    "entidad": "Nequi",
-    "referencia": "M6609757",
-    "estado": "Disponible",
-    "descripcion": null,
-    "tipo_comprobante": "nequi"
-    }
+                """
 
-    // Ejemplo 2: Recibo físico corresponsal Bancolombia (deposito)
-    {
-    "valor": "250000",
-    "fecha": "2025-06-11",
-    "hora": "18:16:48",
-    "entidad": "Bancolombia",
-    "referencia": "036589",
-    "estado": null,
-    "descripcion": "deposito",
-    "tipo_comprobante": "consignacion"
-    }
-
-    RECUERDA:  
-    - No inventes datos ni interpretes si no estás seguro.  
-    - Si el comprobante no cumple con estas reglas, devuelve null en el campo correspondiente.
-
-    Solo responde el JSON solicitado, nada más.
-
-    """            # Realizar la llamada a OpenAI Vision API
 
             response = client.chat.completions.create(
                 model="gpt-4o",  # Usar GPT-4 con visión
