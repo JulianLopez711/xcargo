@@ -1393,13 +1393,7 @@ export default function RegistrarPago() {
         >
           Cancelar
         </button>
-        <button
-          className="boton-registrar"
-          onClick={registrarPago}
-          disabled={cargando || calcularTotales().faltante > 0}
-        >
-          {cargando ? 'Procesando...' : 'Registrar Pago'}
-        </button>
+        
       </div>
 
       {cargando && <LoadingSpinner size="medium" />}
