@@ -107,7 +107,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
         os.chmod(ruta_local, 0o644)
         
         # URL para acceso
-        comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
+        comprobante_url = f"http://127.0.0.1:8000/static/{nombre_archivo}"
   
         
         return comprobante_url
@@ -878,15 +878,18 @@ def obtener_pagos_pendientes_contabilidad(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
         
-        # Filtro por estado (por defecto pendiente_conciliacion si no se especifica)
+        # Filtro por estado
         if estado and estado.strip():
             condiciones.append("estado_conciliacion = @estado_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
             )
         else:
-            # Si no se especifica estado, mostrar solo pendientes por defecto
-            condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
+            # Solo filtrar por pendiente_conciliacion si NO se está buscando por referencia específica
+            # Si se busca por referencia, mostrar todos los estados para esa referencia
+            if not (referencia and referencia.strip()):
+                condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
+            # Si hay referencia pero no estado, mostrar esa referencia en cualquier estado
         
         # Filtro por fecha desde
         if fecha_desde:
@@ -913,6 +916,11 @@ def obtener_pagos_pendientes_contabilidad(
                 raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido (YYYY-MM-DD)")
         
         where_clause = "WHERE " + " AND ".join(condiciones)
+        
+        # Logging para debugging de filtros
+        logger.info(f"🔍 Filtros aplicados - Referencia: {referencia}, Estado: {estado}, Fecha desde: {fecha_desde}, Fecha hasta: {fecha_hasta}")
+        logger.info(f"📋 Condiciones SQL: {condiciones}")
+        logger.info(f"🔧 WHERE clause: {where_clause}")
         
         # Query para obtener el total de registros (para paginación)
         count_query = f"""
@@ -1484,15 +1492,18 @@ def exportar_todos_pagos_pendientes_contabilidad(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
         
-        # Filtro por estado (por defecto pendiente_conciliacion si no se especifica)
+        # Filtro por estado
         if estado and estado.strip():
             condiciones.append("estado_conciliacion = @estado_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
             )
         else:
-            # Si no se especifica estado, mostrar solo pendientes por defecto
-            condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
+            # Solo filtrar por pendiente_conciliacion si NO se está buscando por referencia específica
+            # Si se busca por referencia, mostrar todos los estados para esa referencia
+            if not (referencia and referencia.strip()):
+                condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
+            # Si hay referencia pero no estado, mostrar esa referencia en cualquier estado
         
         # Filtro por fecha desde
         if fecha_desde:
@@ -1599,4 +1610,62 @@ def exportar_todos_pagos_pendientes_contabilidad(
         raise HTTPException(
             status_code=500,
             detail=f"Error interno del servidor en exportación: {str(e)}"
+        )
+
+# Endpoint para debugging - verificar referencias
+@router.get("/debug/verificar-referencia/{referencia}")
+def debug_verificar_referencia(referencia: str):
+    """
+    Endpoint de debugging para verificar si una referencia existe y en qué estados
+    """
+    try:
+        client = get_bigquery_client()
+        
+        # Buscar la referencia en todos los estados
+        query = f"""
+        SELECT 
+            referencia_pago,
+            estado_conciliacion,
+            COUNT(*) as total_guias,
+            fecha_pago,
+            correo as conductor,
+            MAX(creado_en) as fecha_creacion
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        WHERE referencia_pago LIKE @referencia_filtro
+        GROUP BY referencia_pago, estado_conciliacion, fecha_pago, correo
+        ORDER BY fecha_pago DESC
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia}%")
+            ]
+        )
+        
+        results = client.query(query, job_config=job_config).result()
+        
+        resultados = []
+        for row in results:
+            resultado = {
+                "referencia_pago": row.referencia_pago,
+                "estado_conciliacion": row.estado_conciliacion,
+                "total_guias": row.total_guias,
+                "fecha_pago": str(row.fecha_pago),
+                "conductor": row.conductor,
+                "fecha_creacion": row.fecha_creacion.isoformat() if row.fecha_creacion else None
+            }
+            resultados.append(resultado)
+        
+        return {
+            "referencia_buscada": referencia,
+            "total_encontradas": len(resultados),
+            "resultados": resultados,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en debug verificar referencia: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error verificando referencia: {str(e)}"
         )
