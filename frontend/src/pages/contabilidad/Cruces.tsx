@@ -97,6 +97,7 @@ interface PagoPendiente {
   tracking?: string;
   cliente?: string;
   conciliado: boolean;
+  tipo?: string; // Tipo de pago desde la tabla pagos conductores
 }
 
 // Nueva interfaz para el modal de conciliación manual
@@ -138,6 +139,7 @@ interface SeleccionTransaccionModal {
     fecha: string;
     correo: string;
     entidad: string;
+    tipo?: string; // Tipo de pago desde la tabla pagos conductores
   };
   transacciones_disponibles: TransaccionBancaria[];
 }
@@ -646,6 +648,7 @@ const Cruces: React.FC = () => {
     fecha: string;
     correo: string;
     entidad: string;
+    tipo?: string; // Agregar el tipo de pago
   }) => {
     const transacciones = await obtenerTransaccionesBancarias(pago.referencia);
     
@@ -741,6 +744,7 @@ const Cruces: React.FC = () => {
           fecha: resultado.fecha_banco,
           correo: resultado.correo_conductor || "No disponible",
           entidad: resultado.entidad_pago || "Movimiento Bancario",
+          tipo: resultado.entidad_pago || "Movimiento Bancario", // Usar entidad_pago como tipo
         },
         transacciones_disponibles: transacciones,
       });
@@ -762,6 +766,7 @@ const Cruces: React.FC = () => {
           fecha: resultado.fecha_banco,
           correo: resultado.correo_conductor || "No disponible",
           entidad: resultado.entidad_pago || "Movimiento Bancario",
+          tipo: resultado.entidad_pago || "Movimiento Bancario", // Usar entidad_pago como tipo
         },
         transacciones_disponibles: [], // Lista vacía para mostrar el mensaje de error
       });
@@ -1292,6 +1297,7 @@ const Cruces: React.FC = () => {
                               fecha: pago.fecha_pago,
                               correo: pago.correo,
                               entidad: pago.entidad,
+                              tipo: pago.tipo, // Agregar el tipo de pago
                             })}
                           >
                             🔗 Conciliar
@@ -1560,7 +1566,7 @@ const Cruces: React.FC = () => {
                   {modalSeleccionTransaccion.pago.valor.toLocaleString("es-CO")}
                 </div>
                 <div className="detalle-item">
-                  <strong>Tipo:</strong> {modalSeleccionTransaccion.pago.entidad}
+                  <strong>Tipo:</strong> {modalSeleccionTransaccion.pago.tipo}
                 </div>
                 {modalSeleccionTransaccion.pago.correo !== "No disponible" && (
                   <div className="detalle-item">

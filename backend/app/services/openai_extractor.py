@@ -318,36 +318,43 @@ class EnhancedOCRExtractor:
             
             # Prompt mejorado para OpenAI
             prompt = """
-                Eres un experto en análisis y extracción de datos de comprobantes de pago colombianos. 
-                Tu tarea es analizar cuidadosamente la imagen y extraer solo los datos financieros más relevantes, 
-                siguiendo estrictamente las reglas de validación que se describen a continuación.
+                    Eres un experto en análisis y extracción de datos de comprobantes de pago colombianos. 
+                    Tu tarea es analizar cuidadosamente la imagen y extraer SOLO los datos financieros más relevantes, 
+                    siguiendo estrictamente las reglas de validación que se describen a continuación.
 
-                Extrae EXCLUSIVAMENTE los siguientes campos en formato JSON:
+                    Extrae EXCLUSIVAMENTE los siguientes campos en formato JSON:
 
-                {
-                "valor": "solo números, sin símbolos ni comas",
-                "fecha": "formato YYYY-MM-DD si encuentras fecha",
-                "hora": "formato HH:MM:SS si encuentras hora",
-                "entidad": "nombre exacto de la entidad emisora del comprobante (ej: Nequi, Bancolombia, Daviplata, etc.)",
-                "referencia": "número de referencia/autorización o recibo, siempre el más relevante y completo",
-                "estado": "estado de la transacción si está visible; en otro caso, null",
-                "descripcion": "concepto del pago si está presente",
-                "tipo_comprobante": "nequi, transferencia o consignacion — según las reglas a continuación"
-                }
+                    {
+                    "valor": "solo números, sin símbolos ni comas (ej: 586600, 156000)",
+                    "fecha": "formato YYYY-MM-DD si encuentras fecha",
+                    "hora": "formato HH:MM:SS en notación 24h si encuentras hora (convierte de a. m. / p. m. si es necesario)",
+                    "entidad": "nombre exacto de la entidad emisora del comprobante (ej: Nequi, Bancolombia, Daviplata, etc.)",
+                    "referencia": "número de referencia/autorización/recibo más relevante y completo",
+                    "estado": "estado de la transacción si está visible; si no se encuentra, usar null",
+                    "descripcion": "concepto o tipo de movimiento si está presente (por ejemplo: DEPOSITO, TRANSFERENCIA, PAGO, RECARGA, etc.)",
+                    "tipo_comprobante": "nequi, transferencia o consignacion — según las reglas a continuación"
+                    }
 
-                REGLAS PARA tipo_comprobante:
-                - Solo acepta estos valores exactos: "nequi", "transferencia", "consignacion".
-                - Si el comprobante es de la app Nequi (por diseño, logo, colores, QR, o menciones de la app emisora), entonces tipo_comprobante = "nequi", aunque el banco destino sea otro.
-                - Si aparece la palabra "Redeban" en cualquier parte del comprobante, entonces tipo_comprobante = "consignacion".
-                - Si contiene términos como "consignación", "consignacion", "depósito", "deposito", "recibo", "corresponsal", "taquilla", o si parece un recibo físico, entonces tipo_comprobante = "consignacion".
-                - Si es una transferencia digital (por app bancaria, entre cuentas, PSE, etc.) y no aplica lo anterior, entonces tipo_comprobante = "transferencia".
-                - No infieras, si hay duda, aplica las reglas literalmente. Nunca inventes ni uses otros valores.
+                    REGLAS PARA tipo_comprobante:
+                    - Solo acepta estos valores exactos: "nequi", "transferencia", "consignacion".
+                    - Si el comprobante es de la app Nequi (por diseño, logo, colores rosados, QR, o menciones explícitas), entonces tipo_comprobante = "nequi".
+                    - Si aparece la palabra "Redeban" o términos como "consignación", "depósito", "recibo", "corresponsal", "taquilla", o parece un recibo físico en papel térmico, entonces tipo_comprobante = "consignacion".
+                    - Si es una transferencia digital (por app bancaria como Bancolombia, Daviplata, entre cuentas o PSE) y no aplica lo anterior, entonces tipo_comprobante = "transferencia".
+                    - No adivines. Aplica las reglas exactamente como están.
 
-                OTRAS REGLAS:
-                - Si no encuentras un campo, usa null (sin comillas).
-                - No agregues texto adicional. Solo devuelve el JSON limpio y válido.
+                    REGLAS PARA CAMPO "referencia":
+                    - Usa campos explícitos como "No. de comprobante", "RRN", "REFERENCIA", "AUTORIZACIÓN", "APRO", etc.
+                    - Si hay varios, elige el más largo o más relevante.
+                    - Si no existe ninguno, usa null.
 
-                """
+                    REGLAS ADICIONALES:
+                    - Si no encuentras un campo, usa null (sin comillas).
+                    - El JSON debe estar completo, limpio y sintácticamente válido.
+                    - No incluyas texto adicional, solo el JSON.
+                    - Corrige automáticamente formatos como "$ 156.000" → "156000"
+                    - Convierte fechas y horas a los formatos requeridos.
+                    """
+
 
 
             response = client.chat.completions.create(
