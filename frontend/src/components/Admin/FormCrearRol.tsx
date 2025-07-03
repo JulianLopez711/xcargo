@@ -19,7 +19,7 @@ export default function FormCambiarRol() {
 
     try {
       // ✅ CORRECCIÓN: Agregar headers
-      const res = await fetch("http://127.0.0.1:8000/admin/cambiar-rol", {
+      const res = await fetch("https://api.x-cargo.co/admin/cambiar-rol", {
         method: "POST",
         headers: {
           "X-User-Email": user?.email || "",

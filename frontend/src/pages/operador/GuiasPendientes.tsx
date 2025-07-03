@@ -17,7 +17,7 @@ export default function GuiasPendientes() {
   const [seleccionadas, setSeleccionadas] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/operador/guias-pendientes")
+    fetch("https://api.x-cargo.co/api/operador/guias-pendientes")
       .then(res => res.json())
       .then(data => setGuias(data))
       .catch(err => console.error("Error al cargar guías:", err));
