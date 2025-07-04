@@ -96,7 +96,7 @@ async def get_dashboard_data(current_user: dict = Depends(verificar_master)):
                 SUM(CASE WHEN Status_Big LIKE '%Pagado%' THEN Valor ELSE 0 END) as valor_pagado,
                 AVG(Valor) as promedio_valor_guia
             FROM `{PROJECT_ID}.{DATASET}.COD_pendientes_v1`
-            WHERE DATE(Status_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+            WHERE DATE(Status_Date) >= '2025-06-09'
         )
         SELECT * FROM GuiaStats;
         """
@@ -123,7 +123,7 @@ async def get_dashboard_data(current_user: dict = Depends(verificar_master)):
             MAX(Status_Date) as ultima_actividad,
             ROUND(COUNT(CASE WHEN Status_Big LIKE '%Entregado%' THEN 1 END) * 100.0 / COUNT(*), 2) as eficiencia
         FROM `{PROJECT_ID}.{DATASET}.COD_pendientes_v1`
-        WHERE DATE(Status_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+        WHERE DATE(Status_Date) >= '2025-06-09'
         GROUP BY carrier_id
         ORDER BY total_guias DESC
         LIMIT 10
@@ -145,7 +145,7 @@ async def get_dashboard_data(current_user: dict = Depends(verificar_master)):
             COUNT(CASE WHEN Status_Big LIKE '%Pendiente%' THEN 1 END) as guias_pendientes,
             ROUND(COUNT(CASE WHEN Status_Big LIKE '%Entregado%' THEN 1 END) * 100.0 / COUNT(*), 2) as eficiencia
         FROM `{PROJECT_ID}.{DATASET}.COD_pendientes_v1`
-        WHERE DATE(Status_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+        WHERE DATE(Status_Date) >= '2025-06-09'
         GROUP BY Ciudad
         ORDER BY total_guias DESC
         LIMIT 10
@@ -201,7 +201,7 @@ async def get_dashboard_data(current_user: dict = Depends(verificar_master)):
             "analisis_ciudades": ciudades_result,
             "tendencias_mensuales": tendencias_result,
             "alertas": alertas,
-            "periodo_analisis": "Últimos 30 días",
+            "periodo_analisis": "Desde 9 de junio 2025",
             "fecha_actualizacion": datetime.now().isoformat()
         }
 
@@ -272,9 +272,9 @@ async def get_carriers_guias_entregadas(
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"Formato de fecha_inicio inválido: {fecha_inicio}. Use YYYY-MM-DD")
         else:
-            # Por defecto, últimos 7 días para optimizar rendimiento
-            filtros_where.append("DATE(cod.Status_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)")
-            logger.info("📅 Usando filtro por defecto: últimos 7 días")
+            # Por defecto, desde el inicio de la aplicación (9 de junio 2025)
+            filtros_where.append("DATE(cod.Status_Date) >= '2025-06-09'")
+            logger.info("📅 Usando filtro por defecto: desde inicio de aplicación (2025-06-09)")
             
         if fecha_fin:
             try:
@@ -625,9 +625,9 @@ async def export_carriers_data(
             except ValueError:
                 raise HTTPException(status_code=400, detail=f"Formato de fecha_inicio inválido: {fecha_inicio}. Use YYYY-MM-DD")
         else:
-            # Por defecto, últimos 30 días para exportación
-            filtros_where.append("DATE(cod.Status_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)")
-            logger.info("📅 Usando filtro por defecto en exportación: últimos 30 días")
+            # Por defecto, desde el inicio de la aplicación (9 de junio 2025) para exportación
+            filtros_where.append("DATE(cod.Status_Date) >= '2025-06-09'")
+            logger.info("📅 Usando filtro por defecto en exportación: desde inicio de aplicación (2025-06-09)")
             
         if fecha_fin:
             try:

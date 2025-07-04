@@ -129,10 +129,12 @@ export default function PagosContabilidad() {
       
       // Si la respuesta incluye información de paginación
       if (data.pagos && data.paginacion) {
+        console.log("📈 Actualizando con paginación:", data.pagos.length, "pagos");
         setPagos(data.pagos);
         setPaginacionInfo(data.paginacion);
       } else {
         // Fallback para el formato actual
+        console.log("📈 Actualizando sin paginación:", Array.isArray(data) ? data.length : "datos no válidos");
         setPagos(Array.isArray(data) ? data : []);
         // Calcular paginación estimada
         const totalEstimado = data.length === pagosPorPagina ? (pagina * pagosPorPagina) + 1 : (pagina - 1) * pagosPorPagina + data.length;
@@ -201,6 +203,7 @@ export default function PagosContabilidad() {
   const [filtrosAplicados, setFiltrosAplicados] = useState(false);
 
   useEffect(() => {
+    console.log("🔄 useEffect - Obteniendo pagos:", { paginaActual, filtrosAplicados });
     obtenerPagos(paginaActual, filtrosAplicados);
   }, [paginaActual]);
 
@@ -380,6 +383,12 @@ export default function PagosContabilidad() {
   };
 
   const confirmarRechazo = async () => {
+    console.log("🔄 Iniciando proceso de rechazo...", {
+      refPagoSeleccionada,
+      novedad: novedad.trim(),
+      procesando
+    });
+
     if (!novedad.trim()) {
       alert("Debe escribir una observación para rechazar el pago");
       return;
@@ -391,9 +400,18 @@ export default function PagosContabilidad() {
     try {
       const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
       
+      console.log("📡 Enviando petición de rechazo:", {
+        referencia_pago: refPagoSeleccionada,
+        novedad,
+        modificado_por: user.email,
+      });
+
       const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getToken()}`
+        },
         body: JSON.stringify({
           referencia_pago: refPagoSeleccionada,
           novedad,
@@ -401,10 +419,19 @@ export default function PagosContabilidad() {
         }),
       });
 
+      console.log("📊 Estado de la respuesta:", {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || "Error desconocido");
       }
+
+      const resultado = await response.json();
+      console.log("✅ Respuesta del servidor:", resultado);
 
       alert(`❌ Pago rechazado correctamente. Razón: ${novedad}`);
       
@@ -638,7 +665,7 @@ export default function PagosContabilidad() {
           <tbody>
             {pagosFiltrados.length > 0 ? (
               pagosFiltrados.map((p, idx) => (
-                <tr key={idx}>
+                <tr key={`${p.referencia_pago}-${p.fecha}-${idx}`}>
                   <td>{((paginaActual - 1) * pagosPorPagina) + idx + 1}</td>
                   <td>{p.referencia_pago}</td>
                   <td>${p.valor.toLocaleString()}</td>
@@ -680,16 +707,17 @@ export default function PagosContabilidad() {
                   </td>
                   <td>
                     <button
-                      onClick={() => {
-                        setRefPagoSeleccionada(p.referencia_pago);
-                        setModalVisible(true);
-                      }}
+                     onClick={() => {
+                      console.log("🖱️ Click en botón rechazar para:", p.referencia_pago);
+                      setRefPagoSeleccionada(p.referencia_pago);
+                      setModalVisible(true);
+                    }}
                       className="boton-rechazar"
                       disabled={p.estado_conciliacion === "rechazado" || 
                                p.estado_conciliacion?.startsWith("conciliado") ||
                                procesando === p.referencia_pago}
                     >
-                      Rechazar
+                      {procesando === p.referencia_pago ? "⏳ Procesando..." : "Rechazar"}
                     </button>
                   </td>
                 </tr>
@@ -903,9 +931,15 @@ export default function PagosContabilidad() {
         <div className="modal-overlay">
           <div className="modal-content">
             <h3>¿Por qué deseas rechazar este pago?</h3>
+            <p style={{ color: "#666", fontSize: "0.9rem", marginBottom: "1rem" }}>
+              Referencia: <strong>{refPagoSeleccionada}</strong>
+            </p>
             <textarea
               value={novedad}
-              onChange={(e) => setNovedad(e.target.value)}
+              onChange={(e) => {
+                console.log("📝 Escribiendo novedad:", e.target.value);
+                setNovedad(e.target.value);
+              }}
               rows={5}
               placeholder="Ej: El valor no coincide con las guías."
               style={{ width: "100%", marginBottom: "1rem" }}
@@ -920,6 +954,7 @@ export default function PagosContabilidad() {
               <button
                 className="boton-secundario"
                 onClick={() => {
+                  console.log("❌ Cancelando rechazo");
                   setModalVisible(false);
                   setNovedad("");
                   setRefPagoSeleccionada("");
@@ -927,8 +962,24 @@ export default function PagosContabilidad() {
               >
                 Cancelar
               </button>
-              <button className="boton-registrar" onClick={confirmarRechazo} disabled={procesando === refPagoSeleccionada}>
-                {procesando === refPagoSeleccionada ? "Procesando..." : "Confirmar rechazo"}
+              <button 
+                className="boton-registrar" 
+                onClick={() => {
+                  console.log("✅ Intentando confirmar rechazo:", {
+                    refPagoSeleccionada,
+                    novedad: novedad.trim(),
+                    novedadLength: novedad.trim().length,
+                    procesando
+                  });
+                  confirmarRechazo();
+                }} 
+                disabled={procesando === refPagoSeleccionada || !novedad.trim()}
+                style={{
+                  backgroundColor: (!novedad.trim() || procesando === refPagoSeleccionada) ? "#6c757d" : undefined,
+                  cursor: (!novedad.trim() || procesando === refPagoSeleccionada) ? "not-allowed" : "pointer"
+                }}
+              >
+                {procesando === refPagoSeleccionada ? "⏳ Procesando..." : "Confirmar rechazo"}
               </button>
             </div>
           </div>

@@ -194,7 +194,11 @@ def obtener_guias_pendientes(request: Request) -> Dict:
             print(f"❌ No se encontró employee_id para {usuario}")
             return {"guias": [], "total": 0, "error": "Employee_id no encontrado"}
 
-        print(f"✅ Employee_id encontrado para {usuario}: {employee_id}")        # ✅ QUERY MEJORADA: Validación más estricta para evitar duplicados y asegurar solo estado 360 pendiente
+        print(f"✅ Employee_id encontrado para {usuario}: {employee_id}")
+        print(f"🗓️ [DIAGNÓSTICO] Filtro de fecha aplicado: >= {FECHA_INICIO}")
+        print(f"🗓️ [DIAGNÓSTICO] Solo se incluirán guías con fecha_entrega >= {FECHA_INICIO}")
+
+        # ✅ QUERY MEJORADA: Validación más estricta para evitar duplicados y asegurar solo estado 360 pendiente
         query = """
         WITH GuiasCombinadas AS (
             -- 1️⃣ Guías de guias_liquidacion que están PENDIENTES (no pagadas)
@@ -310,7 +314,12 @@ def obtener_guias_pendientes(request: Request) -> Dict:
         result = client.query(query, job_config=job_config).result()
 
         guias = []
+        fechas_encontradas = []  # Para diagnóstico
+        
         for row in result:
+            fecha_entrega_str = row.fecha_entrega.isoformat() if row.fecha_entrega else None
+            fechas_encontradas.append(fecha_entrega_str)
+            
             guias.append({
                 "tracking": row.tracking,
                 "conductor": row.conductor,
@@ -318,7 +327,7 @@ def obtener_guias_pendientes(request: Request) -> Dict:
                 "valor": float(row.valor),
                 "estado": row.estado,
                 "novedad": row.novedad or "",
-                "fecha_entrega": row.fecha_entrega.isoformat() if row.fecha_entrega else None,
+                "fecha_entrega": fecha_entrega_str,
                 "carrier": row.carrier,
                 "carrier_id": row.carrier_id,
                 "ciudad": row.ciudad,
@@ -327,8 +336,25 @@ def obtener_guias_pendientes(request: Request) -> Dict:
                 "status_date": row.status_date.isoformat() if row.status_date else None,
                 "employee_id": row.employee_id,
                 "liquidacion_id": row.liquidacion_id,
-                "pago_referencia": row.pago_referencia,                "origen": row.origen
+                "pago_referencia": row.pago_referencia,
+                "origen": row.origen
             })
+
+        # 🔍 DIAGNÓSTICO DE FECHAS
+        fechas_unicas = sorted(set(f for f in fechas_encontradas if f))
+        print(f"🗓️ [DIAGNÓSTICO] Fechas únicas encontradas: {fechas_unicas[:10]}")  # Primeras 10
+        
+        if fechas_unicas:
+            fecha_mas_antigua = min(fechas_unicas)
+            fecha_mas_reciente = max(fechas_unicas)
+            print(f"🗓️ [DIAGNÓSTICO] Rango de fechas: {fecha_mas_antigua} a {fecha_mas_reciente}")
+            
+            # Verificar si hay fechas antes del filtro (esto NO debería pasar)
+            fechas_antes_filtro = [f for f in fechas_unicas if f < FECHA_INICIO]
+            if fechas_antes_filtro:
+                print(f"⚠️ [PROBLEMA] Se encontraron {len(fechas_antes_filtro)} fechas antes de {FECHA_INICIO}: {fechas_antes_filtro}")
+            else:
+                print(f"✅ [CORRECTO] Todas las fechas son >= {FECHA_INICIO}")
 
         print(f"✅ Total de guías encontradas desde {FECHA_INICIO}: {len(guias)}")
         print(f"✅ Guías pendientes de liquidacion: {sum(1 for g in guias if g['origen'] == 'guias_liquidacion')}")

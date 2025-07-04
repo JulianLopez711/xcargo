@@ -863,13 +863,24 @@ def obtener_pagos_pendientes_contabilidad(
 ):
     """
     Obtiene pagos pendientes de contabilidad con paginación y filtros avanzados
+    ✅ VALIDADO: Incluye filtro automático desde el 9 de junio de 2025
     """
     try:
         client = get_bigquery_client()
         
+        # 🗓️ FILTRO AUTOMÁTICO: Aplicar fecha mínima como en guías pendientes
+        FECHA_MINIMA = "2025-06-09"
+        print(f"🗓️ [DIAGNÓSTICO PAGOS] Filtro automático aplicado: >= {FECHA_MINIMA}")
+        
         # Construir condiciones de filtro dinámicamente
         condiciones = ["1=1"]  # Condición base para facilitar concatenación
         parametros = []
+        
+        # ✅ AGREGAR FILTRO AUTOMÁTICO DE FECHA MÍNIMA
+        condiciones.append("fecha_pago >= @fecha_minima_auto")
+        parametros.append(
+            bigquery.ScalarQueryParameter("fecha_minima_auto", "DATE", FECHA_MINIMA)
+        )
         
         # Filtro por referencia de pago
         if referencia and referencia.strip():
@@ -979,7 +990,14 @@ def obtener_pagos_pendientes_contabilidad(
         
         # Procesar resultados principales
         pagos = []
+        fechas_encontradas = []  # Para diagnóstico
+        
         for row in main_result:
+            # Extraer fecha para diagnóstico
+            fecha_str = str(row.get("fecha", ""))
+            if fecha_str:
+                fechas_encontradas.append(fecha_str)
+            
             # Limpiar trackings_preview si es muy largo
             trackings_preview = row.get("trackings_preview", "")
             if trackings_preview:
@@ -990,7 +1008,7 @@ def obtener_pagos_pendientes_contabilidad(
             pago = {
                 "referencia_pago": row.get("referencia_pago", ""),
                 "valor": float(row.get("valor", 0)) if row.get("valor") else 0.0,
-                "fecha": str(row.get("fecha", "")),
+                "fecha": fecha_str,
                 "entidad": str(row.get("entidad", "")),
                 "estado_conciliacion": str(row.get("estado_conciliacion", "")),
                 "tipo": str(row.get("tipo", "")),
@@ -1004,6 +1022,24 @@ def obtener_pagos_pendientes_contabilidad(
                 "carrier": str(row.get("carrier", "N/A"))
             }
             pagos.append(pago)
+
+        # 🔍 DIAGNÓSTICO DE FECHAS
+        fechas_unicas = sorted(set(f for f in fechas_encontradas if f))
+        print(f"🗓️ [DIAGNÓSTICO PAGOS] Fechas únicas encontradas: {fechas_unicas[:10]}")  # Primeras 10
+        
+        if fechas_unicas:
+            fecha_mas_antigua = min(fechas_unicas)
+            fecha_mas_reciente = max(fechas_unicas)
+            print(f"🗓️ [DIAGNÓSTICO PAGOS] Rango de fechas: {fecha_mas_antigua} a {fecha_mas_reciente}")
+            
+            # Verificar si hay fechas antes del filtro (esto NO debería pasar)
+            fechas_antes_filtro = [f for f in fechas_unicas if f < FECHA_MINIMA]
+            if fechas_antes_filtro:
+                print(f"⚠️ [PROBLEMA PAGOS] Se encontraron {len(fechas_antes_filtro)} fechas antes de {FECHA_MINIMA}: {fechas_antes_filtro}")
+            else:
+                print(f"✅ [CORRECTO PAGOS] Todas las fechas son >= {FECHA_MINIMA}")
+
+        print(f"✅ [PAGOS] Total de pagos encontrados desde {FECHA_MINIMA}: {len(pagos)}")
         
         # Información de paginación
         paginacion_info = {
@@ -1477,13 +1513,24 @@ def exportar_todos_pagos_pendientes_contabilidad(
 ):
     """
     Exporta TODOS los pagos pendientes de contabilidad que coincidan con los filtros (sin paginación)
+    ✅ VALIDADO: Incluye filtro automático desde el 9 de junio de 2025
     """
     try:
         client = get_bigquery_client()
         
+        # 🗓️ FILTRO AUTOMÁTICO: Aplicar fecha mínima como en pagos pendientes
+        FECHA_MINIMA = "2025-06-09"
+        print(f"🗓️ [DIAGNÓSTICO EXPORTAR] Filtro automático aplicado: >= {FECHA_MINIMA}")
+        
         # Construir condiciones de filtro dinámicamente (igual que en la consulta paginada)
         condiciones = ["1=1"]
         parametros = []
+        
+        # ✅ AGREGAR FILTRO AUTOMÁTICO DE FECHA MÍNIMA
+        condiciones.append("fecha_pago >= @fecha_minima_auto")
+        parametros.append(
+            bigquery.ScalarQueryParameter("fecha_minima_auto", "DATE", FECHA_MINIMA)
+        )
         
         # Filtro por referencia de pago
         if referencia and referencia.strip():
