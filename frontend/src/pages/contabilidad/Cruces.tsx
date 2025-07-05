@@ -806,7 +806,6 @@ const Cruces: React.FC = () => {
       
       // Recargar datos
       await cargarEstadisticas();
-      await ejecutarConciliacion();
       setModalSeleccionTransaccion(null);
     } catch (err: any) {
       setMensaje(`❌ Error en conciliación: ${err.message}`);
