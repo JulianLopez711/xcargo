@@ -36,7 +36,7 @@ export default function FormCambiarRol() {
     // Método 1: Token JWT (si existe)
     if (user?.token) {
       headers["Authorization"] = `Bearer ${user.token}`;
-      console.log("🔐 Usando JWT para autenticación");
+      
     }
     
     // Método 2: Headers X-User (siempre agregar como backup)

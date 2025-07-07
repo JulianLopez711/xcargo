@@ -95,7 +95,7 @@ export default function ChatBotBubble() {
         throw new Error("No hay sesión activa");
       }
 
-      console.log("🔍 Cargando estado para:", auth.email);
+  
 
       const res = await fetch(
         `https://api.x-cargo.co/asistente/estado-usuario/${encodeURIComponent(auth.email)}`,
@@ -113,7 +113,7 @@ export default function ChatBotBubble() {
       }
 
       const data = await res.json();
-      console.log("📊 Datos recibidos:", data);
+      
 
       if (!data.resumen) {
         throw new Error("Formato de respuesta inválido");

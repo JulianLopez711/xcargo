@@ -66,7 +66,7 @@ const ValidadorPago: React.FC<Props> = ({ guiasSeleccionadas, valorConsignado, o
                 employee_id: userId
             };
 
-            console.log("📦 Enviando payload:", payload);
+            
 
             setCargando(true);
             try {

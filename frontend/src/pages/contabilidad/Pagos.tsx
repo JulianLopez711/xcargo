@@ -108,12 +108,6 @@ export default function PagosContabilidad() {
         }
       }
 
-      console.log('🔍 Parámetros de búsqueda:', params.toString());
-      console.log('📅 Fechas enviadas:', {
-        fechaDesde: fechaDesde ? formatearFechaParaServidor(fechaDesde) : 'No especificada',
-        fechaHasta: fechaHasta ? formatearFechaParaServidor(fechaHasta) : 'No especificada'
-      });
-
       const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
@@ -125,16 +119,16 @@ export default function PagosContabilidad() {
       }
 
       const data = await response.json();
-      console.log('📊 Datos recibidos:', data);
+      
       
       // Si la respuesta incluye información de paginación
       if (data.pagos && data.paginacion) {
-        console.log("📈 Actualizando con paginación:", data.pagos.length, "pagos");
+        
         setPagos(data.pagos);
         setPaginacionInfo(data.paginacion);
       } else {
         // Fallback para el formato actual
-        console.log("📈 Actualizando sin paginación:", Array.isArray(data) ? data.length : "datos no válidos");
+        
         setPagos(Array.isArray(data) ? data : []);
         // Calcular paginación estimada
         const totalEstimado = data.length === pagosPorPagina ? (pagina * pagosPorPagina) + 1 : (pagina - 1) * pagosPorPagina + data.length;
@@ -203,7 +197,7 @@ export default function PagosContabilidad() {
   const [filtrosAplicados, setFiltrosAplicados] = useState(false);
 
   useEffect(() => {
-    console.log("🔄 useEffect - Obteniendo pagos:", { paginaActual, filtrosAplicados });
+    
     obtenerPagos(paginaActual, filtrosAplicados);
   }, [paginaActual]);
 
@@ -242,7 +236,7 @@ export default function PagosContabilidad() {
     
     // Mensaje informativo para búsqueda por referencia
     if (filtroReferencia.trim() && !filtroEstado) {
-      console.log("🔍 Búsqueda por referencia: se mostrarán todos los estados para esta referencia");
+      
     }
     
     setPaginaActual(1); // Resetear a la primera página
@@ -281,19 +275,69 @@ export default function PagosContabilidad() {
       return;
     }
 
-    const confirmacion = confirm(
-      "¿Deseas descargar el informe completo con todos los registros que coincidan con los filtros actuales? Esto puede tomar varios minutos dependiendo de la cantidad de datos."
-    );
-
-    if (!confirmacion) return;
+    // Validar que hay al menos algún filtro para evitar consultas muy grandes
+    if (!filtrosAplicados && !hayFiltrosActivos()) {
+      const confirmacion = confirm(
+        "⚠️ No hay filtros aplicados. Esto descargará TODOS los pagos pendientes de contabilidad, lo que puede ser una cantidad muy grande de datos.\n\n¿Está seguro de que desea continuar? Se recomienda aplicar filtros para limitar la cantidad de datos."
+      );
+      if (!confirmacion) return;
+    }
 
     setProcesando("descarga_completa");
 
     try {
-      // Construir parámetros de query con los mismos filtros actuales
-      const params = new URLSearchParams();
+      alert("📥 Iniciando descarga completa usando solución temporal...\n\nEsto puede tomar varios minutos dependiendo de la cantidad de datos.\n\nPor favor no cierre esta ventana.");
 
-      // Aplicar filtros si están definidos
+      // Usar la solución temporal: obtener todos los datos página por página
+      const todosPagos = await obtenerTodosPagosPorPaginas();
+      
+      if (todosPagos.length === 0) {
+        alert("No se encontraron registros para exportar con los filtros aplicados");
+        return;
+      }
+
+      // Crear CSV con todos los datos
+      const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Trackings_Preview,Hora_Pago,Novedades,Fecha_Creacion,Fecha_Modificacion\n";
+      const filas = todosPagos
+        .map((p: Pago, idx: number) =>
+          `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${getEstadoTexto(p.estado_conciliacion)}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${(p.trackings_preview || '').replace(/"/g, '""')}","${p.hora_pago || ''}","${(p.novedades || '').replace(/"/g, '""')}","${p.fecha_creacion || ''}","${p.fecha_modificacion || ''}"`
+        )
+        .join("\n");
+
+      const blob = new Blob([encabezado + filas], {
+        type: "text/csv;charset=utf-8;",
+      });
+      
+      const fechaHoy = new Date().toISOString().split("T")[0];
+      const nombreArchivo = `informe-completo-pagos-${todosPagos.length}-registros-${fechaHoy}.csv`;
+      saveAs(blob, nombreArchivo);
+
+      alert(`✅ Informe completo descargado exitosamente!\n\n📊 Total de registros: ${todosPagos.length}\n📅 Fecha de exportación: ${new Date().toLocaleString()}\n📁 Archivo: ${nombreArchivo}\n\n🔧 Método: Solución temporal (página por página)`);
+
+    } catch (error) {
+      console.error("❌ Error descargando informe completo:", error);
+      const errorMessage = error instanceof Error ? error.message : "Error desconocido";
+      alert(`❌ Error al descargar el informe completo: ${errorMessage}\n\n💡 Sugerencia: Contacte al administrador para arreglar el endpoint de exportación en el servidor.`);
+    } finally {
+      setProcesando(null);
+    }
+  };
+
+  // Función auxiliar para obtener todos los pagos página por página
+  const obtenerTodosPagosPorPaginas = async (): Promise<Pago[]> => {
+    const todosPagos: Pago[] = [];
+    let paginaActual = 1;
+    let tieneMasPaginas = true;
+    const registrosPorPagina = 100; // Usar páginas más grandes para eficiencia
+
+    while (tieneMasPaginas) {      
+      const offset = (paginaActual - 1) * registrosPorPagina;
+      const params = new URLSearchParams({
+        limit: registrosPorPagina.toString(),
+        offset: offset.toString()
+      });
+
+      // Aplicar los mismos filtros que están activos
       if (filtroReferencia.trim()) {
         params.append('referencia', filtroReferencia.trim());
       }
@@ -313,48 +357,41 @@ export default function PagosContabilidad() {
         params.append('estado', filtroEstado);
       }
 
-      const response = await fetch(`https://api.x-cargo.co/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
       });
 
       if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
+        throw new Error(`Error en página ${paginaActual}: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
-
-      if (!data.pagos || data.pagos.length === 0) {
-        alert("No se encontraron registros para exportar con los filtros aplicados");
-        return;
+      
+      // Manejar tanto el formato con paginación como el formato directo
+      const pagosPagina = data.pagos || (Array.isArray(data) ? data : []);
+      
+      if (pagosPagina.length === 0) {
+        tieneMasPaginas = false;
+      } else {
+        todosPagos.push(...pagosPagina);
+        
+        // Verificar si hay más páginas
+        if (data.paginacion) {
+          tieneMasPaginas = data.paginacion.tiene_siguiente;
+        } else {
+          // Fallback: si obtenemos menos registros que el límite, no hay más páginas
+          tieneMasPaginas = pagosPagina.length === registrosPorPagina;
+        }
+        
+        paginaActual++;
       }
 
-      // Crear CSV con todos los datos
-      const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Trackings_Completos,Hora_Pago,Novedades,Fecha_Creacion,Fecha_Modificacion\n";
-      const filas = data.pagos
-        .map((p: Pago, idx: number) =>
-          `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${getEstadoTexto(p.estado_conciliacion)}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${(p.trackings_completos || '').replace(/"/g, '""')}","${p.hora_pago || ''}","${(p.novedades || '').replace(/"/g, '""')}","${p.fecha_creacion || ''}","${p.fecha_modificacion || ''}"`
-        )
-        .join("\n");
-
-      const blob = new Blob([encabezado + filas], {
-        type: "text/csv;charset=utf-8;",
-      });
-      
-      const fechaHoy = new Date().toISOString().split("T")[0];
-      const nombreArchivo = `informe-completo-pagos-${data.info_exportacion.total_registros_exportados}-registros-${fechaHoy}.csv`;
-      saveAs(blob, nombreArchivo);
-
-      alert(`✅ Informe completo descargado exitosamente!\n\n📊 Total de registros: ${data.info_exportacion.total_registros_exportados}\n📅 Fecha de exportación: ${new Date(data.info_exportacion.fecha_exportacion).toLocaleString()}\n📁 Archivo: ${nombreArchivo}`);
-
-    } catch (error) {
-      console.error("❌ Error descargando informe completo:", error);
-      const errorMessage = error instanceof Error ? error.message : "Error desconocido";
-      alert(`❌ Error al descargar el informe completo: ${errorMessage}`);
-    } finally {
-      setProcesando(null);
+      // Pequeña pausa para no sobrecargar el servidor
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
+    return todosPagos;
   };
 
   const verImagen = (src: string) => {
@@ -383,11 +420,6 @@ export default function PagosContabilidad() {
   };
 
   const confirmarRechazo = async () => {
-    console.log("🔄 Iniciando proceso de rechazo...", {
-      refPagoSeleccionada,
-      novedad: novedad.trim(),
-      procesando
-    });
 
     if (!novedad.trim()) {
       alert("Debe escribir una observación para rechazar el pago");
@@ -400,11 +432,6 @@ export default function PagosContabilidad() {
     try {
       const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
       
-      console.log("📡 Enviando petición de rechazo:", {
-        referencia_pago: refPagoSeleccionada,
-        novedad,
-        modificado_por: user.email,
-      });
 
       const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
         method: "POST",
@@ -419,11 +446,6 @@ export default function PagosContabilidad() {
         }),
       });
 
-      console.log("📊 Estado de la respuesta:", {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -432,6 +454,7 @@ export default function PagosContabilidad() {
 
       const resultado = await response.json();
       console.log("✅ Respuesta del servidor:", resultado);
+    
 
       alert(`❌ Pago rechazado correctamente. Razón: ${novedad}`);
       

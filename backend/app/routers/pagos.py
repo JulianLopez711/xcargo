@@ -1479,14 +1479,14 @@ def exportar_todos_pagos_pendientes_contabilidad(
         
         # Filtro por referencia de pago
         if referencia and referencia.strip():
-            condiciones.append("referencia_pago LIKE @referencia_filtro")
+            condiciones.append("pc.referencia_pago LIKE @referencia_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
         
         # Filtro por estado
         if estado and estado.strip():
-            condiciones.append("estado_conciliacion = @estado_filtro")
+            condiciones.append("pc.estado_conciliacion = @estado_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
             )
@@ -1494,7 +1494,8 @@ def exportar_todos_pagos_pendientes_contabilidad(
             # Solo filtrar por pendiente_conciliacion si NO se está buscando por referencia específica
             # Si se busca por referencia, mostrar todos los estados para esa referencia
             if not (referencia and referencia.strip()):
-                condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
+                condiciones.append("pc.estado_conciliacion = 'pendiente_conciliacion'")
+            # Si hay referencia pero no estado, mostrar esa referencia en cualquier estado
             # Si hay referencia pero no estado, mostrar esa referencia en cualquier estado
         
         # Filtro por fecha desde
@@ -1524,24 +1525,24 @@ def exportar_todos_pagos_pendientes_contabilidad(
         # Query para exportar TODOS los registros (sin LIMIT ni OFFSET)
         export_query = f"""
         SELECT 
-            referencia_pago,
-            correo as correo_conductor,
-            MAX(fecha_pago) AS fecha,
-            COALESCE(MAX(valor_total_consignacion), SUM(valor)) AS valor,
-            MAX(entidad) AS entidad,
-            MAX(tipo) AS tipo,
-            MAX(comprobante) AS imagen,
+            pc.referencia_pago,
+            pc.correo as correo_conductor,
+            MAX(pc.fecha_pago) AS fecha,
+            COALESCE(MAX(pc.valor_total_consignacion), SUM(pc.valor)) AS valor,
+            MAX(pc.entidad) AS entidad,
+            MAX(pc.tipo) AS tipo,
+            MAX(pc.comprobante) AS imagen,
             COUNT(*) AS num_guias,
-            STRING_AGG(DISTINCT COALESCE(tracking, referencia), ', ' ORDER BY COALESCE(tracking, referencia)) AS trackings_completos,
-            MAX(estado_conciliacion) as estado_conciliacion,
-            MAX(novedades) as novedades,
-            MAX(creado_en) as fecha_creacion,
-            MAX(modificado_en) as fecha_modificacion,
-            MAX(hora_pago) as hora_pago
-        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            STRING_AGG(DISTINCT COALESCE(pc.tracking, pc.referencia), ', ' ORDER BY COALESCE(pc.tracking, pc.referencia)) AS trackings_completos,
+            MAX(pc.estado_conciliacion) as estado_conciliacion,
+            MAX(pc.novedades) as novedades,
+            MAX(pc.creado_en) as fecha_creacion,
+            MAX(pc.modificado_en) as fecha_modificacion,
+            MAX(pc.hora_pago) as hora_pago
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
         {where_clause}
-        GROUP BY referencia_pago, correo
-        ORDER BY MAX(fecha_pago) DESC, MAX(creado_en) DESC
+        GROUP BY pc.referencia_pago, pc.correo
+        ORDER BY MAX(pc.fecha_pago) DESC, MAX(pc.creado_en) DESC
         """
         
         

@@ -183,22 +183,12 @@ const Cruces: React.FC = () => {
         // Para fechas solo con fecha (sin hora), agregarle T12:00:00 para usar medio día local
         const fecha = new Date(fechaString + 'T12:00:00');
         const fechaFormateada = fecha.toLocaleDateString("es-CO");
-        
-        // 🔍 DEBUG: Log para diagnosticar problemas de fecha
-        console.log(`📅 Formateo de fecha: ${fechaString} -> ${fechaFormateada}`, {
-          original: fechaString,
-          conHora: fechaString + 'T12:00:00',
-          fechaObject: fecha,
-          resultado: fechaFormateada
-        });
-        
+                
         return fechaFormateada;
       } else {
         // Para fechas con hora o en otros formatos
         const fecha = new Date(fechaString);
         const fechaFormateada = fecha.toLocaleDateString("es-CO");
-        
-        console.log(`📅 Formateo de fecha (con hora): ${fechaString} -> ${fechaFormateada}`);
         
         return fechaFormateada;
       }
@@ -720,7 +710,7 @@ const Cruces: React.FC = () => {
           transacciones = data.transacciones || [];
           
         } else {
-          console.log("❌ Endpoint de búsqueda falló con status:", res.status);
+
         }
       }
 
@@ -805,12 +795,7 @@ const Cruces: React.FC = () => {
       // ✅ MARCAR COMO PROCESANDO PARA DESHABILITAR BOTONES
       setProcesandoConciliacion(true);
       
-      // 🔍 DEBUG: Agregar logs para diagnóstico
-      console.log("🔄 Iniciando conciliación manual:", {
-        idTransaccionBancaria,
-        referenciaMovimientoOriginal,
-        modalData: modalSeleccionTransaccion
-      });
+
 
       // ✅ MOSTRAR FEEDBACK INMEDIATO AL USUARIO
       setMensaje("🔄 Procesando conciliación manual...");
@@ -828,7 +813,7 @@ const Cruces: React.FC = () => {
         fecha_conciliacion: new Date().toISOString(),
       };
 
-      console.log("📤 Enviando petición:", requestBody);
+
 
       const res = await fetch(
         `${API_BASE_URL}/conciliacion/marcar-conciliado-manual`,
@@ -839,7 +824,6 @@ const Cruces: React.FC = () => {
         }
       );
 
-      console.log("📡 Respuesta del servidor:", res.status, res.statusText);
 
       if (!res.ok) {
         const errorText = await res.text();
@@ -853,8 +837,6 @@ const Cruces: React.FC = () => {
         throw new Error(error.detail || "Error al conciliar transacción bancaria");
       }
 
-      const result = await res.json();
-      console.log("✅ Resultado exitoso:", result);
 
       // ✅ 1. CERRAR MODAL INMEDIATAMENTE PARA MEJOR UX
       setModalSeleccionTransaccion(null);
@@ -864,12 +846,12 @@ const Cruces: React.FC = () => {
       setMensaje(mensajeExito);
       
       // ✅ 3. RECARGAR DATOS PARA REFLEJAR CAMBIOS INMEDIATAMENTE
-      console.log("🔄 Recargando estadísticas después de conciliación...");
+      
       await cargarEstadisticas();
       
       // ✅ 4. REFRESCAR RESULTADOS DE CONCILIACIÓN SI EXISTEN
       if (resultadoConciliacion && resultadoConciliacion.resultados) {
-        console.log("🔄 Actualizando resultados de conciliación después de cambio manual...");
+        
         // Encontrar y actualizar el item conciliado en los resultados
         const nuevosResultados = resultadoConciliacion.resultados.map((item: ResultadoConciliacion) => {
           if (item.referencia_pago === referenciaMovimientoOriginal || item.id_banco === idTransaccionBancaria) {
@@ -895,7 +877,7 @@ const Cruces: React.FC = () => {
         }
       }, 8000);
       
-      console.log("✅ Actualización completa de la UI después de conciliación manual");
+      
     } catch (err: any) {
       console.error("💥 Error completo en conciliación manual bancaria:", err);
       setMensaje(`❌ Error en conciliación: ${err.message}`);
@@ -1878,12 +1860,6 @@ const Cruces: React.FC = () => {
                           className="btn-seleccionar"
                           disabled={procesandoConciliacion}
                           onClick={() => {
-                            console.log("🖱️ Click en botón seleccionar:", {
-                              transaccionId: transaccion.id,
-                              pagoReferencia: modalSeleccionTransaccion.pago.referencia,
-                              transaccionCompleta: transaccion,
-                              modalCompleto: modalSeleccionTransaccion
-                            });
                             confirmarConciliacionConTransaccionBancaria(
                               transaccion.id,
                               modalSeleccionTransaccion.pago.referencia

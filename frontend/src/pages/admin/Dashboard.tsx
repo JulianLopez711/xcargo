@@ -126,7 +126,7 @@ const cargarDashboardMaster = async () => {
     setLoading(true);
     setError("");
     
-    console.log("🔍 DIAGNÓSTICO COMPLETO - Usuario actual:", user);
+    
     
     // Verificar que tenemos los datos necesarios
     if (!user) {
@@ -145,35 +145,24 @@ const cargarDashboardMaster = async () => {
     // Método 1: Token JWT (si existe)
     if (user.token) {
       headers["Authorization"] = `Bearer ${user.token}`;
-      console.log("🔐 Agregando Authorization header con JWT");
+      
     }
     
     // Método 2: Headers X-User (SIEMPRE agregar como backup)
     headers["X-User-Email"] = user.email;
     headers["X-User-Role"] = user.role;
     
-    console.log("📤 Headers que se enviarán:", {
-      "Authorization": headers.Authorization ? `Bearer ${headers.Authorization.substring(7, 27)}...` : "NO_PRESENTE",
-      "X-User-Email": headers["X-User-Email"],
-      "X-User-Role": headers["X-User-Role"]
-    });
+
     
     // Hacer la petición
-    console.log("🌐 Haciendo petición a /master/dashboard...");
+    
     const response = await fetch(`https://api.x-cargo.co/master/dashboard`, {
       method: 'GET',
       headers: headers
     });
 
-    console.log("📥 Respuesta recibida:", {
-      status: response.status,
-      statusText: response.statusText,
-      ok: response.ok
-    });
-
     if (response.ok) {
       const data = await response.json();
-      console.log("✅ Datos recibidos exitosamente");
       
       // Actualizar estados con datos reales
       setStatsGlobales(data.stats_globales || {});
@@ -202,26 +191,22 @@ const cargarDashboardMaster = async () => {
     }
 
     // Cargar resumen de pagos con manejo robusto de errores
-    console.log("📊 Intentando cargar resumen de pagos...");
+    
     try {
       const pagosResp = await fetch("https://api.x-cargo.co/admin/dashboard-pagos", {
         headers: headers
       });
       
-      console.log("📥 Respuesta de pagos:", {
-        status: pagosResp.status,
-        statusText: pagosResp.statusText,
-        ok: pagosResp.ok
-      });
+   
       
       if (pagosResp.ok) {
         const pagosData = await pagosResp.json();
-        console.log("✅ Resumen de pagos cargado:", pagosData);
+        
         setResumenPagos(pagosData);
         
         // Si hay mensaje de información, mostrarlo
         if (pagosData.mensaje) {
-          console.log(`ℹ️ Info de pagos: ${pagosData.mensaje}`);
+          
         }
         
       } else {
@@ -235,11 +220,11 @@ const cargarDashboardMaster = async () => {
           // Si el backend devuelve datos de fallback, usarlos
           if (errorData.total_pagos !== undefined) {
             setResumenPagos(errorData);
-            console.log("✅ Usando datos de fallback de pagos");
+            
           } else {
             // Usar datos por defecto locales
             setResumenPagos(getDefaultPagosData());
-            console.log("⚠️ Usando datos por defecto locales para pagos");
+            
           }
         } catch (e) {
           // Error parseando respuesta de error
@@ -252,7 +237,7 @@ const cargarDashboardMaster = async () => {
       // Error de red o conexión al endpoint de pagos
       console.error("❌ Error de conexión al cargar pagos:", error);
       setResumenPagos(getDefaultPagosData());
-      console.log("⚠️ Usando datos por defecto debido a error de conexión");
+      
     }
 
   } catch (error) {

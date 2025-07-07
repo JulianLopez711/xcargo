@@ -38,8 +38,7 @@ const LoadingAutoInjector = () => {
             autoplay: true,
             animationData: animationData,
           });
-          
-          console.log('✅ Lottie inyectado en spinner');
+        
           
           // Guardar referencia para cleanup si es necesario
           (spinner as any).__lottieInstance = lottieInstance;
