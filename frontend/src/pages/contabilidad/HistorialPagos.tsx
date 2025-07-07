@@ -483,7 +483,7 @@ export default function HistorialPagos() {
               </thead>
               <tbody>
                 {pagosPaginados.map((pago, idx) => (
-                  <tr key={pago.referencia_pago} className={`fila-${pago.estado.toLowerCase()}`}>
+                  <tr key={`${pago.referencia_pago}-${pago.fecha}-${pago.correo_conductor}-${idx}`} className={`fila-${pago.estado.toLowerCase()}`}>
                     <td>{inicio + idx + 1}</td>
                     
                     <td className="referencia-cell">

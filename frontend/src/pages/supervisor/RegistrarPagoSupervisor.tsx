@@ -378,12 +378,6 @@ export default function RegistrarPagoSupervisor() {
 
         formData.append("guias", JSON.stringify(guiasParaPago));
 
-        console.log("📤 Enviando datos de pago:");
-        console.log("- Correo:", supervisor?.email || user?.email);
-        console.log("- Valor:", parseValorMonetario(p.datos.valor));
-        console.log("- Guías:", guiasParaPago.length);
-        console.log("- Referencia:", p.datos.referencia);
-
         // 🔥 USAR ENDPOINT CORRECTO PARA PAGOS DE CONDUCTOR/SUPERVISOR
         const endpoint = "https://api.x-cargo.co/pagos/registrar-conductor";
 

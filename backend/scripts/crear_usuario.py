@@ -70,9 +70,9 @@ def crear_usuario_en_tabla_usuarios():
         print("\n👤 Configurando nuevo usuario...")
         
         # Datos básicos del usuario
-        correo = "laura.bustos@x-cargo.co"
-        nombre = "Laura Bustos"  # Asegúrate de que este campo exista en la tabl
-        telefono = "3023135261"  # Agrega el teléfono real
+        correo = "vivian.cardenas@x-cargo.co"
+        nombre = "vivian cardenas"  # Asegúrate de que este campo exista en la tabl
+        telefono = "3501234567"  # Agrega el teléfono real
         empresa_carrier = "X-Cargo"
         
         # Generar ID único

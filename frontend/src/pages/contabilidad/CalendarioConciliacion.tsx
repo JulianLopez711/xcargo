@@ -71,10 +71,36 @@ export default function CalendarioConciliacion() {
       console.log("📈 Tipo de datos:", typeof data, "Es array:", Array.isArray(data));
       
       if (Array.isArray(data)) {
-        const datosConEstado = data.map((dia: DiaConciliacion) => ({
-          ...dia,
-          estado: determinarEstado(dia)
-        }));
+        const datosConEstado = data.map((dia: DiaConciliacion) => {
+          // Calcular avance correcto: (soportes / banco) * 100
+          let avanceCalculado = 0;
+          if (dia.banco > 0) {
+            avanceCalculado = (dia.soportes / dia.banco) * 100;
+          }
+          
+          // Debug: comparar avance del backend vs calculado
+          if (Math.abs(dia.avance - avanceCalculado) > 1) {
+            console.warn(`⚠️ Diferencia en avance para ${dia.fecha}:`, {
+              avanceBackend: dia.avance,
+              avanceCalculado: avanceCalculado.toFixed(1),
+              soportes: dia.soportes,
+              banco: dia.banco,
+              diferencia: dia.diferencia
+            });
+          }
+          
+          // Usar el avance calculado correctamente
+          const avanceFinal = Math.max(0, Math.min(100, avanceCalculado));
+          
+          return {
+            ...dia,
+            avance: avanceFinal,
+            estado: determinarEstado({
+              ...dia,
+              avance: avanceFinal
+            })
+          };
+        });
         console.log(`✅ ${datosConEstado.length} días procesados correctamente`);
         setDatos(datosConEstado);
       } else {
@@ -159,7 +185,8 @@ export default function CalendarioConciliacion() {
 
   // Obtener estadísticas del mes
   const obtenerEstadisticas = () => {
-    const totalDias = datos.filter(d => d.movimientos > 0).length;
+    const diasConMovimientos = datos.filter(d => d.movimientos > 0);
+    const totalDias = diasConMovimientos.length;
     const completados = datos.filter(d => d.estado === 'completado').length;
     const conDiferencias = datos.filter(d => d.estado === 'con_diferencias').length;
     const totalSoportes = datos.reduce((sum, d) => sum + d.soportes, 0);
@@ -167,6 +194,11 @@ export default function CalendarioConciliacion() {
     const totalDiferencia = datos.reduce((sum, d) => sum + d.diferencia, 0);
     const totalGuias = datos.reduce((sum, d) => sum + d.guias, 0);
     const totalMovimientos = datos.reduce((sum, d) => sum + d.movimientos, 0);
+    
+    // Calcular recaudo pendiente de conciliación (estados pendiente y en_proceso)
+    const recaudoPendienteConciliacion = datos
+      .filter(d => d.estado === 'pendiente' || d.estado === 'en_proceso')
+      .reduce((sum, d) => sum + d.banco, 0);
 
     return {
       totalDias,
@@ -177,7 +209,8 @@ export default function CalendarioConciliacion() {
       totalDiferencia,
       totalGuias,
       totalMovimientos,
-      promedioAvance: totalDias > 0 ? datos.reduce((sum, d) => sum + d.avance, 0) / totalDias : 0
+      recaudoPendienteConciliacion,
+      promedioAvance: totalDias > 0 ? diasConMovimientos.reduce((sum, d) => sum + d.avance, 0) / totalDias : 0
     };
   };
 
@@ -244,10 +277,6 @@ export default function CalendarioConciliacion() {
           <div className="estadistica-item banco">
             <span className="estadistica-label">Extracto Banco</span>
             <span className="estadistica-valor">{formatearMoneda(estadisticas.totalBanco)}</span>
-          </div>
-          <div className="estadistica-item recaudo">
-            <span className="estadistica-label">Recaudo en Banco x Cruzar TN</span>
-            <span className="estadistica-valor">{estadisticas.totalGuias.toLocaleString()}</span>
           </div>
           <div className="estadistica-item guias">
             <span className="estadistica-label">Cantidad Guías Pagadas</span>
@@ -343,8 +372,12 @@ export default function CalendarioConciliacion() {
                       style={{ 
                         width: `${dia.avance}%`,
                         background: dia.estado === 'con_diferencias' ? 
-                          'linear-gradient(90deg, #dc2626, #b91c1c)' : 
-                          'linear-gradient(90deg, #10b981, #059669)'
+                          'linear-gradient(90deg, #f59e0b, #d97706)' : // Amarillo/naranja para diferencias
+                          dia.avance >= 80 ? 
+                            'linear-gradient(90deg, #10b981, #059669)' : // Verde para avance alto (bueno)
+                          dia.avance >= 50 ? 
+                            'linear-gradient(90deg, #f59e0b, #d97706)' : // Amarillo para avance medio
+                            'linear-gradient(90deg, #dc2626, #b91c1c)'   // Rojo para avance bajo (malo)
                       }}
                     ></div>
                   </div>

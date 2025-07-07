@@ -36,21 +36,6 @@ interface ResultadoConciliacion {
 }
 
 // ✅ INTERFACE PARA ENDPOINT MEJORADO
-interface ResumenConciliacionMejorado {
-  resumen: {
-    total_movimientos_banco: number;
-    total_pagos_iniciales: number;
-    total_procesados: number;
-    referencias_unicas_utilizadas: number;
-    conciliado_exacto: number;
-    conciliado_aproximado: number;
-    sin_match: number;
-  };
-  resultados: ResultadoConciliacion[];
-  referencias_usadas: string[];
-  fecha_conciliacion: string;
-}
-
 // ✅ INTERFACE PARA COMPATIBILIDAD CON EL FRONTEND
 interface ResumenConciliacion {
   resumen: {
@@ -97,6 +82,7 @@ interface PagoPendiente {
   tracking?: string;
   cliente?: string;
   conciliado: boolean;
+  tipo?: string; // Tipo de pago desde la tabla pagos conductores
 }
 
 // Nueva interfaz para el modal de conciliación manual
@@ -138,6 +124,7 @@ interface SeleccionTransaccionModal {
     fecha: string;
     correo: string;
     entidad: string;
+    tipo?: string; // Tipo de pago desde la tabla pagos conductores
   };
   transacciones_disponibles: TransaccionBancaria[];
 }
@@ -186,6 +173,39 @@ const Cruces: React.FC = () => {
     if (porcentaje >= 60) return 'regular';
     if (porcentaje >= 40) return 'bajo';
     return 'muy-bajo';
+  };
+
+  // ✅ FUNCIÓN HELPER PARA FORMATEAR FECHAS CORRECTAMENTE
+  const formatearFecha = (fechaString: string): string => {
+    try {
+      // Si la fecha viene en formato ISO (YYYY-MM-DD), agregar la hora local para evitar problemas de zona horaria
+      if (fechaString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Para fechas solo con fecha (sin hora), agregarle T12:00:00 para usar medio día local
+        const fecha = new Date(fechaString + 'T12:00:00');
+        const fechaFormateada = fecha.toLocaleDateString("es-CO");
+        
+        // 🔍 DEBUG: Log para diagnosticar problemas de fecha
+        console.log(`📅 Formateo de fecha: ${fechaString} -> ${fechaFormateada}`, {
+          original: fechaString,
+          conHora: fechaString + 'T12:00:00',
+          fechaObject: fecha,
+          resultado: fechaFormateada
+        });
+        
+        return fechaFormateada;
+      } else {
+        // Para fechas con hora o en otros formatos
+        const fecha = new Date(fechaString);
+        const fechaFormateada = fecha.toLocaleDateString("es-CO");
+        
+        console.log(`📅 Formateo de fecha (con hora): ${fechaString} -> ${fechaFormateada}`);
+        
+        return fechaFormateada;
+      }
+    } catch (error) {
+      console.error("❌ Error formateando fecha:", fechaString, error);
+      return fechaString; // Devolver el string original si hay error
+    }
   };
 
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
@@ -646,6 +666,7 @@ const Cruces: React.FC = () => {
     fecha: string;
     correo: string;
     entidad: string;
+    tipo?: string; // Agregar el tipo de pago
   }) => {
     const transacciones = await obtenerTransaccionesBancarias(pago.referencia);
     
@@ -741,6 +762,7 @@ const Cruces: React.FC = () => {
           fecha: resultado.fecha_banco,
           correo: resultado.correo_conductor || "No disponible",
           entidad: resultado.entidad_pago || "Movimiento Bancario",
+          tipo: resultado.entidad_pago || "Movimiento Bancario", // Usar entidad_pago como tipo
         },
         transacciones_disponibles: transacciones,
       });
@@ -762,6 +784,7 @@ const Cruces: React.FC = () => {
           fecha: resultado.fecha_banco,
           correo: resultado.correo_conductor || "No disponible",
           entidad: resultado.entidad_pago || "Movimiento Bancario",
+          tipo: resultado.entidad_pago || "Movimiento Bancario", // Usar entidad_pago como tipo
         },
         transacciones_disponibles: [], // Lista vacía para mostrar el mensaje de error
       });
@@ -772,40 +795,118 @@ const Cruces: React.FC = () => {
 
   // ✅ FUNCIÓN PARA CONFIRMAR CONCILIACIÓN CON TRANSACCIÓN BANCARIA SELECCIONADA
   const confirmarConciliacionConTransaccionBancaria = async (
-    idBanco: string,
-    referenciaPago: string
+    idTransaccionBancaria: string,
+    referenciaMovimientoOriginal: string
   ) => {
+    // ✅ EVITAR MÚLTIPLES LLAMADAS SIMULTÁNEAS
+    if (procesandoConciliacion) return;
+    
     try {
+      // ✅ MARCAR COMO PROCESANDO PARA DESHABILITAR BOTONES
+      setProcesandoConciliacion(true);
+      
+      // 🔍 DEBUG: Agregar logs para diagnóstico
+      console.log("🔄 Iniciando conciliación manual:", {
+        idTransaccionBancaria,
+        referenciaMovimientoOriginal,
+        modalData: modalSeleccionTransaccion
+      });
+
+      // ✅ MOSTRAR FEEDBACK INMEDIATO AL USUARIO
+      setMensaje("🔄 Procesando conciliación manual...");
+
       const usuario = localStorage.getItem("correo") || "sistema@x-cargo.co";
+      
+      // ✅ CORRECCIÓN: Los parámetros correctos según el contexto
+      // - idTransaccionBancaria: ID de la transacción bancaria seleccionada
+      // - referenciaMovimientoOriginal: La referencia del movimiento que se quiere conciliar
+      const requestBody = {
+        id_banco: idTransaccionBancaria,
+        referencia_pago: referenciaMovimientoOriginal,
+        observaciones: "Conciliado manualmente - Transacción bancaria seleccionada por usuario",
+        usuario,
+        fecha_conciliacion: new Date().toISOString(),
+      };
+
+      console.log("📤 Enviando petición:", requestBody);
+
       const res = await fetch(
         `${API_BASE_URL}/conciliacion/marcar-conciliado-manual`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id_banco: idBanco,
-            referencia_pago: referenciaPago,
-            observaciones: "Conciliado manualmente - Transacción bancaria seleccionada por usuario",
-            usuario,
-            fecha_conciliacion: new Date().toISOString(),
-          }),
+          body: JSON.stringify(requestBody),
         }
       );
 
+      console.log("📡 Respuesta del servidor:", res.status, res.statusText);
+
       if (!res.ok) {
-        const error = await res.json();
+        const errorText = await res.text();
+        console.error("❌ Error del servidor:", errorText);
+        let error;
+        try {
+          error = JSON.parse(errorText);
+        } catch {
+          error = { detail: errorText };
+        }
         throw new Error(error.detail || "Error al conciliar transacción bancaria");
       }
 
-      setMensaje(`✅ Conciliación manual exitosa. Transacción bancaria conciliada correctamente`);
-      
-      // Recargar datos
-      await cargarEstadisticas();
-      await ejecutarConciliacion();
+      const result = await res.json();
+      console.log("✅ Resultado exitoso:", result);
+
+      // ✅ 1. CERRAR MODAL INMEDIATAMENTE PARA MEJOR UX
       setModalSeleccionTransaccion(null);
+      
+      // ✅ 2. MOSTRAR MENSAJE DE ÉXITO CLARO Y PERSISTENTE
+      const mensajeExito = `✅ ¡Conciliación exitosa! Transacción ${idTransaccionBancaria} conciliada con movimiento ${referenciaMovimientoOriginal}`;
+      setMensaje(mensajeExito);
+      
+      // ✅ 3. RECARGAR DATOS PARA REFLEJAR CAMBIOS INMEDIATAMENTE
+      console.log("🔄 Recargando estadísticas después de conciliación...");
+      await cargarEstadisticas();
+      
+      // ✅ 4. REFRESCAR RESULTADOS DE CONCILIACIÓN SI EXISTEN
+      if (resultadoConciliacion && resultadoConciliacion.resultados) {
+        console.log("🔄 Actualizando resultados de conciliación después de cambio manual...");
+        // Encontrar y actualizar el item conciliado en los resultados
+        const nuevosResultados = resultadoConciliacion.resultados.map((item: ResultadoConciliacion) => {
+          if (item.referencia_pago === referenciaMovimientoOriginal || item.id_banco === idTransaccionBancaria) {
+            return {
+              ...item,
+              estado_match: 'conciliado_exacto' as const,
+              observaciones: 'Conciliado manualmente'
+            };
+          }
+          return item;
+        });
+        
+        setResultadoConciliacion({
+          ...resultadoConciliacion,
+          resultados: nuevosResultados
+        });
+      }
+      
+      // ✅ 5. LIMPIAR MENSAJE DESPUÉS DE 8 SEGUNDOS PARA NO SATURAR UI
+      setTimeout(() => {
+        if (mensaje === mensajeExito) {
+          setMensaje("");
+        }
+      }, 8000);
+      
+      console.log("✅ Actualización completa de la UI después de conciliación manual");
     } catch (err: any) {
+      console.error("💥 Error completo en conciliación manual bancaria:", err);
       setMensaje(`❌ Error en conciliación: ${err.message}`);
-      console.error("Error en conciliación manual bancaria:", err);
+      
+      // Limpiar mensaje de error después de 10 segundos
+      setTimeout(() => {
+        setMensaje("");
+      }, 10000);
+    } finally {
+      // ✅ SIEMPRE LIBERAR EL ESTADO DE PROCESAMIENTO
+      setProcesandoConciliacion(false);
     }
   };
 
@@ -1079,6 +1180,115 @@ const Cruces: React.FC = () => {
         gap: 0.75rem !important;
       }
     }
+
+    /* Estilos para botones en modal de conciliación */
+    .btn-seleccionar {
+      background: #22c55e;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      margin-top: 1rem;
+    }
+
+    .btn-seleccionar:hover:not(:disabled) {
+      background: #16a34a;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 8px rgba(34, 197, 94, 0.3);
+    }
+
+    .btn-seleccionar:disabled {
+      background: #9ca3af !important;
+      cursor: not-allowed !important;
+      opacity: 0.6 !important;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+
+    .btn-cerrar:disabled {
+      background: #9ca3af !important;
+      cursor: not-allowed !important;
+      opacity: 0.6 !important;
+    }
+
+    .transaccion-item {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      background: #f9fafb;
+      transition: all 0.3s ease;
+    }
+
+    .transaccion-item:hover {
+      background: #f3f4f6;
+      border-color: #d1d5db;
+    }
+
+    .transaccion-info {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .transaccion-info > div {
+      font-size: 0.875rem;
+    }
+
+    .estado-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-left: 0.5rem;
+    }
+
+    .estado-badge.pending {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .estado-badge.success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .similitud-badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-left: 0.5rem;
+    }
+
+    .similitud-excelente {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .similitud-bueno {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .similitud-regular {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .similitud-bajo {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .similitud-muy-bajo {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
   `;
 
   const styleSheet = document.createElement("style");
@@ -1273,7 +1483,7 @@ const Cruces: React.FC = () => {
                   {pagosPendientes.map((pago, idx) => (
                     <tr key={idx}>
                       <td>{pago.referencia}</td>
-                      <td>{new Date(pago.fecha_pago).toLocaleDateString("es-CO")}</td>
+                      <td>{formatearFecha(pago.fecha_pago)}</td>
                       <td>${pago.valor.toLocaleString("es-CO")}</td>
                       <td>{pago.entidad}</td>
                       <td>{pago.correo}</td>
@@ -1292,6 +1502,7 @@ const Cruces: React.FC = () => {
                               fecha: pago.fecha_pago,
                               correo: pago.correo,
                               entidad: pago.entidad,
+                              tipo: pago.tipo, // Agregar el tipo de pago
                             })}
                           >
                             🔗 Conciliar
@@ -1436,9 +1647,7 @@ const Cruces: React.FC = () => {
                     }}
                   >
                     <td>
-                      {new Date(resultado.fecha_banco).toLocaleDateString(
-                        "es-CO"
-                      )}
+                      {formatearFecha(resultado.fecha_banco)}
                     </td>
                     <td>${resultado.valor_banco.toLocaleString("es-CO")}</td>
                     <td>
@@ -1542,8 +1751,27 @@ const Cruces: React.FC = () => {
           <div
             className="modal-content seleccion-transaccion"
             onClick={(e) => e.stopPropagation()}
+            style={{ 
+              opacity: procesandoConciliacion ? 0.9 : 1,
+              pointerEvents: procesandoConciliacion ? 'none' : 'auto'
+            }}
           >
             <h3>🏦 Seleccionar Transacción Bancaria para Conciliar</h3>
+            
+            {procesandoConciliacion && (
+              <div style={{
+                background: '#fef3c7',
+                border: '1px solid #f59e0b',
+                borderRadius: '6px',
+                padding: '0.75rem',
+                marginBottom: '1rem',
+                textAlign: 'center',
+                color: '#92400e',
+                fontWeight: '600'
+              }}>
+                ⏳ Procesando conciliación manual... Por favor espere.
+              </div>
+            )}
 
             <div className="detalle-grid">
               <div className="detalle-seccion">
@@ -1553,14 +1781,14 @@ const Cruces: React.FC = () => {
                 </div>
                 <div className="detalle-item">
                   <strong>Fecha:</strong>{" "}
-                  {new Date(modalSeleccionTransaccion.pago.fecha).toLocaleDateString("es-CO")}
+                  {formatearFecha(modalSeleccionTransaccion.pago.fecha)}
                 </div>
                 <div className="detalle-item">
                   <strong>Valor:</strong> $
                   {modalSeleccionTransaccion.pago.valor.toLocaleString("es-CO")}
                 </div>
                 <div className="detalle-item">
-                  <strong>Tipo:</strong> {modalSeleccionTransaccion.pago.entidad}
+                  <strong>Tipo:</strong> {modalSeleccionTransaccion.pago.tipo}
                 </div>
                 {modalSeleccionTransaccion.pago.correo !== "No disponible" && (
                   <div className="detalle-item">
@@ -1599,7 +1827,7 @@ const Cruces: React.FC = () => {
                         </div>
                         <div>
                           <strong>Fecha:</strong>{" "}
-                          {new Date(transaccion.fecha).toLocaleDateString("es-CO")}
+                          {formatearFecha(transaccion.fecha)}
                         </div>
                         <div>
                           <strong>Valor:</strong> $
@@ -1648,14 +1876,25 @@ const Cruces: React.FC = () => {
                       {transaccion.estado_conciliacion === 'pendiente' && (
                         <button
                           className="btn-seleccionar"
-                          onClick={() =>
+                          disabled={procesandoConciliacion}
+                          onClick={() => {
+                            console.log("🖱️ Click en botón seleccionar:", {
+                              transaccionId: transaccion.id,
+                              pagoReferencia: modalSeleccionTransaccion.pago.referencia,
+                              transaccionCompleta: transaccion,
+                              modalCompleto: modalSeleccionTransaccion
+                            });
                             confirmarConciliacionConTransaccionBancaria(
                               transaccion.id,
                               modalSeleccionTransaccion.pago.referencia
-                            )
-                          }
+                            );
+                          }}
+                          style={{ 
+                            opacity: procesandoConciliacion ? 0.6 : 1,
+                            cursor: procesandoConciliacion ? 'not-allowed' : 'pointer'
+                          }}
                         >
-                          ✅ Seleccionar
+                          {procesandoConciliacion ? '⏳ Procesando...' : '✅ Seleccionar'}
                         </button>
                       )}
                     </div>
@@ -1667,9 +1906,14 @@ const Cruces: React.FC = () => {
             <div className="modal-acciones">
               <button
                 className="btn-cerrar"
-                onClick={() => setModalSeleccionTransaccion(null)}
+                disabled={procesandoConciliacion}
+                onClick={() => !procesandoConciliacion && setModalSeleccionTransaccion(null)}
+                style={{ 
+                  opacity: procesandoConciliacion ? 0.6 : 1,
+                  cursor: procesandoConciliacion ? 'not-allowed' : 'pointer'
+                }}
               >
-                ✕ Cerrar
+                {procesandoConciliacion ? '⏳ Procesando...' : '✕ Cerrar'}
               </button>
             </div>
           </div>
@@ -1690,9 +1934,7 @@ const Cruces: React.FC = () => {
                 <h4>📊 Datos del Banco</h4>
                 <div className="detalle-item">
                   <strong>Fecha:</strong>{" "}
-                  {new Date(modalDetalle.fecha_banco).toLocaleDateString(
-                    "es-CO"
-                  )}
+                  {formatearFecha(modalDetalle.fecha_banco)}
                 </div>
                 <div className="detalle-item">
                   <strong>Valor:</strong> $
@@ -1714,10 +1956,7 @@ const Cruces: React.FC = () => {
                   </div>
                   <div className="detalle-item">
                     <strong>Fecha:</strong>{" "}
-                    {modalDetalle.fecha_pago &&
-                      new Date(modalDetalle.fecha_pago).toLocaleDateString(
-                        "es-CO"
-                      )}
+                    {modalDetalle.fecha_pago && formatearFecha(modalDetalle.fecha_pago)}
                   </div>
                   <div className="detalle-item">
                     <strong>Valor:</strong> $

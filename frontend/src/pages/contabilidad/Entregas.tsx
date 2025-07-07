@@ -90,6 +90,7 @@ export default function EntregasConciliadas() {
   const [clientesDisponibles, setClientesDisponibles] = useState<string[]>([]);
   const [paginaActual, setPaginaActual] = useState(1);
   const registrosPorPagina = 50;
+  const [mostrarTodo, setMostrarTodo] = useState(false);
 
   // Headers para autenticación
   const headers = useMemo(() => {
@@ -242,10 +243,12 @@ export default function EntregasConciliadas() {
 
   // Paginación
   const totalPaginas = Math.ceil(entregasFiltradas.length / registrosPorPagina);
-  const entregasPaginadas = entregasFiltradas.slice(
-    (paginaActual - 1) * registrosPorPagina,
-    paginaActual * registrosPorPagina
-  );
+  const entregasPaginadas = mostrarTodo 
+    ? entregasFiltradas 
+    : entregasFiltradas.slice(
+        (paginaActual - 1) * registrosPorPagina,
+        paginaActual * registrosPorPagina
+      );
 
   // Actualizar estado de "seleccionar todas" basado en la selección actual
   const todasSeleccionadas = entregasPaginadas.length > 0 && 
@@ -582,8 +585,28 @@ export default function EntregasConciliadas() {
       <div className="tabla-section">
         <div className="tabla-header">
           <h3>📋 Entregas ({entregasFiltradas.length.toLocaleString()} registros)</h3>
-          <div className="tabla-info">
-            Página {paginaActual} de {totalPaginas} • Mostrando {entregasPaginadas.length} de {entregasFiltradas.length}
+          <div className="tabla-controls">
+            <div className="tabla-info">
+              {mostrarTodo 
+                ? `Mostrando todos los ${entregasFiltradas.length} registros`
+                : `Página ${paginaActual} de ${totalPaginas} • Mostrando ${entregasPaginadas.length} de ${entregasFiltradas.length}`
+              }
+            </div>
+            <div className="tabla-actions">
+              <button 
+                className={`btn-mostrar-todo ${mostrarTodo ? 'active' : ''}`}
+                onClick={() => {
+                  setMostrarTodo(!mostrarTodo);
+                  if (mostrarTodo) {
+                    setPaginaActual(1);
+                  }
+                }}
+                disabled={loading}
+                title={mostrarTodo ? "Activar paginación" : "Mostrar todo en una página"}
+              >
+                {mostrarTodo ? "📄 Paginar" : "📜 Ver Todo"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -594,6 +617,12 @@ export default function EntregasConciliadas() {
           </div>
         ) : (
           <>
+            {mostrarTodo && entregasFiltradas.length > 100 && (
+              <div className="advertencia-rendimiento">
+                ⚠️ Mostrando {entregasFiltradas.length.toLocaleString()} registros. Para mejor rendimiento, considera usar filtros o paginación.
+              </div>
+            )}
+            
             <div className="tabla-container">
               <table className="tabla-entregas">
                 <thead>
@@ -703,7 +732,7 @@ export default function EntregasConciliadas() {
             </div>
 
             {/* Paginación */}
-            {totalPaginas > 1 && (
+            {!mostrarTodo && totalPaginas > 1 && (
               <div className="paginacion">
                 <button 
                   className="btn-paginacion"
@@ -872,18 +901,6 @@ export default function EntregasConciliadas() {
                           ></div>
                           <span className="confianza-text">{entregaDetalle.confianza_match}%</span>
                         </div>
-                      </span>
-                    </div>
-                    <div className="info-row">
-                      <span className="label">Listo para Liquidar:</span>
-                      <span className={`value ${entregaDetalle.listo_para_liquidar ? 'success' : 'warning'}`}>
-                        {entregaDetalle.listo_para_liquidar ? '✅ Sí' : '❌ No'}
-                      </span>
-                    </div>
-                    <div className="info-row">
-                      <span className="label">Integridad:</span>
-                      <span className={`value ${entregaDetalle.integridad_ok ? 'success' : 'warning'}`}>
-                        {entregaDetalle.integridad_ok ? '✅ OK' : '❌ Revisar'}
                       </span>
                     </div>
                   </div>

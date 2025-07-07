@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
-import logging
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+import logging
+
 from app.routers import (
     guias, ocr, pagos, operador, asistente,
     pagoCliente, contabilidad, auth, roles,
@@ -13,17 +14,23 @@ from app.routers import (
 app = FastAPI()
 logging.basicConfig(level=logging.DEBUG)
 
+# ==========================
 # Servir archivos estáticos (comprobantes)
+# ==========================
 app.mount("/static", StaticFiles(directory="comprobantes"), name="static")
 
 # ==========================
-# Middleware CORS (Móvil + PC)
+# Middleware CORS (incluye móvil, PWA, www, desarrollo)
 # ==========================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://gestion.x-cargo.co",  # Producción
-        "http://localhost:5173",       # Desarrollo local
+        "https://gestion.x-cargo.co",
+        "https://www.gestion.x-cargo.co",
+        "http://localhost",
+        "http://localhost:5173",
+        "capacitor://localhost",
+        "ionic://localhost",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -31,7 +38,7 @@ app.add_middleware(
 )
 
 # ==========================
-# Middleware para evitar cache en móviles
+# Middleware para evitar caché en móviles
 # ==========================
 @app.middleware("http")
 async def add_cache_control_header(request: Request, call_next):

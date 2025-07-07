@@ -179,15 +179,24 @@ async def registrar_pago_conductor(
         # PASO 2: Validar referencia única
         
         verificacion_ref = client.query("""
-            SELECT COUNT(*) as total
-            FROM `{project}.{dataset}.pagosconductor`
-            WHERE referencia_pago = @referencia
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES), 
-        job_config=bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia)
-            ]
-        )).result()
+                SELECT COUNT(*) as total
+                FROM `{project}.{dataset}.pagosconductor`
+                WHERE referencia_pago = @referencia
+                AND valor_total_consignacion = @valor
+                AND fecha_pago = @fecha
+                AND hora_pago = @hora
+            """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES),
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("referencia", "STRING", referencia),
+                        bigquery.ScalarQueryParameter("valor", "FLOAT64", valor_pago),
+                        bigquery.ScalarQueryParameter("fecha", "DATE", fecha_pago),
+                        bigquery.ScalarQueryParameter("hora", "TIME", hora_pago),
+                    ]
+                )
+            ).result()
+
+
 
         if next(verificacion_ref)["total"] > 0:
             raise HTTPException(
@@ -854,65 +863,69 @@ def obtener_pagos_pendientes_contabilidad(
 ):
     """
     Obtiene pagos pendientes de contabilidad con paginación y filtros avanzados
+    ✅ VALIDADO: Incluye filtro automático desde el 9 de junio de 2025
     """
     try:
         client = get_bigquery_client()
-        
-        # Construir condiciones de filtro dinámicamente
-        condiciones = ["1=1"]  # Condición base para facilitar concatenación
+
+        FECHA_MINIMA = "2025-06-09"
+        logger.info(f"🗓️ [DIAGNÓSTICO PAGOS] Filtro automático aplicado: >= {FECHA_MINIMA}")
+
+        condiciones = ["1=1"]
         parametros = []
-        
-        # Filtro por referencia de pago
+
+        condiciones.append("pc.fecha_pago >= @fecha_minima_auto")
+        parametros.append(
+            bigquery.ScalarQueryParameter("fecha_minima_auto", "DATE", FECHA_MINIMA)
+        )
+
         if referencia and referencia.strip():
             condiciones.append("referencia_pago LIKE @referencia_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
-        
-        # Filtro por estado (por defecto pendiente_conciliacion si no se especifica)
+
         if estado and estado.strip():
             condiciones.append("estado_conciliacion = @estado_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
             )
-        else:
-            # Si no se especifica estado, mostrar solo pendientes por defecto
+        elif not (referencia and referencia.strip()):
             condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
-        
-        # Filtro por fecha desde
+
         if fecha_desde:
             try:
-                # Validar formato de fecha
                 datetime.strptime(fecha_desde, "%Y-%m-%d")
-                condiciones.append("fecha_pago >= @fecha_desde")
+                condiciones.append("pc.fecha_pago >= @fecha_desde")
                 parametros.append(
                     bigquery.ScalarQueryParameter("fecha_desde", "DATE", fecha_desde)
                 )
             except ValueError:
                 raise HTTPException(status_code=400, detail="Formato de fecha_desde inválido (YYYY-MM-DD)")
-        
-        # Filtro por fecha hasta
+
         if fecha_hasta:
             try:
-                # Validar formato de fecha
                 datetime.strptime(fecha_hasta, "%Y-%m-%d")
-                condiciones.append("fecha_pago <= @fecha_hasta")
+                condiciones.append("pc.fecha_pago <= @fecha_hasta")
                 parametros.append(
                     bigquery.ScalarQueryParameter("fecha_hasta", "DATE", fecha_hasta)
                 )
             except ValueError:
                 raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido (YYYY-MM-DD)")
-        
+
         where_clause = "WHERE " + " AND ".join(condiciones)
-        
-        # Query para obtener el total de registros (para paginación)
+
+        logger.info(f"🔍 Filtros aplicados - Referencia: {referencia}, Estado: {estado}, Fecha desde: {fecha_desde}, Fecha hasta: {fecha_hasta}")
+        logger.info(f"📋 Condiciones SQL: {condiciones}")
+        logger.info(f"🔧 WHERE clause: {where_clause}")
+
         count_query = f"""
-        SELECT COUNT(DISTINCT referencia_pago) as total
-        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-        {where_clause}
-        """
-        
-        # Query principal con paginación
+            SELECT COUNT(DISTINCT pc.referencia_pago) as total
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+            {where_clause}
+            """
+
+
         main_query = f"""
         SELECT 
             pc.referencia_pago,
@@ -923,7 +936,7 @@ def obtener_pagos_pendientes_contabilidad(
             MAX(pc.tipo) AS tipo,
             MAX(pc.comprobante) AS imagen,
             COUNT(*) AS num_guias,
-            STRING_AGG(DISTINCT COALESCE(pc.tracking, pc.referencia), ', ' ORDER BY COALESCE(pc.tracking, pc.referencia) LIMIT 5) AS trackings_preview,
+            STRING_AGG(DISTINCT SAFE_CAST(pc.tracking AS STRING), ', ' ORDER BY pc.tracking LIMIT 5) AS trackings_preview,
             MAX(pc.estado_conciliacion) as estado_conciliacion,
             MAX(pc.novedades) as novedades,
             MAX(pc.creado_en) as fecha_creacion,
@@ -940,37 +953,29 @@ def obtener_pagos_pendientes_contabilidad(
         LIMIT {limit}
         OFFSET {offset}
         """
-        
-        
-        # Configurar parámetros para las consultas
+
         job_config = bigquery.QueryJobConfig(query_parameters=parametros)
-        
-        # Ejecutar consulta de conteo
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            # Ejecutar ambas consultas en paralelo
             future_count = executor.submit(lambda: client.query(count_query, job_config=job_config).result())
             future_main = executor.submit(lambda: client.query(main_query, job_config=job_config).result())
-            
-            # Obtener resultados con timeout
+
             count_result = future_count.result(timeout=30)
             main_result = future_main.result(timeout=30)
-        
-        # Obtener total de registros
+
         total_registros = next(count_result)["total"]
-        total_paginas = (total_registros + limit - 1) // limit  # Ceiling division
+        total_paginas = (total_registros + limit - 1) // limit
         pagina_actual = (offset // limit) + 1
-        
-        # Procesar resultados principales
+
         pagos = []
         for row in main_result:
-            # Limpiar trackings_preview si es muy largo
             trackings_preview = row.get("trackings_preview", "")
             if trackings_preview:
                 trackings_list = trackings_preview.split(", ")
                 if len(trackings_list) > 3:
-                    trackings_preview = ", ".join(trackings_list[:3]) + f" (+{len(trackings_list)-3} más)"
-            
-            pago = {
+                    trackings_preview = ", ".join(trackings_list[:3]) + f" (+{len(trackings_list) - 3} más)"
+
+            pagos.append({
                 "referencia_pago": row.get("referencia_pago", ""),
                 "valor": float(row.get("valor", 0)) if row.get("valor") else 0.0,
                 "fecha": str(row.get("fecha", "")),
@@ -985,10 +990,8 @@ def obtener_pagos_pendientes_contabilidad(
                 "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
                 "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
                 "carrier": str(row.get("carrier", "N/A"))
-            }
-            pagos.append(pago)
-        
-        # Información de paginación
+            })
+
         paginacion_info = {
             "total_registros": total_registros,
             "total_paginas": total_paginas,
@@ -999,32 +1002,25 @@ def obtener_pagos_pendientes_contabilidad(
             "desde_registro": offset + 1 if pagos else 0,
             "hasta_registro": offset + len(pagos)
         }
-        
-        # Información de filtros aplicados
-        filtros_aplicados = {
-            "referencia": referencia,
-            "estado": estado,
-            "fecha_desde": fecha_desde,
-            "fecha_hasta": fecha_hasta
-        }
-        
-       
-        
-        # Retornar respuesta estructurada
+
         return {
             "pagos": pagos,
             "paginacion": paginacion_info,
-            "filtros": filtros_aplicados,
+            "filtros": {
+                "referencia": referencia,
+                "estado": estado,
+                "fecha_desde": fecha_desde,
+                "fecha_hasta": fecha_hasta
+            },
             "timestamp": datetime.now().isoformat(),
             "status": "success"
         }
-        
+
     except HTTPException:
-        # Re-lanzar HTTPExceptions
         raise
     except Exception as e:
-        
-        # En caso de error, retornar respuesta de fallback
+        import traceback
+        logger.error("❌ Error en /pendientes-contabilidad:\n%s", traceback.format_exc())
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -1046,10 +1042,12 @@ def obtener_pagos_pendientes_contabilidad(
                     "fecha_hasta": fecha_hasta
                 },
                 "error": str(e),
+                "trace": traceback.format_exc(),
                 "status": "error",
                 "timestamp": datetime.now().isoformat()
             }
         )
+
 @router.post("/aprobar-pago")
 def aprobar_pago(payload: dict):
     """
@@ -1460,13 +1458,24 @@ def exportar_todos_pagos_pendientes_contabilidad(
 ):
     """
     Exporta TODOS los pagos pendientes de contabilidad que coincidan con los filtros (sin paginación)
+    ✅ VALIDADO: Incluye filtro automático desde el 9 de junio de 2025
     """
     try:
         client = get_bigquery_client()
         
+        # 🗓️ FILTRO AUTOMÁTICO: Aplicar fecha mínima como en pagos pendientes
+        FECHA_MINIMA = "2025-06-09"
+        print(f"🗓️ [DIAGNÓSTICO EXPORTAR] Filtro automático aplicado: >= {FECHA_MINIMA}")
+        
         # Construir condiciones de filtro dinámicamente (igual que en la consulta paginada)
         condiciones = ["1=1"]
         parametros = []
+        
+        # ✅ AGREGAR FILTRO AUTOMÁTICO DE FECHA MÍNIMA
+        condiciones.append("pc.fecha_pago >= @fecha_minima_auto")
+        parametros.append(
+            bigquery.ScalarQueryParameter("fecha_minima_auto", "DATE", FECHA_MINIMA)
+        )
         
         # Filtro por referencia de pago
         if referencia and referencia.strip():
@@ -1475,21 +1484,24 @@ def exportar_todos_pagos_pendientes_contabilidad(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
         
-        # Filtro por estado (por defecto pendiente_conciliacion si no se especifica)
+        # Filtro por estado
         if estado and estado.strip():
             condiciones.append("estado_conciliacion = @estado_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
             )
         else:
-            # Si no se especifica estado, mostrar solo pendientes por defecto
-            condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
+            # Solo filtrar por pendiente_conciliacion si NO se está buscando por referencia específica
+            # Si se busca por referencia, mostrar todos los estados para esa referencia
+            if not (referencia and referencia.strip()):
+                condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
+            # Si hay referencia pero no estado, mostrar esa referencia en cualquier estado
         
         # Filtro por fecha desde
         if fecha_desde:
             try:
                 datetime.strptime(fecha_desde, "%Y-%m-%d")
-                condiciones.append("fecha_pago >= @fecha_desde")
+                condiciones.append("pc.fecha_pago >= @fecha_desde")
                 parametros.append(
                     bigquery.ScalarQueryParameter("fecha_desde", "DATE", fecha_desde)
                 )
@@ -1500,7 +1512,7 @@ def exportar_todos_pagos_pendientes_contabilidad(
         if fecha_hasta:
             try:
                 datetime.strptime(fecha_hasta, "%Y-%m-%d")
-                condiciones.append("fecha_pago <= @fecha_hasta")
+                condiciones.append("pc.fecha_pago <= @fecha_hasta")
                 parametros.append(
                     bigquery.ScalarQueryParameter("fecha_hasta", "DATE", fecha_hasta)
                 )
@@ -1590,4 +1602,62 @@ def exportar_todos_pagos_pendientes_contabilidad(
         raise HTTPException(
             status_code=500,
             detail=f"Error interno del servidor en exportación: {str(e)}"
+        )
+
+# Endpoint para debugging - verificar referencias
+@router.get("/debug/verificar-referencia/{referencia}")
+def debug_verificar_referencia(referencia: str):
+    """
+    Endpoint de debugging para verificar si una referencia existe y en qué estados
+    """
+    try:
+        client = get_bigquery_client()
+        
+        # Buscar la referencia en todos los estados
+        query = f"""
+        SELECT 
+            referencia_pago,
+            estado_conciliacion,
+            COUNT(*) as total_guias,
+            fecha_pago,
+            correo as conductor,
+            MAX(creado_en) as fecha_creacion
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        WHERE referencia_pago LIKE @referencia_filtro
+        GROUP BY referencia_pago, estado_conciliacion, fecha_pago, correo
+        ORDER BY fecha_pago DESC
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia}%")
+            ]
+        )
+        
+        results = client.query(query, job_config=job_config).result()
+        
+        resultados = []
+        for row in results:
+            resultado = {
+                "referencia_pago": row.referencia_pago,
+                "estado_conciliacion": row.estado_conciliacion,
+                "total_guias": row.total_guias,
+                "fecha_pago": str(row.fecha_pago),
+                "conductor": row.conductor,
+                "fecha_creacion": row.fecha_creacion.isoformat() if row.fecha_creacion else None
+            }
+            resultados.append(resultado)
+        
+        return {
+            "referencia_buscada": referencia,
+            "total_encontradas": len(resultados),
+            "resultados": resultados,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en debug verificar referencia: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error verificando referencia: {str(e)}"
         )

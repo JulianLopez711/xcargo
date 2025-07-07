@@ -25,7 +25,8 @@ type GuiaPago = {
   referencia: string; 
   valor: number; 
   tracking?: string; 
-  liquidacion_id?: string; 
+  liquidacion_id?: string;
+  cliente?: string;
 };
 
 type DatosPago = {
@@ -564,7 +565,7 @@ export default function RegistrarPago() {
             const guiaObj: any = {
               referencia: String(g.referencia).trim(),
               valor: Number(g.valor),
-              cliente: "por_definir",
+              cliente: g.cliente || "Sin Cliente",
             };
 
             if (g.liquidacion_id) {
@@ -1450,6 +1451,7 @@ export default function RegistrarPago() {
         >
           Cancelar
         </button>
+        
       </div>
 
       {cargando && <LoadingSpinner size="medium" />}

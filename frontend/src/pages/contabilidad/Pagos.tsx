@@ -86,21 +86,33 @@ export default function PagosContabilidad() {
         offset: offset.toString()
       });
 
-      // Aplicar filtros si están definidos
-      if (aplicarFiltros) {
+      // Aplicar filtros si están definidos o si ya se habían aplicado anteriormente
+      if (aplicarFiltros || filtrosAplicados) {
         if (filtroReferencia.trim()) {
           params.append('referencia', filtroReferencia.trim());
         }
         if (fechaDesde) {
-          params.append('fecha_desde', fechaDesde);
+          const fechaFormateada = formatearFechaParaServidor(fechaDesde);
+          if (fechaFormateada) {
+            params.append('fecha_desde', fechaFormateada);
+          }
         }
         if (fechaHasta) {
-          params.append('fecha_hasta', fechaHasta);
+          const fechaFormateada = formatearFechaParaServidor(fechaHasta);
+          if (fechaFormateada) {
+            params.append('fecha_hasta', fechaFormateada);
+          }
         }
         if (filtroEstado) {
           params.append('estado', filtroEstado);
         }
       }
+
+      console.log('🔍 Parámetros de búsqueda:', params.toString());
+      console.log('📅 Fechas enviadas:', {
+        fechaDesde: fechaDesde ? formatearFechaParaServidor(fechaDesde) : 'No especificada',
+        fechaHasta: fechaHasta ? formatearFechaParaServidor(fechaHasta) : 'No especificada'
+      });
 
       const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
@@ -113,13 +125,16 @@ export default function PagosContabilidad() {
       }
 
       const data = await response.json();
+      console.log('📊 Datos recibidos:', data);
       
       // Si la respuesta incluye información de paginación
       if (data.pagos && data.paginacion) {
+        console.log("📈 Actualizando con paginación:", data.pagos.length, "pagos");
         setPagos(data.pagos);
         setPaginacionInfo(data.paginacion);
       } else {
         // Fallback para el formato actual
+        console.log("📈 Actualizando sin paginación:", Array.isArray(data) ? data.length : "datos no válidos");
         setPagos(Array.isArray(data) ? data : []);
         // Calcular paginación estimada
         const totalEstimado = data.length === pagosPorPagina ? (pagina * pagosPorPagina) + 1 : (pagina - 1) * pagosPorPagina + data.length;
@@ -149,24 +164,95 @@ export default function PagosContabilidad() {
     }
   };
 
+  // Función para formatear fecha para el servidor
+  const formatearFechaParaServidor = (fecha: string): string => {
+    if (!fecha) return "";
+    
+    // Si ya está en formato YYYY-MM-DD, mantenerlo
+    const formatoISO = /^\d{4}-\d{2}-\d{2}$/;
+    if (formatoISO.test(fecha)) {
+      return fecha;
+    }
+    
+    // Si está en otro formato, convertir a YYYY-MM-DD
+    const fechaObj = new Date(fecha);
+    if (isNaN(fechaObj.getTime())) {
+      console.warn('⚠️ Fecha inválida:', fecha);
+      return "";
+    }
+    
+    return fechaObj.toISOString().split('T')[0];
+  };
+
+  // Función para manejar Enter en los campos de filtro
+  const manejarEnterFiltros = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && hayFiltrosActivos() && !cargando) {
+      aplicarFiltros();
+    }
+  };
+
+  // Función para detectar si hay filtros activos
+  const hayFiltrosActivos = () => {
+    return filtroReferencia.trim() !== "" || 
+           fechaDesde !== "" || 
+           fechaHasta !== "" || 
+           filtroEstado !== "";
+  };
+
+  // Estado para controlar si se aplicaron filtros
+  const [filtrosAplicados, setFiltrosAplicados] = useState(false);
+
   useEffect(() => {
-    obtenerPagos(paginaActual);
+    console.log("🔄 useEffect - Obteniendo pagos:", { paginaActual, filtrosAplicados });
+    obtenerPagos(paginaActual, filtrosAplicados);
   }, [paginaActual]);
+
+  // Función para validar rango de fechas
+  const validarRangoFechas = (): string | null => {
+    if (fechaDesde && fechaHasta) {
+      const desde = new Date(fechaDesde);
+      const hasta = new Date(fechaHasta);
+      
+      if (desde > hasta) {
+        return "La fecha 'Desde' no puede ser mayor que la fecha 'Hasta'";
+      }
+      
+      // Validar que no sea más de 1 año de diferencia
+      const unAño = 365 * 24 * 60 * 60 * 1000;
+      if (hasta.getTime() - desde.getTime() > unAño) {
+        return "El rango de fechas no puede ser mayor a 1 año";
+      }
+    }
+    return null;
+  };
 
   // Función para aplicar filtros
   const aplicarFiltros = () => {
+    if (!hayFiltrosActivos()) {
+      alert("Debe especificar al menos un filtro para realizar la búsqueda");
+      return;
+    }
+    
+    // Validar rango de fechas
+    const errorFechas = validarRangoFechas();
+    if (errorFechas) {
+      alert(`❌ Error en las fechas: ${errorFechas}`);
+      return;
+    }
+    
+    // Mensaje informativo para búsqueda por referencia
+    if (filtroReferencia.trim() && !filtroEstado) {
+      console.log("🔍 Búsqueda por referencia: se mostrarán todos los estados para esta referencia");
+    }
+    
     setPaginaActual(1); // Resetear a la primera página
+    setFiltrosAplicados(true);
     obtenerPagos(1, true);
   };
 
-  // Función para filtrar pagos localmente (para compatibilidad)
-  const pagosFiltrados = pagos.filter((p) => {
-    const cumpleReferencia = p.referencia_pago.toLowerCase().includes(filtroReferencia.toLowerCase());
-    const cumpleDesde = !fechaDesde || p.fecha >= fechaDesde;
-    const cumpleHasta = !fechaHasta || p.fecha <= fechaHasta;
-    const cumpleEstado = !filtroEstado || p.estado_conciliacion === filtroEstado;
-    return cumpleReferencia && cumpleDesde && cumpleHasta && cumpleEstado;
-  });
+  // Ya no necesitamos filtrar localmente porque se hace en el servidor
+  // Usamos directamente los pagos recibidos del servidor
+  const pagosFiltrados = pagos;
 
   const descargarCSV = () => {
     if (pagosFiltrados.length === 0) {
@@ -212,10 +298,16 @@ export default function PagosContabilidad() {
         params.append('referencia', filtroReferencia.trim());
       }
       if (fechaDesde) {
-        params.append('fecha_desde', fechaDesde);
+        const fechaFormateada = formatearFechaParaServidor(fechaDesde);
+        if (fechaFormateada) {
+          params.append('fecha_desde', fechaFormateada);
+        }
       }
       if (fechaHasta) {
-        params.append('fecha_hasta', fechaHasta);
+        const fechaFormateada = formatearFechaParaServidor(fechaHasta);
+        if (fechaFormateada) {
+          params.append('fecha_hasta', fechaFormateada);
+        }
       }
       if (filtroEstado) {
         params.append('estado', filtroEstado);
@@ -291,6 +383,12 @@ export default function PagosContabilidad() {
   };
 
   const confirmarRechazo = async () => {
+    console.log("🔄 Iniciando proceso de rechazo...", {
+      refPagoSeleccionada,
+      novedad: novedad.trim(),
+      procesando
+    });
+
     if (!novedad.trim()) {
       alert("Debe escribir una observación para rechazar el pago");
       return;
@@ -302,9 +400,18 @@ export default function PagosContabilidad() {
     try {
       const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
       
+      console.log("📡 Enviando petición de rechazo:", {
+        referencia_pago: refPagoSeleccionada,
+        novedad,
+        modificado_por: user.email,
+      });
+
       const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getToken()}`
+        },
         body: JSON.stringify({
           referencia_pago: refPagoSeleccionada,
           novedad,
@@ -312,10 +419,19 @@ export default function PagosContabilidad() {
         }),
       });
 
+      console.log("📊 Estado de la respuesta:", {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || "Error desconocido");
       }
+
+      const resultado = await response.json();
+      console.log("✅ Respuesta del servidor:", resultado);
 
       alert(`❌ Pago rechazado correctamente. Razón: ${novedad}`);
       
@@ -323,7 +439,8 @@ export default function PagosContabilidad() {
       setNovedad("");
       setRefPagoSeleccionada("");
       
-      await obtenerPagos(paginaActual);
+      // Mantener los filtros aplicados después de rechazar
+      await obtenerPagos(paginaActual, filtrosAplicados);
       
     } catch (error: any) {
       console.error("Error rechazando pago:", error);
@@ -350,10 +467,17 @@ export default function PagosContabilidad() {
     setFechaHasta("");
     setFiltroEstado("");
     setPaginaActual(1);
+    setFiltrosAplicados(false);
     obtenerPagos(1, false);
   };
 
-  const estadosUnicos = Array.from(new Set(pagos.map(p => p.estado_conciliacion))).sort();
+  // Para obtener estados únicos, necesitamos hacer una consulta específica o usar todos los estados conocidos
+  const estadosDisponibles = [
+    'pendiente_conciliacion',
+    'conciliado_manual', 
+    'conciliado_automatico',
+    'rechazado'
+  ];
 
   // Funciones de paginación
   const irAPagina = (pagina: number) => {
@@ -402,10 +526,24 @@ export default function PagosContabilidad() {
 
       {/* Información de paginación */}
       <div className="pagos-info" style={{ marginBottom: "1rem", padding: "0.5rem", backgroundColor: "#f8f9fa", borderRadius: "4px" }}>
-        <span style={{ fontSize: "0.9rem", color: "#6c757d" }}>
-          Mostrando {pagosFiltrados.length} de {paginacionInfo.total_registros} registros 
-          (Página {paginaActual} de {paginacionInfo.total_paginas})
-        </span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: "0.9rem", color: "#6c757d" }}>
+            Mostrando {pagosFiltrados.length} de {paginacionInfo.total_registros} registros 
+            (Página {paginaActual} de {paginacionInfo.total_paginas})
+          </span>
+          {(filtrosAplicados && hayFiltrosActivos()) && (
+            <span style={{ 
+              fontSize: "0.8rem", 
+              color: "#007bff", 
+              backgroundColor: "#e3f2fd", 
+              padding: "0.2rem 0.5rem", 
+              borderRadius: "12px",
+              fontWeight: "500"
+            }}>
+              🔍 Filtros activos
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="pagos-filtros">
@@ -416,13 +554,14 @@ export default function PagosContabilidad() {
             placeholder="Ej: REF123"
             value={filtroReferencia}
             onChange={(e) => setFiltroReferencia(e.target.value)}
+            onKeyDown={manejarEnterFiltros}
           />
         </label>
         <label>
           Estado:
           <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
             <option value="">Todos</option>
-            {estadosUnicos.map((estado, idx) => (
+            {estadosDisponibles.map((estado, idx) => (
               <option key={estado || idx} value={estado}>
                 {getEstadoTexto(estado)}
               </option>
@@ -435,7 +574,14 @@ export default function PagosContabilidad() {
             type="date"
             value={fechaDesde}
             onChange={(e) => setFechaDesde(e.target.value)}
+            onKeyDown={manejarEnterFiltros}
+            title="Formato: YYYY-MM-DD"
           />
+          {fechaDesde && (
+            <small style={{ color: "#666", fontSize: "0.8rem", display: "block" }}>
+              📅 {new Date(fechaDesde).toLocaleDateString('es-ES')}
+            </small>
+          )}
         </label>
         <label>
           Hasta:
@@ -443,13 +589,36 @@ export default function PagosContabilidad() {
             type="date"
             value={fechaHasta}
             onChange={(e) => setFechaHasta(e.target.value)}
+            onKeyDown={manejarEnterFiltros}
+            title="Formato: YYYY-MM-DD"
           />
+          {fechaHasta && (
+            <small style={{ color: "#666", fontSize: "0.8rem", display: "block" }}>
+              📅 {new Date(fechaHasta).toLocaleDateString('es-ES')}
+            </small>
+          )}
         </label>
-        <button onClick={aplicarFiltros} className="boton-accion" disabled={cargando}>
+        <button 
+          onClick={aplicarFiltros} 
+          className="boton-accion" 
+          disabled={cargando || !hayFiltrosActivos()}
+          style={{
+            backgroundColor: !hayFiltrosActivos() ? "#6c757d" : undefined,
+            cursor: !hayFiltrosActivos() ? "not-allowed" : "pointer"
+          }}
+        >
           🔍 Buscar
         </button>
-        <button onClick={limpiarFiltros} className="boton-accion" disabled={cargando}>
-          🗑️ Limpiar
+        <button 
+          onClick={limpiarFiltros} 
+          className="boton-accion" 
+          disabled={cargando}
+          style={{
+            backgroundColor: filtrosAplicados ? "#dc3545" : undefined,
+            color: filtrosAplicados ? "white" : undefined
+          }}
+        >
+          {filtrosAplicados ? "🗑️ Limpiar Filtros" : "🗑️ Limpiar"}
         </button>
         <button onClick={descargarCSV} className="boton-accion">
           📥 Descargar Página
@@ -496,7 +665,7 @@ export default function PagosContabilidad() {
           <tbody>
             {pagosFiltrados.length > 0 ? (
               pagosFiltrados.map((p, idx) => (
-                <tr key={idx}>
+                <tr key={`${p.referencia_pago}-${p.fecha}-${idx}`}>
                   <td>{((paginaActual - 1) * pagosPorPagina) + idx + 1}</td>
                   <td>{p.referencia_pago}</td>
                   <td>${p.valor.toLocaleString()}</td>
@@ -538,16 +707,17 @@ export default function PagosContabilidad() {
                   </td>
                   <td>
                     <button
-                      onClick={() => {
-                        setRefPagoSeleccionada(p.referencia_pago);
-                        setModalVisible(true);
-                      }}
+                     onClick={() => {
+                      console.log("🖱️ Click en botón rechazar para:", p.referencia_pago);
+                      setRefPagoSeleccionada(p.referencia_pago);
+                      setModalVisible(true);
+                    }}
                       className="boton-rechazar"
                       disabled={p.estado_conciliacion === "rechazado" || 
                                p.estado_conciliacion?.startsWith("conciliado") ||
                                procesando === p.referencia_pago}
                     >
-                      Rechazar
+                      {procesando === p.referencia_pago ? "⏳ Procesando..." : "Rechazar"}
                     </button>
                   </td>
                 </tr>
@@ -761,9 +931,15 @@ export default function PagosContabilidad() {
         <div className="modal-overlay">
           <div className="modal-content">
             <h3>¿Por qué deseas rechazar este pago?</h3>
+            <p style={{ color: "#666", fontSize: "0.9rem", marginBottom: "1rem" }}>
+              Referencia: <strong>{refPagoSeleccionada}</strong>
+            </p>
             <textarea
               value={novedad}
-              onChange={(e) => setNovedad(e.target.value)}
+              onChange={(e) => {
+                console.log("📝 Escribiendo novedad:", e.target.value);
+                setNovedad(e.target.value);
+              }}
               rows={5}
               placeholder="Ej: El valor no coincide con las guías."
               style={{ width: "100%", marginBottom: "1rem" }}
@@ -778,6 +954,7 @@ export default function PagosContabilidad() {
               <button
                 className="boton-secundario"
                 onClick={() => {
+                  console.log("❌ Cancelando rechazo");
                   setModalVisible(false);
                   setNovedad("");
                   setRefPagoSeleccionada("");
@@ -785,8 +962,24 @@ export default function PagosContabilidad() {
               >
                 Cancelar
               </button>
-              <button className="boton-registrar" onClick={confirmarRechazo} disabled={procesando === refPagoSeleccionada}>
-                {procesando === refPagoSeleccionada ? "Procesando..." : "Confirmar rechazo"}
+              <button 
+                className="boton-registrar" 
+                onClick={() => {
+                  console.log("✅ Intentando confirmar rechazo:", {
+                    refPagoSeleccionada,
+                    novedad: novedad.trim(),
+                    novedadLength: novedad.trim().length,
+                    procesando
+                  });
+                  confirmarRechazo();
+                }} 
+                disabled={procesando === refPagoSeleccionada || !novedad.trim()}
+                style={{
+                  backgroundColor: (!novedad.trim() || procesando === refPagoSeleccionada) ? "#6c757d" : undefined,
+                  cursor: (!novedad.trim() || procesando === refPagoSeleccionada) ? "not-allowed" : "pointer"
+                }}
+              >
+                {procesando === refPagoSeleccionada ? "⏳ Procesando..." : "Confirmar rechazo"}
               </button>
             </div>
           </div>
