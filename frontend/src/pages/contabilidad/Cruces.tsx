@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 import "../../styles/contabilidad/Cruces.css";
 
+
+
+
 interface ResultadoConciliacion {
   id_banco: string;
   fecha_banco: string;
@@ -34,6 +37,8 @@ interface ResultadoConciliacion {
     trackings?: string[];
   }>;
 }
+
+// Verificar que tu interfaz incluya:
 
 // ✅ INTERFACE PARA ENDPOINT MEJORADO
 // ✅ INTERFACE PARA COMPATIBILIDAD CON EL FRONTEND
@@ -115,6 +120,7 @@ interface TransaccionBancaria {
   estado_conciliacion: string;
   porcentaje_similitud?: number;
   nivel_match?: string;
+  imagen?: string; // URL de la imagen del comprobante
 }
 
 interface SeleccionTransaccionModal {
@@ -136,9 +142,10 @@ interface LoadingProgress {
   message: string;
 }
 
+
 const Cruces: React.FC = () => {
   // ✅ CONFIGURACIÓN DE API - Usar servidor local para desarrollo
-  const API_BASE_URL = 'https://api.x-cargo.co';
+  const API_BASE_URL = 'http://127.0.0.1:8000';
 
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
@@ -164,8 +171,50 @@ const Cruces: React.FC = () => {
     percentage: 0,
     message: "",
   });
+
+  const verDetallesPago = async (referenciaPago: string) => {
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/pagos/detalles-pago/${referenciaPago}`);
+      
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+
+      const comprobante = data.detalles[0]?.comprobante;
+
+      console.log("🧾 URL del comprobante:", comprobante);
+
+      if (comprobante) {
+          verImagen(comprobante);
+        } else {
+          alert("No se encontró ningún comprobante");
+        }        
+
+    } catch (err: any) {
+      console.error("Error cargando detalles:", err);
+      alert(`Error al cargar detalles del pago: ${err.message}`);
+    }
+  };
+
+
+  const verImagen = (src: string) => {
+    if (!src) {
+      alert("No hay comprobante disponible");
+      return;
+    }
+    setImagenSeleccionada(src);
+  };
+  
+
+
   const [logsProgreso, setLogsProgreso] = useState<string[]>([]);
 
+  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
+
+
+  
   // ✅ FUNCIÓN HELPER PARA CLASIFICAR SIMILITUD
   const getSimilitudClass = (porcentaje: number): string => {
     if (porcentaje >= 90) return 'excelente';
@@ -173,6 +222,7 @@ const Cruces: React.FC = () => {
     if (porcentaje >= 60) return 'regular';
     if (porcentaje >= 40) return 'bajo';
     return 'muy-bajo';
+    
   };
 
   // ✅ FUNCIÓN HELPER PARA FORMATEAR FECHAS CORRECTAMENTE
@@ -185,13 +235,13 @@ const Cruces: React.FC = () => {
         const fechaFormateada = fecha.toLocaleDateString("es-CO");
         
         // 🔍 DEBUG: Log para diagnosticar problemas de fecha
-        console.log(`📅 Formateo de fecha: ${fechaString} -> ${fechaFormateada}`, {
+        /* console.log(`📅 Formateo de fecha: ${fechaString} -> ${fechaFormateada}`, {
           original: fechaString,
           conHora: fechaString + 'T12:00:00',
           fechaObject: fecha,
           resultado: fechaFormateada
         });
-        
+        */
         return fechaFormateada;
       } else {
         // Para fechas con hora o en otros formatos
@@ -248,6 +298,8 @@ const Cruces: React.FC = () => {
       setMensaje(`❌ Error: ${err.message}`);
     }
   };
+
+
 
   // ✅ NUEVA FUNCIÓN PARA CARGAR PAGOS PENDIENTES DE CONCILIAR
   const cargarPagosPendientes = async () => {
@@ -410,6 +462,8 @@ const Cruces: React.FC = () => {
       }, 2000);
     }
   };
+
+
 
   // Función de conciliación con progreso usando EventSource
   const ejecutarConciliacionConProgreso = async () => {
@@ -668,6 +722,8 @@ const Cruces: React.FC = () => {
     entidad: string;
     tipo?: string; // Agregar el tipo de pago
   }) => {
+   
+
     const transacciones = await obtenerTransaccionesBancarias(pago.referencia);
     
     if (transacciones.length === 0) {
@@ -680,6 +736,9 @@ const Cruces: React.FC = () => {
       transacciones_disponibles: transacciones,
     });
   };
+
+
+  
 
   // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIONES BANCARIAS
   const mostrarModalSeleccionTransaccionBanco = async (resultado: ResultadoConciliacion) => {
@@ -1775,7 +1834,7 @@ const Cruces: React.FC = () => {
 
             <div className="detalle-grid">
               <div className="detalle-seccion">
-                <h4>� Movimiento a Conciliar</h4>
+                <h4> 🟢 Movimiento a Conciliar</h4>
                 <div className="detalle-item">
                   <strong>ID Banco:</strong> {modalSeleccionTransaccion.pago.referencia}
                 </div>
@@ -1795,6 +1854,19 @@ const Cruces: React.FC = () => {
                     <strong>Conductor:</strong> {modalSeleccionTransaccion.pago.correo}
                   </div>
                 )}
+                {modalSeleccionTransaccion.pago.correo !== "No disponible" && (
+                  <div className="detalle-item" >
+                    <button onClick={() => verDetallesPago(modalSeleccionTransaccion.pago.referencia)}>
+                      <strong>Comprobante:</strong>   
+                      👁 Ver
+                    </button>
+                  </div>
+                )}
+
+                
+                
+
+
               </div>
 
               <div className="detalle-seccion">
@@ -1919,6 +1991,24 @@ const Cruces: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de Imagen */}
+        {imagenSeleccionada && (
+        <div
+          className="modal-overlay"
+          onClick={() => setImagenSeleccionada(null)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <img src={imagenSeleccionada} alt="Vista previa" />
+            <button
+              onClick={() => setImagenSeleccionada(null)}
+              className="cerrar-modal"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        )}
 
       {/* Modal de detalle */}
       {modalDetalle && (
