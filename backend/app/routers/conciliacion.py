@@ -881,6 +881,8 @@ async def conciliacion_automatica_mejorada():
 
             total_referencias = len(pagos_por_referencia)
             procesadas = 0
+            ids_movimientos_usados = set()
+
 
             for referencia, pagos in pagos_por_referencia.items():
                 procesadas += 1
@@ -901,12 +903,15 @@ async def conciliacion_automatica_mejorada():
 
                 # Buscar match exacto
                 match = next((
-                    movimiento for movimiento in banco_rows
-                    if abs(float(movimiento.valor_banco) - valor_total) <= margen_error
-                    and str(movimiento.fecha) == str(fecha_pago)
-                ), None)
+                movimiento for movimiento in banco_rows
+                if abs(float(movimiento.valor_banco) - valor_total) <= margen_error
+                and movimiento.id not in ids_movimientos_usados
+                and movimiento.fecha.date() == fecha_pago  # aseguramos comparación de fechas puras
+            ), None)
+
 
                 if match:
+                    ids_movimientos_usados.add(match.id)
                     # ✅ Conciliado exitosamente
                     resumen["conciliado_exacto"] += 1
                     referencias_usadas.add(referencia)

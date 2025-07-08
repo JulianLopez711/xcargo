@@ -12,7 +12,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class CruceResponse(BaseModel):
-    """Modelo de respuesta para cruces bancarios"""
     id_banco: str
     fecha_banco: str
     valor_banco: float
@@ -22,6 +21,8 @@ class CruceResponse(BaseModel):
     referencia_pago: Optional[str] = None
     fecha_pago: Optional[str] = None
     valor_pago: Optional[float] = None
+    valor_total_consignacion: Optional[float] = None
+    valor_individual: Optional[float] = None  # <-- opcional
     tracking: Optional[str] = None
     observaciones: Optional[str] = None
 
@@ -35,21 +36,18 @@ class EstadisticasCruces(BaseModel):
 
 @router.get("/obtener-cruces", response_model=List[CruceResponse])
 def obtener_cruces_bancarios(
-     estado: Optional[str] = Query(None, description="Filtrar por estado"),
+    estado: Optional[str] = Query(None, description="Filtrar por estado"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     limit: int = Query(100, description="Límite de registros")
 ):
-    """
-    VERSIÓN CORREGIDA: Obtiene cruces bancarios con validación
-    """
     client = bigquery.Client()
-    
+
     try:
-        # Construir query con validaciones
+        # Construir filtros
         where_conditions = ["1=1"]
         query_params = []
-        
+
         if estado and estado != "todos":
             if estado == "conciliado":
                 where_conditions.append("bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')")
@@ -58,18 +56,18 @@ def obtener_cruces_bancarios(
             elif estado in ["diferencia_valor", "diferencia_fecha", "sin_match"]:
                 where_conditions.append("bm.estado_conciliacion = @estado_filtro")
                 query_params.append(bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado))
-        
+
         if fecha_desde:
             where_conditions.append("DATE(bm.fecha) >= @fecha_desde")
             query_params.append(bigquery.ScalarQueryParameter("fecha_desde", "DATE", fecha_desde))
-        
+
         if fecha_hasta:
             where_conditions.append("DATE(bm.fecha) <= @fecha_hasta")
             query_params.append(bigquery.ScalarQueryParameter("fecha_hasta", "DATE", fecha_hasta))
-        
+
         where_clause = " AND ".join(where_conditions)
-        
-        # Query principal CORREGIDA
+
+        # Query principal
         query = f"""
         SELECT 
             bm.id as id_banco,
@@ -80,7 +78,9 @@ def obtener_cruces_bancarios(
             COALESCE(bm.confianza_match, 0) as confianza_match,
             pc.referencia_pago,
             FORMAT_DATE('%Y-%m-%d', pc.fecha_pago) as fecha_pago,
-            COALESCE(pc.valor_total_consignacion, pc.valor) as valor_pago,
+            pc.valor_total_consignacion as valor_pago,
+            pc.valor_total_consignacion,
+            pc.valor as valor_individual,
             pc.tracking,
             COALESCE(bm.observaciones, '') as observaciones
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos` bm
@@ -90,12 +90,11 @@ def obtener_cruces_bancarios(
         ORDER BY bm.fecha DESC, bm.valor_banco DESC
         LIMIT @limit_param
         """
-        
+
         query_params.append(bigquery.ScalarQueryParameter("limit_param", "INT64", limit))
-        
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
         results = client.query(query, job_config=job_config).result()
-        
+
         cruces = []
         for row in results:
             cruces.append({
@@ -105,20 +104,21 @@ def obtener_cruces_bancarios(
                 "descripcion_banco": row["descripcion_banco"],
                 "estado_conciliacion": row["estado_conciliacion"],
                 "confianza_match": int(row["confianza_match"]),
-                "referencia_pago": row["referencia_pago"],
-                "fecha_pago": row["fecha_pago"],
-                "valor_pago": float(row["valor_pago"]) if row["valor_pago"] else None,
-                "tracking": row["tracking"],
+                "referencia_pago": row.get("referencia_pago"),
+                "fecha_pago": row.get("fecha_pago"),
+                "valor_pago": float(row["valor_pago"]) if row["valor_pago"] is not None else None,
+                "valor_total_consignacion": float(row["valor_total_consignacion"]) if row["valor_total_consignacion"] is not None else None,
+                "valor_individual": float(row["valor_individual"]) if row["valor_individual"] is not None else None,
+                "tracking": row.get("tracking"),
                 "observaciones": row["observaciones"]
             })
-        
+
         logger.info(f"Se encontraron {len(cruces)} cruces bancarios")
         return cruces
-        
+
     except Exception as e:
         logger.error(f"Error obteniendo cruces: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error consultando cruces: {str(e)}")
-
 @router.get("/estadisticas-cruces", response_model=EstadisticasCruces)
 def obtener_estadisticas_cruces():
     """

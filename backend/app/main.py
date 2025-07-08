@@ -10,6 +10,7 @@ from app.routers import (
     conciliacion, cruces, entregas, admin, 
     supervisor, master, pagos_avanzados
 )
+""" from app.comprobantes_drive import router as drive_router """
 
 app = FastAPI()
 logging.basicConfig(level=logging.DEBUG)
@@ -57,6 +58,7 @@ def root():
 # ==========================
 # Registrar todas las rutas
 # ==========================
+""" app.include_router(drive_router) """
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(roles.router)

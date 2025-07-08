@@ -25,6 +25,8 @@ interface ResultadoConciliacion {
   num_guias?: number;
   observaciones?: string;
   num_matches_posibles?: number;
+  valor_total_consignacion?: number;
+  valor_individual?: number;
   matches_posibles?: Array<{
     referencia_pago: string;
     fecha_pago: string;
@@ -68,21 +70,6 @@ interface EstadisticasGenerales {
     fecha_min?: string;
     fecha_max?: string;
   }>;
-}
-
-// Nueva interfaz para pagos pendientes de conciliar
-interface PagoPendiente {
-  referencia: string;
-  valor: number;
-  fecha: string;
-  entidad: string;
-  correo: string;
-  estado: string;
-  fecha_pago: string;
-  tracking?: string;
-  cliente?: string;
-  conciliado: boolean;
-  tipo?: string; // Tipo de pago desde la tabla pagos conductores
 }
 
 // Nueva interfaz para el modal de conciliación manual
@@ -148,8 +135,6 @@ const Cruces: React.FC = () => {
     useState<ResumenConciliacion | null>(null);
   const [estadisticasGenerales, setEstadisticasGenerales] =
     useState<EstadisticasGenerales | null>(null);
-  const [pagosPendientes, setPagosPendientes] = useState<PagoPendiente[]>([]);
-  const [mostrarPagosPendientes, setMostrarPagosPendientes] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
   const [busqueda, setBusqueda] = useState("");
   const [modalDetalle, setModalDetalle] =
@@ -165,6 +150,12 @@ const Cruces: React.FC = () => {
     message: "",
   });
   const [logsProgreso, setLogsProgreso] = useState<string[]>([]);
+  const [modalComprobante, setModalComprobante] = useState<{
+    url: string;
+    referencia: string;
+  } | null>(null);
+  const [cargandoComprobante, setCargandoComprobante] = useState(false);
+  const [conciliandoTransaccion, setConciliandoTransaccion] = useState(false);
 
   // ✅ FUNCIÓN HELPER PARA CLASIFICAR SIMILITUD
   const getSimilitudClass = (porcentaje: number): string => {
@@ -240,22 +231,6 @@ const Cruces: React.FC = () => {
   };
 
   // ✅ NUEVA FUNCIÓN PARA CARGAR PAGOS PENDIENTES DE CONCILIAR
-  const cargarPagosPendientes = async () => {
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/conciliacion/pagos-pendientes-conciliar`
-      );
-      if (!response.ok) {
-        throw new Error("Error al obtener pagos pendientes");
-      }
-
-      const data = await response.json();
-      setPagosPendientes(data.pagos || []);
-    } catch (err: any) {
-      console.error("Error cargando pagos pendientes:", err);
-      setMensaje(`❌ Error al cargar pagos pendientes: ${err.message}`);
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -649,27 +624,43 @@ const Cruces: React.FC = () => {
     }
   };
 
-  // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIÓN
-  const mostrarModalSeleccionTransaccion = async (pago: {
-    referencia: string;
-    valor: number;
-    fecha: string;
-    correo: string;
-    entidad: string;
-    tipo?: string; // Agregar el tipo de pago
-  }) => {
-    const transacciones = await obtenerTransaccionesBancarias(pago.referencia);
-    
-    if (transacciones.length === 0) {
-      setMensaje("⚠️ No se encontraron transacciones bancarias disponibles para conciliar");
-      return;
-    }
+  // ✅ NUEVA FUNCIÓN PARA OBTENER COMPROBANTE DE PAGO
+  const obtenerComprobantePago = async (referenciaPago: string) => {
+    try {
+      setCargandoComprobante(true);
+      const res = await fetch(
+        `${API_BASE_URL}/pagos/comprobante/${encodeURIComponent(referenciaPago)}`
+      );
 
-    setModalSeleccionTransaccion({
-      pago,
-      transacciones_disponibles: transacciones,
-    });
+      if (!res.ok) {
+        if (res.status === 404) {
+          setMensaje("⚠️ No se encontró comprobante para esta referencia de pago");
+          return null;
+        }
+        throw new Error("Error al obtener comprobante de pago");
+      }
+
+      const data = await res.json();
+      
+      if (data.comprobante_url) {
+        setModalComprobante({
+          url: data.comprobante_url,
+          referencia: referenciaPago
+        });
+      } else {
+        setMensaje("⚠️ No hay comprobante disponible para esta referencia");
+      }
+      
+      return data;
+    } catch (err: any) {
+      console.error("Error obteniendo comprobante:", err);
+      setMensaje("❌ Error al cargar comprobante: " + err.message);
+      return null;
+    } finally {
+      setCargandoComprobante(false);
+    }
   };
+
 
   // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIONES BANCARIAS
   const mostrarModalSeleccionTransaccionBanco = async (resultado: ResultadoConciliacion) => {
@@ -789,11 +780,14 @@ const Cruces: React.FC = () => {
     referenciaMovimientoOriginal: string
   ) => {
     // ✅ EVITAR MÚLTIPLES LLAMADAS SIMULTÁNEAS
-    if (procesandoConciliacion) return;
+    if (procesandoConciliacion || conciliandoTransaccion) {
+      console.log("⚠️ Ya hay una conciliación en proceso, ignorando nueva solicitud");
+      return;
+    }
     
     try {
-      // ✅ MARCAR COMO PROCESANDO PARA DESHABILITAR BOTONES
-      setProcesandoConciliacion(true);
+      // ✅ MARCAR COMO PROCESANDO CONCILIACIÓN ESPECÍFICA
+      setConciliandoTransaccion(true);
       
 
 
@@ -838,12 +832,12 @@ const Cruces: React.FC = () => {
       }
 
 
-      // ✅ 1. CERRAR MODAL INMEDIATAMENTE PARA MEJOR UX
-      setModalSeleccionTransaccion(null);
-      
-      // ✅ 2. MOSTRAR MENSAJE DE ÉXITO CLARO Y PERSISTENTE
+      // ✅ 1. MOSTRAR MENSAJE DE ÉXITO CLARO Y PERSISTENTE PRIMERO
       const mensajeExito = `✅ ¡Conciliación exitosa! Transacción ${idTransaccionBancaria} conciliada con movimiento ${referenciaMovimientoOriginal}`;
       setMensaje(mensajeExito);
+      
+      // ✅ 2. CERRAR MODAL DESPUÉS DE MOSTRAR MENSAJE
+      setModalSeleccionTransaccion(null);
       
       // ✅ 3. RECARGAR DATOS PARA REFLEJAR CAMBIOS INMEDIATAMENTE
       
@@ -870,11 +864,9 @@ const Cruces: React.FC = () => {
         });
       }
       
-      // ✅ 5. LIMPIAR MENSAJE DESPUÉS DE 8 SEGUNDOS PARA NO SATURAR UI
+      // ✅ 5. LIMPIAR MENSAJE DESPUÉS DE 8 SEGUNDOS CON REFERENCIA CORRECTA
       setTimeout(() => {
-        if (mensaje === mensajeExito) {
-          setMensaje("");
-        }
+        setMensaje(prevMensaje => prevMensaje === mensajeExito ? "" : prevMensaje);
       }, 8000);
       
       
@@ -884,11 +876,11 @@ const Cruces: React.FC = () => {
       
       // Limpiar mensaje de error después de 10 segundos
       setTimeout(() => {
-        setMensaje("");
+        setMensaje(prevMensaje => prevMensaje.includes("Error en conciliación") ? "" : prevMensaje);
       }, 10000);
     } finally {
       // ✅ SIEMPRE LIBERAR EL ESTADO DE PROCESAMIENTO
-      setProcesandoConciliacion(false);
+      setConciliandoTransaccion(false);
     }
   };
 
@@ -973,308 +965,7 @@ const Cruces: React.FC = () => {
     });
   };
 
-  const styles = `
-    .loading-container {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      background: rgba(255, 255, 255, 0.95);
-      padding: 1.5rem;
-      z-index: 1000;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      backdrop-filter: blur(8px);
-      border-bottom: 3px solid #3b82f6;
-    }
-
-    .loading-progress {
-      max-width: 800px;
-      margin: 0 auto;
-      background: #f8fafc;
-      border-radius: 12px;
-      overflow: hidden;
-      position: relative;
-      height: 32px;
-      border: 2px solid #e2e8f0;
-      box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .progress-bar {
-      height: 100%;
-      background: linear-gradient(90deg, #3b82f6 0%, #1d4ed8 50%, #2563eb 100%);
-      transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .progress-bar::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-      animation: shimmer 2s infinite;
-    }
-
-    @keyframes shimmer {
-      0% { left: -100%; }
-      100% { left: 100%; }
-    }
-
-    .progress-text {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: #1e293b;
-      font-size: 0.9rem;
-      font-weight: 600;
-      white-space: nowrap;
-      text-shadow: 0 1px 3px rgba(255,255,255,0.9);
-      z-index: 10;
-    }
-
-    .progress-details {
-      margin-top: 0.75rem;
-      text-align: center;
-      font-size: 0.85rem;
-      color: #64748b;
-      font-weight: 500;
-    }
-
-    .progress-spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid #e2e8f0;
-      border-radius: 50%;
-      border-top-color: #3b82f6;
-      animation: spin 1s ease-in-out infinite;
-      margin-right: 8px;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .progress-logs {
-      margin-top: 1rem;
-      background: #f8fafc;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      max-height: 200px;
-      overflow: hidden;
-    }
-
-    .logs-header {
-      background: #1e293b;
-      color: white;
-      padding: 0.5rem 1rem;
-      font-size: 0.875rem;
-      font-weight: 600;
-      border-bottom: 1px solid #e2e8f0;
-    }
-
-    .logs-container {
-      max-height: 160px;
-      overflow-y: auto;
-      padding: 0.5rem;
-    }
-
-    .log-item {
-      font-family: 'Consolas', 'Monaco', monospace;
-      font-size: 0.75rem;
-      color: #374151;
-      padding: 0.25rem 0;
-      border-bottom: 1px solid #f3f4f6;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .log-item:last-child {
-      border-bottom: none;
-    }
-
-    .log-item:hover {
-      background: #f9fafb;
-      white-space: normal;
-      word-wrap: break-word;
-      overflow: visible;
-    }
-
-    /* Forzar grid de 3 columnas */
-    .estadisticas-grid {
-      display: grid !important;
-      grid-template-columns: repeat(3, 1fr) !important;
-      gap: 1.5rem !important;
-      padding: 0 !important;
-      width: 100% !important;
-      max-width: none !important;
-      margin: 0 !important;
-      box-sizing: border-box !important;
-    }
-
-    .stat-card {
-      background: white !important;
-      color: #1e293b !important;
-      padding: 2rem 1.5rem !important;
-      border-radius: 12px !important;
-      text-align: center !important;
-      transition: all 0.3s ease !important;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
-      border: 1px solid #e2e8f0 !important;
-      position: relative !important;
-      overflow: hidden !important;
-      display: flex !important;
-      flex-direction: column !important;
-      align-items: center !important;
-      justify-content: center !important;
-      min-height: 140px !important;
-      width: 100% !important;
-      box-sizing: border-box !important;
-    }
-
-    @media (max-width: 768px) {
-      .estadisticas-grid {
-        grid-template-columns: repeat(2, 1fr) !important;
-        gap: 1rem !important;
-      }
-      
-      .loading-container {
-        padding: 1rem;
-      }
-      
-      .loading-progress {
-        height: 28px;
-      }
-      
-      .progress-text {
-        font-size: 0.8rem;
-      }
-    }
-
-    @media (max-width: 480px) {
-      .estadisticas-grid {
-        grid-template-columns: 1fr !important;
-        gap: 0.75rem !important;
-      }
-    }
-
-    /* Estilos para botones en modal de conciliación */
-    .btn-seleccionar {
-      background: #22c55e;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 600;
-      transition: all 0.3s ease;
-      margin-top: 1rem;
-    }
-
-    .btn-seleccionar:hover:not(:disabled) {
-      background: #16a34a;
-      transform: translateY(-1px);
-      box-shadow: 0 4px 8px rgba(34, 197, 94, 0.3);
-    }
-
-    .btn-seleccionar:disabled {
-      background: #9ca3af !important;
-      cursor: not-allowed !important;
-      opacity: 0.6 !important;
-      transform: none !important;
-      box-shadow: none !important;
-    }
-
-    .btn-cerrar:disabled {
-      background: #9ca3af !important;
-      cursor: not-allowed !important;
-      opacity: 0.6 !important;
-    }
-
-    .transaccion-item {
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-      background: #f9fafb;
-      transition: all 0.3s ease;
-    }
-
-    .transaccion-item:hover {
-      background: #f3f4f6;
-      border-color: #d1d5db;
-    }
-
-    .transaccion-info {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 0.5rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .transaccion-info > div {
-      font-size: 0.875rem;
-    }
-
-    .estado-badge {
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      margin-left: 0.5rem;
-    }
-
-    .estado-badge.pending {
-      background: #fef3c7;
-      color: #92400e;
-    }
-
-    .estado-badge.success {
-      background: #d1fae5;
-      color: #065f46;
-    }
-
-    .similitud-badge {
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      margin-left: 0.5rem;
-    }
-
-    .similitud-excelente {
-      background: #d1fae5;
-      color: #065f46;
-    }
-
-    .similitud-bueno {
-      background: #dbeafe;
-      color: #1e40af;
-    }
-
-    .similitud-regular {
-      background: #fef3c7;
-      color: #92400e;
-    }
-
-    .similitud-bajo {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-
-    .similitud-muy-bajo {
-      background: #f3f4f6;
-      color: #6b7280;
-    }
-  `;
-
   const styleSheet = document.createElement("style");
-  styleSheet.innerHTML = styles;
   document.head.appendChild(styleSheet);
 
   return (
@@ -1400,16 +1091,6 @@ const Cruces: React.FC = () => {
             ? "🔄 Procesando..."
             : "🤖 Ejecutar Conciliación Automática"}
         </button>
-        <button
-            className="boton-conciliar-manual"
-            onClick={async () => {
-              setMostrarPagosPendientes(true);
-              await cargarPagosPendientes();
-            }}
-            disabled={procesandoConciliacion}
-          >
-            🛠 Ver Pagos No Conciliados (Manual)
-          </button>
 
         {mensaje && (
           <div
@@ -1433,80 +1114,6 @@ const Cruces: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Sección de Pagos Pendientes de Conciliar */}
-      {mostrarPagosPendientes && (
-        <div className="pagos-pendientes-section">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-            <h3>💳 Pagos Pendientes de Conciliar</h3>
-            <button 
-              className="btn-cerrar"
-              onClick={() => setMostrarPagosPendientes(false)}
-            >
-              ✕ Cerrar
-            </button>
-          </div>
-          
-          {pagosPendientes.length > 0 ? (
-            <div className="tabla-pagos-pendientes">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Referencia</th>
-                    <th>Fecha Pago</th>
-                    <th>Valor</th>
-                    <th>Entidad</th>
-                    <th>Conductor</th>
-                    <th>Estado</th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagosPendientes.map((pago, idx) => (
-                    <tr key={idx}>
-                      <td>{pago.referencia}</td>
-                      <td>{formatearFecha(pago.fecha_pago)}</td>
-                      <td>${pago.valor.toLocaleString("es-CO")}</td>
-                      <td>{pago.entidad}</td>
-                      <td>{pago.correo}</td>
-                      <td>
-                        <span className={`estado-badge ${pago.conciliado ? 'success' : 'pending'}`}>
-                          {pago.conciliado ? '✅ Conciliado' : '⏳ Pendiente'}
-                        </span>
-                      </td>
-                      <td>
-                        {!pago.conciliado && (
-                          <button
-                            className="btn-conciliar-manual"
-                            onClick={() => mostrarModalSeleccionTransaccion({
-                              referencia: pago.referencia,
-                              valor: pago.valor,
-                              fecha: pago.fecha_pago,
-                              correo: pago.correo,
-                              entidad: pago.entidad,
-                              tipo: pago.tipo, // Agregar el tipo de pago
-                            })}
-                          >
-                            🔗 Conciliar
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={{ textAlign: "center", padding: "2rem", color: "#666" }}>
-              {procesandoConciliacion ? (
-                <span>🔄 Cargando pagos pendientes...</span>
-              ) : (
-                <span>✅ No hay pagos pendientes de conciliar</span>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       {resultadosFiltrados.length > 0 ? (
         <div>
@@ -1609,7 +1216,7 @@ const Cruces: React.FC = () => {
               <thead>
                 <tr>
                   <th>Fecha Banco</th>
-                  <th>Valor Banco</th>
+                  <th>Valor consignacion</th>
                   <th>Estado</th>
                   <th>Confianza</th>
                   <th>Ref. Pago</th>
@@ -1687,6 +1294,9 @@ const Cruces: React.FC = () => {
                             ({resultado.num_matches_posibles} matches posibles)
                           </span>
                         )}
+                        {resultado.valor_total_consignacion && (
+                          <><p><strong>Valor consignación total:</strong> ${resultado.valor_total_consignacion?.toLocaleString("es-CO") ?? "No disponible"}</p><p><strong>Valor individual (guía):</strong> ${resultado.valor_individual?.toLocaleString("es-CO") ?? "No disponible"}</p></>
+                        )}
                       </div>
                     </td>
                     <td>
@@ -1728,19 +1338,19 @@ const Cruces: React.FC = () => {
       {modalSeleccionTransaccion && (
         <div
           className="modal-overlay"
-          onClick={() => setModalSeleccionTransaccion(null)}
+          onClick={() => !conciliandoTransaccion && setModalSeleccionTransaccion(null)}
         >
           <div
             className="modal-content seleccion-transaccion"
             onClick={(e) => e.stopPropagation()}
             style={{ 
-              opacity: procesandoConciliacion ? 0.9 : 1,
-              pointerEvents: procesandoConciliacion ? 'none' : 'auto'
+              opacity: conciliandoTransaccion ? 0.9 : 1,
+              pointerEvents: conciliandoTransaccion ? 'none' : 'auto'
             }}
           >
             <h3>🏦 Seleccionar Transacción Bancaria para Conciliar</h3>
             
-            {procesandoConciliacion && (
+            {conciliandoTransaccion && (
               <div style={{
                 background: '#fef3c7',
                 border: '1px solid #f59e0b',
@@ -1757,7 +1367,7 @@ const Cruces: React.FC = () => {
 
             <div className="detalle-grid">
               <div className="detalle-seccion">
-                <h4>� Movimiento a Conciliar</h4>
+                <h4>💳 Movimiento a Conciliar</h4>
                 <div className="detalle-item">
                   <strong>ID Banco:</strong> {modalSeleccionTransaccion.pago.referencia}
                 </div>
@@ -1777,6 +1387,33 @@ const Cruces: React.FC = () => {
                     <strong>Conductor:</strong> {modalSeleccionTransaccion.pago.correo}
                   </div>
                 )}
+                
+                {/* Botón para ver comprobante */}
+                <div className="detalle-item">
+                  <button
+                    className="btn-comprobante"
+                    onClick={() => obtenerComprobantePago(modalSeleccionTransaccion.pago.referencia)}
+                    disabled={cargandoComprobante || conciliandoTransaccion}
+                    style={{
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      color: 'white',
+                      border: 'none',
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      cursor: cargandoComprobante || conciliandoTransaccion ? 'not-allowed' : 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      opacity: cargandoComprobante || conciliandoTransaccion ? 0.6 : 1,
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    {cargandoComprobante ? (
+                      <>⏳ Cargando...</>
+                    ) : (
+                      <>🧾 Ver Comprobante</>
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="detalle-seccion">
@@ -1858,7 +1495,7 @@ const Cruces: React.FC = () => {
                       {transaccion.estado_conciliacion === 'pendiente' && (
                         <button
                           className="btn-seleccionar"
-                          disabled={procesandoConciliacion}
+                          disabled={conciliandoTransaccion}
                           onClick={() => {
                             confirmarConciliacionConTransaccionBancaria(
                               transaccion.id,
@@ -1866,11 +1503,11 @@ const Cruces: React.FC = () => {
                             );
                           }}
                           style={{ 
-                            opacity: procesandoConciliacion ? 0.6 : 1,
-                            cursor: procesandoConciliacion ? 'not-allowed' : 'pointer'
+                            opacity: conciliandoTransaccion ? 0.6 : 1,
+                            cursor: conciliandoTransaccion ? 'not-allowed' : 'pointer'
                           }}
                         >
-                          {procesandoConciliacion ? '⏳ Procesando...' : '✅ Seleccionar'}
+                          {conciliandoTransaccion ? '⏳ Procesando...' : '✅ Seleccionar'}
                         </button>
                       )}
                     </div>
@@ -1882,14 +1519,14 @@ const Cruces: React.FC = () => {
             <div className="modal-acciones">
               <button
                 className="btn-cerrar"
-                disabled={procesandoConciliacion}
-                onClick={() => !procesandoConciliacion && setModalSeleccionTransaccion(null)}
+                disabled={conciliandoTransaccion}
+                onClick={() => !conciliandoTransaccion && setModalSeleccionTransaccion(null)}
                 style={{ 
-                  opacity: procesandoConciliacion ? 0.6 : 1,
-                  cursor: procesandoConciliacion ? 'not-allowed' : 'pointer'
+                  opacity: conciliandoTransaccion ? 0.6 : 1,
+                  cursor: conciliandoTransaccion ? 'not-allowed' : 'pointer'
                 }}
               >
-                {procesandoConciliacion ? '⏳ Procesando...' : '✕ Cerrar'}
+                {conciliandoTransaccion ? '⏳ Procesando...' : '✕ Cerrar'}
               </button>
             </div>
           </div>
@@ -2145,6 +1782,130 @@ const Cruces: React.FC = () => {
           </div>
         </div>
       )}
+      
+      {/* Modal para mostrar comprobante de pago */}
+      {modalComprobante && (
+        <div className="modal-overlay" onClick={() => setModalComprobante(null)}>
+          <div
+            className="modal-content comprobante-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '1rem',
+              borderBottom: '1px solid #e5e7eb',
+              background: '#f9fafb'
+            }}>
+              <h3 style={{ margin: 0, color: '#1f2937' }}>
+                🧾 Comprobante de Pago - {modalComprobante.referencia}
+              </h3>
+              <button
+                onClick={() => setModalComprobante(null)}
+                style={{
+                  background: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  cursor: 'pointer',
+                  fontSize: '16px',
+                  fontWeight: 'bold'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div style={{
+              flex: 1,
+              padding: '1rem',
+              overflow: 'auto',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}>
+              {modalComprobante.url ? (
+                <img
+                  src={modalComprobante.url}
+                  alt={`Comprobante ${modalComprobante.referencia}`}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                  }}
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    const errorDiv = document.createElement('div');
+                    errorDiv.innerHTML = `
+                      <div style="text-align: center; padding: 2rem; color: #6b7280;">
+                        <div style="font-size: 48px; margin-bottom: 1rem;">📷</div>
+                        <p>❌ Error al cargar la imagen del comprobante</p>
+                        <p style="font-size: 14px;">URL: ${modalComprobante.url}</p>
+                      </div>
+                    `;
+                    target.parentNode?.appendChild(errorDiv);
+                  }}
+                />
+              ) : (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '2rem',
+                  color: '#6b7280'
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '1rem' }}>📄</div>
+                  <p>⚠️ No hay comprobante disponible para esta referencia</p>
+                </div>
+              )}
+            </div>
+            
+            <div style={{
+              padding: '1rem',
+              borderTop: '1px solid #e5e7eb',
+              background: '#f9fafb',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                💡 Tip: Haz clic fuera del modal o en la X para cerrar
+              </div>
+              {modalComprobante.url && (
+                <a
+                  href={modalComprobante.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    background: '#3b82f6',
+                    color: 'white',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    textDecoration: 'none',
+                    fontSize: '14px',
+                    fontWeight: '500'
+                  }}
+                >
+                  🔗 Abrir en nueva pestaña
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
       {subiendo && (
         <div className="loading-container">
           <div className="loading-progress">
