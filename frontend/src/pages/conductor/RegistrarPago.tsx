@@ -1356,6 +1356,8 @@ export default function RegistrarPago() {
                       }
                       placeholder={placeholder}
                       required
+                      readOnly={key === "valor" && datosManuales.valor !== ""}
+
                     />
                   )}
                 </div>
