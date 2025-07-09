@@ -54,7 +54,8 @@ export default function HistorialPagos() {
     hasta: "",
     referencia: "",
     conductor: "",
-    entidad: ""
+    entidad: "",
+    tracking: ""
   });
 
   const obtenerHistorial = async (pagina = 1, nuevosFiltros?: FiltrosHistorial) => {
@@ -62,7 +63,6 @@ export default function HistorialPagos() {
     setError("");
     
     const filtrosAUsar = nuevosFiltros || filtros;
-      
     try {
       // Construir parámetros de consulta
       const params = new URLSearchParams();
@@ -70,6 +70,7 @@ export default function HistorialPagos() {
       if (filtrosAUsar.desde) params.append("desde", filtrosAUsar.desde);
       if (filtrosAUsar.hasta) params.append("hasta", filtrosAUsar.hasta);
       if (filtrosAUsar.referencia) params.append("referencia", filtrosAUsar.referencia);
+      // No enviar entidad ni tracking como filtro a la API, se filtra visualmente
       params.append("limite", limite.toString());
 
       const url = `https://api.x-cargo.co/pagos/historial?${params.toString()}`;
@@ -92,7 +93,14 @@ export default function HistorialPagos() {
       
       if (data && data.historial && Array.isArray(data.historial)) {
           
-        const historialFiltrado = filtrarPorConductorYEntidad(data.historial, filtrosAUsar);
+        let historialFiltrado = filtrarPorConductorYEntidad(data.historial, filtrosAUsar);
+        // Filtro visual por tracking si aplica
+        if (filtrosAUsar.tracking && filtrosAUsar.tracking.trim() !== "") {
+          const trackingFiltro = filtrosAUsar.tracking.trim().toLowerCase();
+          historialFiltrado = historialFiltrado.filter(pago =>
+            (pago.tracking || "").toLowerCase().includes(trackingFiltro)
+          );
+        }
    
         setPagos(historialFiltrado);
         calcularEstadisticas(historialFiltrado);
@@ -282,7 +290,7 @@ export default function HistorialPagos() {
       .map(p => p.estado)
       .filter(estado => estado !== null && estado !== undefined && estado !== '')
   )).sort();
-  
+  // Mantener entidadesUnicas por si se quiere volver a mostrar el filtro
   const entidadesUnicas = Array.from(new Set(
     pagos
       .map(p => p.entidad)
@@ -350,7 +358,6 @@ export default function HistorialPagos() {
       {/* Filtros */}
       <div className="filtros-historial">
         <h3 className="filtros-titulo">🔍 Filtros de Búsqueda</h3>
-        
         <div className="filtros-grid">
           <div className="filtro-grupo">
             <label>Estado:</label>
@@ -366,8 +373,8 @@ export default function HistorialPagos() {
               ))}
             </select>
           </div>
-          
-          <div className="filtro-grupo">
+          {/* Filtro de entidad oculto, dejarlo en el DOM pero con display:none por si se quiere volver a mostrar */}
+          <div className="filtro-grupo" style={{display:'none'}}>
             <label>Entidad:</label>
             <select 
               value={filtros.entidad} 
@@ -379,7 +386,6 @@ export default function HistorialPagos() {
               ))}
             </select>
           </div>
-          
           <div className="filtro-grupo">
             <label>Fecha desde:</label>
             <input
@@ -388,7 +394,6 @@ export default function HistorialPagos() {
               onChange={(e) => setFiltros({...filtros, desde: e.target.value})}
             />
           </div>
-          
           <div className="filtro-grupo">
             <label>Fecha hasta:</label>
             <input
@@ -397,7 +402,6 @@ export default function HistorialPagos() {
               onChange={(e) => setFiltros({...filtros, hasta: e.target.value})}
             />
           </div>
-          
           <div className="filtro-grupo">
             <label>Referencia:</label>
             <input
@@ -407,7 +411,15 @@ export default function HistorialPagos() {
               onChange={(e) => setFiltros({...filtros, referencia: e.target.value})}
             />
           </div>
-          
+          <div className="filtro-grupo">
+            <label>TN:</label>
+            <input
+              type="text"
+              placeholder="Buscar tracking..."
+              value={filtros.tracking || ""}
+              onChange={e => setFiltros({...filtros, tracking: e.target.value})}
+            />
+          </div>
         </div>
         
         <div className="filtros-acciones">
@@ -460,19 +472,19 @@ export default function HistorialPagos() {
                   <th>Valor</th>
                   <th>Fecha</th>
                   <th>Estado</th>
-                  <th>Entidad</th>
+                  {/* Columna entidad oculta */}
+                  <th style={{display:'none'}}>Entidad</th>
                   <th>Tipo</th>
                   <th>Guías</th>
+                  <th>TN</th>
                   <th>Comprobante</th>
-                  <th>Observaciones</th>
-                  <th>Modificado</th>
+                  <th>Carrier</th>
                 </tr>
               </thead>
               <tbody>
                 {pagosPaginados.map((pago, idx) => (
                   <tr key={`${pago.referencia_pago}-${pago.fecha}-${pago.correo_conductor}-${idx}`} className={`fila-${pago.estado.toLowerCase()}`}>
                     <td>{inicio + idx + 1}</td>
-                    
                     <td className="referencia-cell">
                       <span className="referencia-text">{pago.referencia_pago}</span>
                       {pago.fecha_creacion && (
@@ -481,15 +493,12 @@ export default function HistorialPagos() {
                         </small>
                       )}
                     </td>
-                    
                     <td className="valor-cell">
                       <span className="valor-principal">
                         {formatearMoneda(pago.valor)}
                       </span>
                     </td>
-                    
                     <td>{new Date(pago.fecha).toLocaleDateString('es-ES')}</td>
-                    
                     <td className="estado-cell">
                       <span 
                         className="estado-badge"
@@ -502,22 +511,26 @@ export default function HistorialPagos() {
                         {getEstadoTexto(pago.estado)}
                       </span>
                     </td>
-                    
-                    <td className="entidad-cell">
+                    {/* Columna entidad oculta */}
+                    <td className="entidad-cell" style={{display:'none'}}>
                       <span className="entidad-badge">{pago.entidad}</span>
                     </td>
-                    
                     <td className="tipo-cell">
                       <span className="tipo-badge">{pago.tipo}</span>
                     </td>
-                    
                     <td className="guias-cell">
                       <span className="numero-guias">{pago.num_guias}</span>
                       {pago.num_guias > 1 && <small>guías</small>}
                     </td>
-                    
-                  
-                      <td className="comprobante-cell">
+                    {/* Nueva columna TN (tracking) */}
+                    <td className="tracking-cell">
+                      {pago.tracking ? (
+                        <span title={pago.tracking}>{pago.tracking}</span>
+                      ) : (
+                        <span className="sin-tracking">-</span>
+                      )}
+                    </td>
+                    <td className="comprobante-cell">
                       <button
                         onClick={() => pago.imagen && verImagen(pago.imagen)}
                         className="btn-ver-comprobante"
@@ -526,30 +539,13 @@ export default function HistorialPagos() {
                         {pago.imagen ? '👁️ Ver' : '❌ Sin comprobante'}
                       </button>
                     </td>
-                    
-                    <td className="novedades-cell">
-                      {pago.novedades ? (
-                        <span className="novedades-text" title={pago.novedades}>
-                          {pago.novedades.substring(0, 30)}
-                          {pago.novedades.length > 30 && '...'}
+                    <td className="carrier-cell">
+                      {pago.creado_por ? (
+                        <span className="carrier-text" title={pago.creado_por}>
+                          {pago.creado_por.split('@')[0]}
                         </span>
                       ) : (
-                        <span className="sin-novedades">-</span>
-                      )}
-                    </td>
-                    
-                    <td className="modificado-cell">
-                      {pago.modificado_por ? (
-                        <div>
-                          <span className="modificado-por">{pago.modificado_por.split('@')[0]}</span>
-                          {pago.fecha_modificacion && (
-                            <small className="fecha-modificacion">
-                              {new Date(pago.fecha_modificacion).toLocaleDateString('es-ES')}
-                            </small>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="sin-modificacion">-</span>
+                        <span className="sin-carrier">-</span>
                       )}
                     </td>
                   </tr>
