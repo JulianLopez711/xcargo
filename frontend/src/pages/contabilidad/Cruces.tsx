@@ -137,6 +137,10 @@ const Cruces: React.FC = () => {
     useState<EstadisticasGenerales | null>(null);
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
   const [busqueda, setBusqueda] = useState("");
+  // Filtros de fecha y orden
+  const [fechaInicio, setFechaInicio] = useState<string>("");
+  const [fechaFin, setFechaFin] = useState<string>("");
+  const [ordenFecha, setOrdenFecha] = useState<'asc' | 'desc'>("desc");
   const [modalDetalle, setModalDetalle] =
     useState<ResultadoConciliacion | null>(null);
   const [modalConciliacionManual, setModalConciliacionManual] =
@@ -938,8 +942,9 @@ const Cruces: React.FC = () => {
     return textos[estado as keyof typeof textos] || estado;
   };
 
-  const resultadosFiltrados =
-    resultadoConciliacion?.resultados.filter((r) => {
+  // Filtrado y ordenamiento visual por fecha y estado
+  const resultadosFiltrados = (resultadoConciliacion?.resultados || [])
+    .filter((r) => {
       const pasaFiltroEstado =
         filtroEstado === "todos" || r.estado_match === filtroEstado;
       const pasaBusqueda =
@@ -947,8 +952,24 @@ const Cruces: React.FC = () => {
         r.descripcion_banco.toLowerCase().includes(busqueda.toLowerCase()) ||
         (r.referencia_pago &&
           r.referencia_pago.toLowerCase().includes(busqueda.toLowerCase()));
-      return pasaFiltroEstado && pasaBusqueda;
-    }) || [];
+      // Filtro por fecha visual (fecha_banco)
+      let pasaFecha = true;
+      if (fechaInicio) {
+        pasaFecha = pasaFecha && r.fecha_banco >= fechaInicio;
+      }
+      if (fechaFin) {
+        pasaFecha = pasaFecha && r.fecha_banco <= fechaFin;
+      }
+      return pasaFiltroEstado && pasaBusqueda && pasaFecha;
+    })
+    .sort((a, b) => {
+      if (!a.fecha_banco || !b.fecha_banco) return 0;
+      if (ordenFecha === "asc") {
+        return a.fecha_banco.localeCompare(b.fecha_banco);
+      } else {
+        return b.fecha_banco.localeCompare(a.fecha_banco);
+      }
+    });
 
   // Función para actualizar el progreso con detalles mejorados
   const updateProgress = (
@@ -1171,7 +1192,7 @@ const Cruces: React.FC = () => {
                 flexWrap: "wrap",
               }}
             >
-              <div style={{ minWidth: "300px" }}>
+              <div style={{ minWidth: "220px" }}>
                 <input
                   type="text"
                   placeholder="Buscar por descripción o referencia..."
@@ -1187,26 +1208,66 @@ const Cruces: React.FC = () => {
                 />
               </div>
               <label>
-                Filtrar por estado:
+                Estado:
                 <select
                   value={filtroEstado}
                   onChange={(e) => setFiltroEstado(e.target.value)}
                 >
                   <option value="todos">Todos</option>
                   <option value="conciliado_exacto">Conciliado Exacto</option>
-                  <option value="conciliado_aproximado">
-                    Conciliado Aproximado
-                  </option>
+                  <option value="conciliado_aproximado">Conciliado Aproximado</option>
                   <option value="multiple_match">Múltiples Matches</option>
                   <option value="diferencia_valor">Diferencia Valor</option>
                   <option value="diferencia_fecha">Diferencia Fecha</option>
                   <option value="sin_match">Sin Match</option>
                 </select>
               </label>
+              <label>
+                Fecha desde:
+                <input
+                  type="date"
+                  value={fechaInicio}
+                  onChange={e => setFechaInicio(e.target.value)}
+                  style={{ marginLeft: 4 }}
+                />
+              </label>
+              <label>
+                hasta:
+                <input
+                  type="date"
+                  value={fechaFin}
+                  onChange={e => setFechaFin(e.target.value)}
+                  style={{ marginLeft: 4 }}
+                />
+              </label>
+              <label>
+                Orden:
+                <select
+                  value={ordenFecha}
+                  onChange={e => setOrdenFecha(e.target.value as 'asc' | 'desc')}
+                  style={{ marginLeft: 4 }}
+                >
+                  <option value="desc">Más reciente primero</option>
+                  <option value="asc">Más antiguo primero</option>
+                </select>
+              </label>
+                <button
+                  type="button"
+                  style={{ marginLeft: 8, padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#f3f4f6', cursor: 'pointer', fontSize: 14 }}
+                  onClick={() => {
+                    setFiltroEstado('todos');
+                    setBusqueda("");
+                    setFechaInicio("");
+                    setFechaFin("");
+                    setOrdenFecha('desc');
+                  }}
+                  aria-label="Limpiar filtros"
+                >
+                  Limpiar filtros
+                </button>
             </div>
             <span className="contador-filtro">
-              Mostrando {resultadosFiltrados.length} de{" "}
-              {resultadoConciliacion?.resultados.length ?? 0}
+              Mostrando {resultadosFiltrados.length} de {resultadoConciliacion?.resultados.length ?? 0}
             </span>
           </div>
 
