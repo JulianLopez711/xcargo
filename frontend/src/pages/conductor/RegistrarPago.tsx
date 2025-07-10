@@ -71,6 +71,13 @@ type OCRResponse = {
 // 🔥 NUEVO: Tipo de modo de pago
 type ModoPago = 'comprobante' | 'bono' | 'mixto';
 
+
+const usuario = JSON.parse(localStorage.getItem("user")!);
+
+
+
+
+
 export default function RegistrarPago() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -140,6 +147,10 @@ export default function RegistrarPago() {
     };
   };
 
+  console.log(usuario);
+  console.log(calcularTotales().totalBonos.toLocaleString());
+
+  
   // Eliminar calcularTotalConBonos ya que está duplicado
   const totales = calcularTotales();
 
@@ -291,7 +302,7 @@ export default function RegistrarPago() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
+      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -475,7 +486,7 @@ export default function RegistrarPago() {
             }))
           };
 
-          const responseBonos = await fetch("https://api.x-cargo.co/pagos/aplicar-bonos", {
+          const responseBonos = await fetch("http://127.0.0.1:8000/pagos/aplicar-bonos", {
             method: "POST",
             headers: {
               'Authorization': `Bearer ${getToken()}`,
@@ -523,7 +534,7 @@ export default function RegistrarPago() {
           }))
         };
 
-        const responseBonos = await fetch("https://api.x-cargo.co/pagos/aplicar-bonos", {
+        const responseBonos = await fetch("http://127.0.0.1:8000/pagos/aplicar-bonos", {
           method: "POST",
           headers: {
             'Authorization': `Bearer ${getToken()}`,
@@ -590,8 +601,8 @@ export default function RegistrarPago() {
           }
 
           const endpoint = (referenciaBonos && montoBonosUsar > 0) 
-            ? "https://api.x-cargo.co/pagos/registrar-conductor-con-bonos"
-            : "https://api.x-cargo.co/pagos/registrar-conductor";
+            ? "http://127.0.0.1:8000/pagos/registrar-conductor-con-bonos"
+            : "http://127.0.0.1:8000/pagos/registrar-conductor";
 
           const response = await fetch(endpoint, {
             method: "POST",
@@ -722,7 +733,7 @@ export default function RegistrarPago() {
       formData.append('sobrante', totales.sobrante.toString());
 
       // Enviar al backend
-      const response = await fetch('https://api.x-cargo.co/pagos/registrar-conductor', {
+      const response = await fetch('http://127.0.0.1:8000/pagos/registrar-conductor', {
         method: 'POST',
         body: formData,
         headers: {
@@ -759,7 +770,7 @@ export default function RegistrarPago() {
   useEffect(() => {
     const cargarBonos = async () => {
       try {
-        const response = await fetch('https://api.x-cargo.co/pagos/bonos-disponibles', {
+        const response = await fetch('http://127.0.0.1:8000/pagos/bonos-disponibles', {
           headers: {
             'Authorization': `Bearer ${getToken()}`
           }
@@ -780,9 +791,14 @@ export default function RegistrarPago() {
 
   return (
     <div className="registrar-pago">
-      <h1>Registrar Pago</h1>      {/* Resumen de guías */}
+      <h1 style = {{display:'flex',justifyContent:"space-between"}}>
+      <span style={{ fontSize: '45px' }}> Registrar Pago </span>
+      <span className="tabla-guias"  style={{ fontSize: '25px' }}> 
+        Saldo Disponible: {' '} ${saldoBonosTotal.toLocaleString()}
+      </span>  
+      </h1>
       <div className="tabla-guias">
-        <h2>Guías a Pagar</h2>
+        <h2><span style={{fontSize: 20}}><strong>Guías a Pagar</strong></span></h2>
         <table>
           <thead>
             <tr>
@@ -865,32 +881,51 @@ export default function RegistrarPago() {
         {(() => {
           const totales = calcularTotales();
           return (
-            <div className="resumen-desglose">
+             <div className="resumen-desglose">
               <div className="linea-resumen">
-                <span>Total Pagos en Efectivo:</span>
-                <span>${totales.totalPagosEfectivo.toLocaleString()}</span>
+                <span><strong style={{fontSize : 20}}>Total guias:</strong></span>
+                <span className="text-red font-bold" style={{fontSize : 20}}>${total.toLocaleString()}</span>
               </div>
-              {totales.totalBonos > 0 && (
-                <div className="linea-resumen bonos-aplicados">
-                  <span className="texto-bono">Total Bonos Aplicados:</span>
-                  <span className="texto-bono">${totales.totalBonos.toLocaleString()}</span>
-                </div>
+              {totales.totalBonos != 0 &&(
+              <div className="linea-resumen">
+                <span><strong style={{fontSize : 20}}>Saldo disponible:</strong></span>
+                <span style={{color: 'green', fontWeight: 'bold', fontSize: 20}}>${totales.totalBonos.toLocaleString()}</span>
+              </div>
               )}
-              <hr className="divisor-resumen" />
-              <div className="linea-resumen total-final">
-                <span>Total Cubierto:</span>
-                <span>${totales.totalCubierto.toLocaleString()}</span>
+
+
+              {totales.totalBonos != totales.faltante &&(  
+                <div className="linea-resumen">           
+                <span style={{fontSize : 20}}><strong>Total comprobantes cargados:</strong></span>
+                <span style={{color: 'green', fontWeight: 'bold', fontSize : 20}}>${totales.totalPagosEfectivo.toLocaleString()}</span>
               </div>
-              {totales.faltante > 0 && (
+              )}
+
+              <hr className="divisor-resumen" />
+              
+              { totales.totalCubierto >= total && (
+                <div className="linea-resumen total-final" >
+                <span style={{fontSize : 20}}><strong> ✅  Total Cubierto:</strong></span>
+                <span style={{fontSize : 20}}><strong>${totales.totalCubierto.toLocaleString()}</strong></span>
+              </div>)}
+              {/*
+              { totales.totalCubierto < total && (
+                <div className="linea-resumen faltante" >
+                <span className="texto-faltante" style={{fontSize : 20}}><strong> ❌  Total No Cubierto:</strong></span>
+                <span className="texto-faltante" style={{fontSize : 20}}><strong>${totales.totalCubierto.toLocaleString()}</strong></span>
+              </div>)}
+              */}
+              {totales.faltante > 0 &&  (
                 <div className="linea-resumen faltante">
-                  <span className="texto-faltante">Faltante:</span>
-                  <span className="texto-faltante">${totales.faltante.toLocaleString()}</span>
+                  <span className="texto-faltante" style={{fontSize : 20}}><strong>❌ Faltante:</strong></span>
+                  <span className="texto-faltante" style={{fontSize : 20}}><strong>${totales.faltante.toLocaleString()}</strong></span>
                 </div>
               )}
               {totales.sobrante > 0 && (
                 <div className="linea-resumen exito">
-                  <span className="texto-exito">Sobrante (se convertirá en bono):</span>
-                  <span className="texto-exito">${totales.sobrante.toLocaleString()}</span>
+                  <span className="texto-exito" style={{fontSize : 20}} ><strong> ✅ Existe excedente:</strong></span>
+                  <span className="texto-exito" style={{fontSize : 20}} ><strong> Se actualizará el saldo disponible</strong></span>
+                  <span className="texto-exito" style={{fontSize : 20}}><strong>  + ${totales.sobrante.toLocaleString()} </strong></span>
                 </div>
               )}
             </div>
@@ -898,7 +933,23 @@ export default function RegistrarPago() {
         })()}
       </div>
 
+      {totales.faltante != 0 && (
+      <div className="mensaje-estado" style={{
+        margin: "2rem 0",
+        padding: "1rem",
+        backgroundColor: "#fef3c7",
+        border: "1px solid rgb(235, 153, 0)", // 🔧 corregido!
+        borderRadius: "8px",
+        color: "#92400e"
+      }}>
+        <p style={{ margin: 0 }}>
+          <strong style={{fontSize : 19}}> ❗ Total no cubierto ❗ Necesitas agregar comprobantes que cubran ${totales.faltante.toLocaleString()}</strong>
+        </p>
+      </div>
+    )}
+
       {/* 🔥 NUEVO: Selector de modo de pago */}
+{/*      
       <div className="modo-pago-selector" style={{ 
         margin: "2rem 0", 
         padding: "1.5rem", 
@@ -994,7 +1045,7 @@ export default function RegistrarPago() {
           )}
         </div>
 
-        {/* Descripción del modo seleccionado */}
+         //Descripción del modo seleccionado 
         <div className="descripcion-modo" style={{ 
           padding: "1rem", 
           backgroundColor: "#ffffff", 
@@ -1019,8 +1070,8 @@ export default function RegistrarPago() {
           )}
         </div>
       </div>
-
-      {/* 🔥 SECCIÓN DE BONOS - Solo mostrar según el modo */}
+  
+      // 🔥 SECCIÓN DE BONOS - Solo mostrar según el modo
       {(modoPago === 'bono' || modoPago === 'mixto') && bonos && bonos.disponible > 0 && (
         <div className="seccion-bonos">
           <h3>💰 Bonos Disponibles</h3>
@@ -1071,7 +1122,9 @@ export default function RegistrarPago() {
             </div>
           </div>
         </div>
-      )}      {/* 🔥 MEJORADO: Lista de pagos cargados con validación de duplicados */}
+      )}
+
+      {/* Lista de pagos cargados */}
       {pagosCargados.length > 0 && (
         <div className="pagos-cargados">
           <h3>📄 Comprobantes Cargados ({pagosCargados.length})</h3>
@@ -1196,16 +1249,17 @@ export default function RegistrarPago() {
             })()}
           </button>
         </div>
-      )}
+        )}
+
+
 
       {/* 🔥 FORMULARIO DE COMPROBANTE - Solo mostrar según el modo */}
-      {(modoPago === 'comprobante' || modoPago === 'mixto') && (
+      {(totales.faltante != 0) && (
         <div className="seccion-comprobante">
-          <h3>📄 {modoPago === 'mixto' ? 'Comprobante adicional' : 'Comprobante de pago'}</h3>
-          
-          <form className="formulario-pago" onSubmit={(e) => e.preventDefault()}>
+        <form className="formulario-pago" onSubmit={(e) => e.preventDefault()}>
             <div className="input-group">
-              <label>Comprobante de pago</label>
+              <h3>📄Cargar comprobante de pago</h3>
+              <label style={{ fontSize: '18px' }}><strong>Comprobante de pago</strong></label>
               <input
                 type="file"
                 accept="image/*,application/pdf"
@@ -1302,6 +1356,8 @@ export default function RegistrarPago() {
                       }
                       placeholder={placeholder}
                       required
+                      readOnly={key === "valor" && datosManuales.valor !== ""}
+
                     />
                   )}
                 </div>
@@ -1336,6 +1392,7 @@ export default function RegistrarPago() {
       )}
 
       {/* 🔥 MENSAJE DE ESTADO SEGÚN EL MODO */}
+      {/*}
       {!puedeProcessarPago() && (
         <div className="mensaje-estado" style={{
           margin: "2rem 0",
@@ -1371,7 +1428,9 @@ export default function RegistrarPago() {
             </p>
           )}
         </div>
-      )}      {/* Botones de acción */}
+      )} */}     
+      
+      {/* Botones de acción */}
       <div className="acciones" style={{
         display: 'flex',
         justifyContent: 'flex-end',
@@ -1401,8 +1460,8 @@ export default function RegistrarPago() {
     </div>
   );
 }
+{/* Función placeholder - implementar según tu lógica de autenticación */}
 
-// Función placeholder - implementar según tu lógica de autenticación
 function getToken(): string {
   return localStorage.getItem("token") || "";
 }

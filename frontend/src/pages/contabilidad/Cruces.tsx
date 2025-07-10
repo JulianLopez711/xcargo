@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 import "../../styles/contabilidad/Cruces.css";
 
+
+
+
 interface ResultadoConciliacion {
   id_banco: string;
   fecha_banco: string;
@@ -36,6 +39,8 @@ interface ResultadoConciliacion {
     trackings?: string[];
   }>;
 }
+
+// Verificar que tu interfaz incluya:
 
 // ✅ INTERFACE PARA ENDPOINT MEJORADO
 // ✅ INTERFACE PARA COMPATIBILIDAD CON EL FRONTEND
@@ -102,6 +107,7 @@ interface TransaccionBancaria {
   estado_conciliacion: string;
   porcentaje_similitud?: number;
   nivel_match?: string;
+  imagen?: string; // URL de la imagen del comprobante
 }
 
 interface SeleccionTransaccionModal {
@@ -123,9 +129,10 @@ interface LoadingProgress {
   message: string;
 }
 
+
 const Cruces: React.FC = () => {
   // ✅ CONFIGURACIÓN DE API - Usar servidor local para desarrollo
-  const API_BASE_URL = 'https://api.x-cargo.co';
+  const API_BASE_URL = 'http://127.0.0.1:8000';
 
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
@@ -149,8 +156,50 @@ const Cruces: React.FC = () => {
     percentage: 0,
     message: "",
   });
+
+  const verDetallesPago = async (referenciaPago: string) => {
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/pagos/detalles-pago/${referenciaPago}`);
+      
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+
+      const comprobante = data.detalles[0]?.comprobante;
+
+      console.log("🧾 URL del comprobante:", comprobante);
+
+      if (comprobante) {
+          verImagen(comprobante);
+        } else {
+          alert("No se encontró ningún comprobante");
+        }        
+
+    } catch (err: any) {
+      console.error("Error cargando detalles:", err);
+      alert(`Error al cargar detalles del pago: ${err.message}`);
+    }
+  };
+
+
+  const verImagen = (src: string) => {
+    if (!src) {
+      alert("No hay comprobante disponible");
+      return;
+    }
+    setImagenSeleccionada(src);
+  };
+  
+
+
   const [logsProgreso, setLogsProgreso] = useState<string[]>([]);
-  const [modalComprobante, setModalComprobante] = useState<{
+
+  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
+
+
+    const [modalComprobante, setModalComprobante] = useState<{
     url: string;
     referencia: string;
   } | null>(null);
@@ -164,6 +213,7 @@ const Cruces: React.FC = () => {
     if (porcentaje >= 60) return 'regular';
     if (porcentaje >= 40) return 'bajo';
     return 'muy-bajo';
+    
   };
 
   // ✅ FUNCIÓN HELPER PARA FORMATEAR FECHAS CORRECTAMENTE
@@ -174,7 +224,15 @@ const Cruces: React.FC = () => {
         // Para fechas solo con fecha (sin hora), agregarle T12:00:00 para usar medio día local
         const fecha = new Date(fechaString + 'T12:00:00');
         const fechaFormateada = fecha.toLocaleDateString("es-CO");
-                
+        
+        // 🔍 DEBUG: Log para diagnosticar problemas de fecha
+        /* console.log(`📅 Formateo de fecha: ${fechaString} -> ${fechaFormateada}`, {
+          original: fechaString,
+          conHora: fechaString + 'T12:00:00',
+          fechaObject: fecha,
+          resultado: fechaFormateada
+        });
+        */
         return fechaFormateada;
       } else {
         // Para fechas con hora o en otros formatos
@@ -229,6 +287,10 @@ const Cruces: React.FC = () => {
       setMensaje(`❌ Error: ${err.message}`);
     }
   };
+
+
+
+
 
   // ✅ NUEVA FUNCIÓN PARA CARGAR PAGOS PENDIENTES DE CONCILIAR
 
@@ -375,6 +437,8 @@ const Cruces: React.FC = () => {
       }, 2000);
     }
   };
+
+
 
   // Función de conciliación con progreso usando EventSource
   const ejecutarConciliacionConProgreso = async () => {
@@ -624,43 +688,32 @@ const Cruces: React.FC = () => {
     }
   };
 
-  // ✅ NUEVA FUNCIÓN PARA OBTENER COMPROBANTE DE PAGO
-  const obtenerComprobantePago = async (referenciaPago: string) => {
-    try {
-      setCargandoComprobante(true);
-      const res = await fetch(
-        `${API_BASE_URL}/pagos/comprobante/${encodeURIComponent(referenciaPago)}`
-      );
+  // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIÓN
+  const mostrarModalSeleccionTransaccion = async (pago: {
+    referencia: string;
+    valor: number;
+    fecha: string;
+    correo: string;
+    entidad: string;
+    tipo?: string; // Agregar el tipo de pago
+  }) => {
+   
 
-      if (!res.ok) {
-        if (res.status === 404) {
-          setMensaje("⚠️ No se encontró comprobante para esta referencia de pago");
-          return null;
-        }
-        throw new Error("Error al obtener comprobante de pago");
-      }
-
-      const data = await res.json();
-      
-      if (data.comprobante_url) {
-        setModalComprobante({
-          url: data.comprobante_url,
-          referencia: referenciaPago
-        });
-      } else {
-        setMensaje("⚠️ No hay comprobante disponible para esta referencia");
-      }
-      
-      return data;
-    } catch (err: any) {
-      console.error("Error obteniendo comprobante:", err);
-      setMensaje("❌ Error al cargar comprobante: " + err.message);
-      return null;
-    } finally {
-      setCargandoComprobante(false);
+    const transacciones = await obtenerTransaccionesBancarias(pago.referencia);
+    
+    if (transacciones.length === 0) {
+      setMensaje("⚠️ No se encontraron transacciones bancarias disponibles para conciliar");
+      return;
     }
+
+    setModalSeleccionTransaccion({
+      pago,
+      transacciones_disponibles: transacciones,
+    });
   };
 
+
+  
 
   // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIONES BANCARIAS
   const mostrarModalSeleccionTransaccionBanco = async (resultado: ResultadoConciliacion) => {
@@ -1367,7 +1420,7 @@ const Cruces: React.FC = () => {
 
             <div className="detalle-grid">
               <div className="detalle-seccion">
-                <h4>💳 Movimiento a Conciliar</h4>
+                <h4> 🟢 Movimiento a Conciliar</h4>
                 <div className="detalle-item">
                   <strong>ID Banco:</strong> {modalSeleccionTransaccion.pago.referencia}
                 </div>
@@ -1387,33 +1440,19 @@ const Cruces: React.FC = () => {
                     <strong>Conductor:</strong> {modalSeleccionTransaccion.pago.correo}
                   </div>
                 )}
+                {modalSeleccionTransaccion.pago.correo !== "No disponible" && (
+                  <div className="detalle-item" >
+                    <button onClick={() => verDetallesPago(modalSeleccionTransaccion.pago.referencia)}>
+                      <strong>Comprobante:</strong>   
+                      👁 Ver
+                    </button>
+                  </div>
+                )}
+
                 
-                {/* Botón para ver comprobante */}
-                <div className="detalle-item">
-                  <button
-                    className="btn-comprobante"
-                    onClick={() => obtenerComprobantePago(modalSeleccionTransaccion.pago.referencia)}
-                    disabled={cargandoComprobante || conciliandoTransaccion}
-                    style={{
-                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                      color: 'white',
-                      border: 'none',
-                      padding: '8px 16px',
-                      borderRadius: '6px',
-                      cursor: cargandoComprobante || conciliandoTransaccion ? 'not-allowed' : 'pointer',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      opacity: cargandoComprobante || conciliandoTransaccion ? 0.6 : 1,
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    {cargandoComprobante ? (
-                      <>⏳ Cargando...</>
-                    ) : (
-                      <>🧾 Ver Comprobante</>
-                    )}
-                  </button>
-                </div>
+                
+
+
               </div>
 
               <div className="detalle-seccion">
@@ -1532,6 +1571,24 @@ const Cruces: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de Imagen */}
+        {imagenSeleccionada && (
+        <div
+          className="modal-overlay"
+          onClick={() => setImagenSeleccionada(null)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <img src={imagenSeleccionada} alt="Vista previa" />
+            <button
+              onClick={() => setImagenSeleccionada(null)}
+              className="cerrar-modal"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        )}
 
       {/* Modal de detalle */}
       {modalDetalle && (

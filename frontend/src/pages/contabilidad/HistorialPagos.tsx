@@ -72,7 +72,7 @@ export default function HistorialPagos() {
       if (filtrosAUsar.referencia) params.append("referencia", filtrosAUsar.referencia);
       params.append("limite", limite.toString());
 
-      const url = `https://api.x-cargo.co/pagos/historial?${params.toString()}`;
+      const url = `http://127.0.0.1:8000/pagos/historial?${params.toString()}`;
       
 
       const response = await fetch(url, {
