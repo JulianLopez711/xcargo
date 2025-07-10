@@ -35,7 +35,13 @@ export default function GuiasPendientes() {
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroTracking, setFiltroTracking] = useState("");
   const [filtroCiudad, setFiltroCiudad] = useState("");
-  const [filtroFecha, setFiltroFecha] = useState("");  // Estados para la selección de guías - MEJORADO para persistir entre páginas
+  const [filtroFecha, setFiltroFecha] = useState("");
+  
+  // 🆕 NUEVO: Estado para controlar modo de visualización
+  const [mostrarTodo, setMostrarTodo] = useState(false);
+  const [cargandoTodo, setCargandoTodo] = useState(false);
+
+  // Estados para la selección de guías - MEJORADO para persistir entre páginas
   const [guiasSeleccionadas, setGuiasSeleccionadas] = useState<string[]>([]);
   const [guiasSeleccionadasData, setGuiasSeleccionadasData] = useState<Map<string, Guia>>(new Map());
   
@@ -67,6 +73,7 @@ export default function GuiasPendientes() {
     filtroTracking,
     filtroCiudad,
     filtroFecha,
+    mostrarTodo, // 🆕 Agregar mostrarTodo a las dependencias
   ]);
 
   const cargarGuias = async () => {
@@ -75,10 +82,17 @@ export default function GuiasPendientes() {
       const token = user?.token || localStorage.getItem("token") || "";
 
       const queryParams = new URLSearchParams({
-        limit: limit.toString(),
-        offset: (page * limit).toString(),
         estado_liquidacion: "pendiente", // 🔥 FILTRO POR DEFECTO: Solo mostrar guías pendientes de pago
       });
+
+      // 🔧 MEJORADO: Configurar límite y offset según el modo
+      if (mostrarTodo) {
+        queryParams.append("limit", "10000"); // Límite alto para "mostrar todo"
+        queryParams.append("offset", "0");
+      } else {
+        queryParams.append("limit", limit.toString());
+        queryParams.append("offset", (page * limit).toString());
+      }
 
       if (filtroConductor) queryParams.append("conductor", filtroConductor);
       if (filtroCliente) queryParams.append("cliente", filtroCliente);
@@ -130,6 +144,37 @@ export default function GuiasPendientes() {
       minimumFractionDigits: 0,
     }).format(amount);
   };
+
+  // 🆕 NUEVA FUNCIÓN: Alternar entre vista paginada y completa
+  const toggleMostrarTodo = async () => {
+    if (mostrarTodo) {
+      // Volver a vista paginada
+      setMostrarTodo(false);
+      setPage(0);
+    } else {
+      // Cambiar a vista completa
+      setCargandoTodo(true);
+      setMostrarTodo(true);
+      setPage(0);
+    }
+    
+    // El useEffect se encargará de recargar los datos
+  };
+
+  // 🔧 MEJORADO: Reset al cambiar a vista paginada
+  const resetearVista = () => {
+    setMostrarTodo(false);
+    setPage(0);
+    limpiarFiltros();
+  };
+
+  // Efecto para manejar el loading del modo "mostrar todo"
+  useEffect(() => {
+    if (cargandoTodo && !loading) {
+      setCargandoTodo(false);
+    }
+  }, [loading, cargandoTodo]);
+
   // Funciones para manejo de selección - MEJORADAS para persistir entre páginas y manejar duplicados
   const toggleSeleccion = (tracking: string) => {
     // Buscar la primera ocurrencia de la guía con este tracking
@@ -294,7 +339,12 @@ export default function GuiasPendientes() {
   return (    <div className="guias-pendientes">      <div className="page-header">
         <h1>Guías Pendientes</h1>
         <div className="header-info">
-          <span className="total-badge">📦 Total: {total} guías</span>
+          <span className="total-badge">
+            📦 Total: {total} guías
+            {mostrarTodo && guias.length < total && (
+              <span className="warning-text"> (Mostrando {guias.length})</span>
+            )}
+          </span>
           <span className="valor-badge">💰 Valor Total: {formatCurrency(totalGlobal)}</span>
           {guiasSeleccionadas.length > 0 && (
             <span className="selected-badge">
@@ -396,6 +446,27 @@ export default function GuiasPendientes() {
             >
               🔄 Actualizar
             </button>
+            
+            {/* 🆕 NUEVO: Botón para alternar vista */}
+            <button 
+              className={`btn-${mostrarTodo ? 'warning' : 'info'}`}
+              onClick={toggleMostrarTodo}
+              disabled={loading || cargandoTodo}
+              title={mostrarTodo ? "Volver a vista paginada" : "Mostrar todas las guías"}
+            >
+              {cargandoTodo ? "🔄 Cargando..." : mostrarTodo ? "📄 Vista Paginada" : "📋 Listar Todo"}
+            </button>
+            
+            {mostrarTodo && (
+              <button 
+                className="btn-secondary" 
+                onClick={resetearVista}
+                disabled={loading}
+                title="Resetear vista y filtros"
+              >
+                🔄 Reset Vista
+              </button>
+            )}
           </div>
         </div>
         
@@ -435,6 +506,18 @@ export default function GuiasPendientes() {
             )}
           </div>
         )}
+        
+        {/* 🆕 NUEVO: Indicador de modo de vista */}
+        <div className="view-mode-indicator">
+          <span className={`mode-badge ${mostrarTodo ? 'mode-all' : 'mode-paginated'}`}>
+            {mostrarTodo ? "📋 Vista Completa" : "📄 Vista Paginada"}
+          </span>
+          {mostrarTodo && total > 5000 && (
+            <span className="performance-warning">
+              ⚠️ Muchas guías pueden afectar el rendimiento
+            </span>
+          )}
+        </div>
       </div><div className="guias-table">
         <div className="table-header">          <div className="header-cell checkbox-cell">
             <input
@@ -511,24 +594,44 @@ export default function GuiasPendientes() {
         </div>
       )}
 
-      <div className="pagination">
-        <button
-          disabled={page === 0}
-          onClick={() => setPage((p) => p - 1)}
-          className="btn-secondary"
-        >
-          ← Anterior
-        </button>
-        <span className="page-info">
-          Página {page + 1} de {Math.ceil(total / limit)}
-        </span>
-        <button
-          disabled={guias.length < limit}
-          onClick={() => setPage((p) => p + 1)}
-          className="btn-secondary"
-        >        Siguiente →
-        </button>
-      </div>
+      {/* 🔧 MEJORADO: Paginación solo en vista paginada */}
+      {!mostrarTodo && (
+        <div className="pagination">
+          <button
+            disabled={page === 0}
+            onClick={() => setPage((p) => p - 1)}
+            className="btn-secondary"
+          >
+            ← Anterior
+          </button>
+          <span className="page-info">
+            Página {page + 1} de {Math.ceil(total / limit)}
+          </span>
+          <button
+            disabled={guias.length < limit}
+            onClick={() => setPage((p) => p + 1)}
+            className="btn-secondary"
+          >
+            Siguiente →
+          </button>
+        </div>
+      )}
+
+      {/* 🆕 NUEVO: Información de resultados en vista completa */}
+      {mostrarTodo && (
+        <div className="results-info">
+          <div className="info-card">
+            <span className="info-text">
+              📋 Mostrando {guias.length} de {total} guías totales
+            </span>
+            {guias.length >= 10000 && (
+              <span className="limit-warning">
+                ⚠️ Límite de 10,000 guías alcanzado. Usa filtros para ver más resultados específicos.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Botón flotante de pago */}
       {guiasSeleccionadas.length > 0 && (
