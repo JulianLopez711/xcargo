@@ -55,6 +55,7 @@ export default function PagosContabilidad() {
   const pagosPorPagina = 20;
   const [cargando, setCargando] = useState(false);
   const [filtroReferencia, setFiltroReferencia] = useState("");
+  const [filtroCarrier, setFiltroCarrier] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
@@ -88,6 +89,9 @@ export default function PagosContabilidad() {
 
       // Aplicar filtros si están definidos o si ya se habían aplicado anteriormente
       if (aplicarFiltros || filtrosAplicados) {
+        if(filtroCarrier.trim()){
+          params.append('carrier',filtroCarrier.trim());
+          }
         if (filtroReferencia.trim()) {
           params.append('referencia', filtroReferencia.trim());
         }
@@ -114,7 +118,7 @@ export default function PagosContabilidad() {
         fechaHasta: fechaHasta ? formatearFechaParaServidor(fechaHasta) : 'No especificada'
       });
 
-      const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`http://127.0.0.1:8000/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -193,7 +197,8 @@ export default function PagosContabilidad() {
 
   // Función para detectar si hay filtros activos
   const hayFiltrosActivos = () => {
-    return filtroReferencia.trim() !== "" || 
+    return filtroCarrier.trim() !== "" ||
+           filtroReferencia.trim() !== "" || 
            fechaDesde !== "" || 
            fechaHasta !== "" || 
            filtroEstado !== "";
@@ -313,7 +318,7 @@ export default function PagosContabilidad() {
         params.append('estado', filtroEstado);
       }
 
-      const response = await fetch(`https://api.x-cargo.co/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`http://127.0.0.1:8000/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -367,7 +372,7 @@ export default function PagosContabilidad() {
 
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const response = await fetch(`https://api.x-cargo.co/pagos/detalles-pago/${referenciaPago}`);
+      const response = await fetch(`http://127.0.0.1:8000/pagos/detalles-pago/${referenciaPago}`);
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -406,7 +411,7 @@ export default function PagosContabilidad() {
         modificado_por: user.email,
       });
 
-      const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
+      const response = await fetch("http://127.0.0.1:8000/pagos/rechazar-pago", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -460,9 +465,11 @@ export default function PagosContabilidad() {
     };
     return textos[estado.toLowerCase()] || estado;
   };
+  
 
   const limpiarFiltros = () => {
     setFiltroReferencia("");
+    setFiltroCarrier("");
     setFechaDesde("");
     setFechaHasta("");
     setFiltroEstado("");
@@ -557,6 +564,16 @@ export default function PagosContabilidad() {
             onKeyDown={manejarEnterFiltros}
           />
         </label>
+        <label>
+          Buscar Carrier:
+          <input
+            type="text"
+            placeholder="Ej: John Doe"
+            value={filtroCarrier}
+            onChange={(e) => setFiltroCarrier(e.target.value)}
+            onKeyDown={manejarEnterFiltros}
+          />
+        </label> 
         <label>
           Estado:
           <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
@@ -665,7 +682,9 @@ export default function PagosContabilidad() {
           <tbody>
             {pagosFiltrados.length > 0 ? (
               pagosFiltrados.map((p, idx) => (
+                //console.log("📦 Pago:", p),
                 <tr key={`${p.referencia_pago}-${p.fecha}-${idx}`}>
+               
                   <td>{((paginaActual - 1) * pagosPorPagina) + idx + 1}</td>
                   <td>{p.referencia_pago}</td>
                   <td>${p.valor.toLocaleString()}</td>
@@ -677,6 +696,7 @@ export default function PagosContabilidad() {
                     color: p.estado_conciliacion === "rechazado" ? "crimson" :
                            p.estado_conciliacion === "conciliado_manual" ? "green" : undefined
                   }}>
+                    
                     {getEstadoTexto(p.estado_conciliacion)}
                   </td>
                   <td>
