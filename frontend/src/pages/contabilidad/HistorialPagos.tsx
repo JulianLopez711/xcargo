@@ -3,6 +3,7 @@ import { saveAs } from "file-saver";
 import "../../styles/contabilidad/HistorialPagos.css";
 
 interface PagoHistorial {
+  creado_por: any;
   referencia_pago: string;
   valor: number | undefined;
   fecha: string;
@@ -216,7 +217,8 @@ export default function HistorialPagos() {
       hasta: "",
       referencia: "",
       conductor: "",
-      entidad: ""
+      entidad: "",
+      tracking: ""
     };
     setFiltros(filtrosVacios);
     obtenerHistorial(1, filtrosVacios);
