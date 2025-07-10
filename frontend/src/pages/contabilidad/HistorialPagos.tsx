@@ -18,6 +18,7 @@ interface PagoHistorial {
   modificado_por?: string;
   tracking?: string;
   fecha_registro?: string;
+  carrier?: string; // Nombre del carrier
 }
 
 interface FiltrosHistorial {
@@ -27,6 +28,7 @@ interface FiltrosHistorial {
   referencia: string;
   conductor: string;
   entidad: string;
+  tracking?: string;
 }
 
 interface EstadisticasHistorial {
@@ -540,9 +542,9 @@ export default function HistorialPagos() {
                       </button>
                     </td>
                     <td className="carrier-cell">
-                      {pago.creado_por ? (
-                        <span className="carrier-text" title={pago.creado_por}>
-                          {pago.creado_por.split('@')[0]}
+                      {pago.carrier ? (
+                        <span className="carrier-text" title={pago.carrier}>
+                          {pago.carrier}
                         </span>
                       ) : (
                         <span className="sin-carrier">-</span>
