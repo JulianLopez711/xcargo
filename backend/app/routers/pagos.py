@@ -132,7 +132,7 @@ async def registrar_pago_conductor(
     valor_pago_str: str = Form(..., description="Valor total del pago"),
     fecha_pago: str = Form(..., description="Fecha del pago (YYYY-MM-DD)"),
     hora_pago: str = Form(..., description="Hora del pago (HH:MM)"),
-    tipo: str = Form(..., description="Tipo de pago (Transferencia, Nequi, etc.)"),
+    tipo: str = Form(..., description="Tipo de pago (Transferencia, Nequi, Consignación)"),
     entidad: str = Form(..., description="Entidad bancaria"),
     referencia: str = Form(..., description="Referencia única del pago"),
     comprobante: UploadFile = File(..., description="Imagen/PDF del comprobante"),
@@ -859,7 +859,8 @@ def obtener_pagos_pendientes_contabilidad(
     referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
     estado: Optional[str] = Query(None, description="Filtrar por estado de conciliación"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
-    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    carrier: Optional[str] = Query(None, description="Filtrar por carrier específico")
 ):
     """
     Obtiene pagos pendientes de contabilidad con paginación y filtros avanzados
@@ -885,12 +886,24 @@ def obtener_pagos_pendientes_contabilidad(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
 
+        if carrier and carrier.strip():
+            condiciones.append("LOWER(COALESCE(cod.Carrier, gl.carrier, '')) LIKE @carrier_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("carrier_filtro", "STRING", f"%{carrier.strip().lower()}%")
+            )
+
         if estado and estado.strip():
             condiciones.append("estado_conciliacion = @estado_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
             )
-        elif not (referencia and referencia.strip()):
+        elif not any([
+            referencia and referencia.strip(),
+            carrier and carrier.strip(),
+            fecha_desde,
+            fecha_hasta
+        ]):
+            # Solo aplica si no hay ningún otro filtro
             condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
 
         if fecha_desde:
@@ -915,13 +928,18 @@ def obtener_pagos_pendientes_contabilidad(
 
         where_clause = "WHERE " + " AND ".join(condiciones)
 
-        logger.info(f"🔍 Filtros aplicados - Referencia: {referencia}, Estado: {estado}, Fecha desde: {fecha_desde}, Fecha hasta: {fecha_hasta}")
+        logger.info(f"🔍 Filtros aplicados - Referencia: {referencia}, Estado: {estado}, Fecha desde: {fecha_desde}, Fecha hasta: {fecha_hasta}, Carrier: {carrier}")
+        logger.info(f"📦 Carrier recibido: {carrier}")
         logger.info(f"📋 Condiciones SQL: {condiciones}")
         logger.info(f"🔧 WHERE clause: {where_clause}")
 
         count_query = f"""
             SELECT COUNT(DISTINCT pc.referencia_pago) as total
             FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+             ON pc.tracking = cod.tracking_number
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+             ON pc.tracking = gl.tracking_number
             {where_clause}
             """
 
@@ -1010,7 +1028,8 @@ def obtener_pagos_pendientes_contabilidad(
                 "referencia": referencia,
                 "estado": estado,
                 "fecha_desde": fecha_desde,
-                "fecha_hasta": fecha_hasta
+                "fecha_hasta": fecha_hasta,
+                "carrier": carrier
             },
             "timestamp": datetime.now().isoformat(),
             "status": "success"
@@ -1039,7 +1058,8 @@ def obtener_pagos_pendientes_contabilidad(
                     "referencia": referencia,
                     "estado": estado,
                     "fecha_desde": fecha_desde,
-                    "fecha_hasta": fecha_hasta
+                    "fecha_hasta": fecha_hasta,
+                    "carrier": carrier
                 },
                 "error": str(e),
                 "trace": traceback.format_exc(),
@@ -1452,6 +1472,7 @@ async def obtener_historial_pagos(
 @router.get("/exportar-pendientes-contabilidad")
 def exportar_todos_pagos_pendientes_contabilidad(
     referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
+    carrier: Optional[str] = Query(None, description="Filtrar por nombre del carrier"),
     estado: Optional[str] = Query(None, description="Filtrar por estado de conciliación"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
@@ -1476,7 +1497,15 @@ def exportar_todos_pagos_pendientes_contabilidad(
         parametros.append(
             bigquery.ScalarQueryParameter("fecha_minima_auto", "DATE", FECHA_MINIMA)
         )
-        
+
+        if carrier and carrier.strip():
+            condiciones.append("""
+                LOWER(COALESCE(cod.Carrier, gl.carrier, '') LIKE @carrier_filtro)                   
+            """)
+            parametros.append(
+                bigquery.ScalarQueryParameter("carrier_filtro", "STRING", f"%{carrier.strip().lower()}%")
+            )
+
         # Filtro por referencia de pago
         if referencia and referencia.strip():
             condiciones.append("pc.referencia_pago LIKE @referencia_filtro")
@@ -1583,7 +1612,8 @@ def exportar_todos_pagos_pendientes_contabilidad(
                 "referencia": referencia,
                 "estado": estado,
                 "fecha_desde": fecha_desde,
-                "fecha_hasta": fecha_hasta
+                "fecha_hasta": fecha_hasta,
+                "carrier": carrier
             },
             "fecha_exportacion": datetime.now().isoformat()
         }
@@ -1604,6 +1634,20 @@ def exportar_todos_pagos_pendientes_contabilidad(
             status_code=500,
             detail=f"Error interno del servidor en exportación: {str(e)}"
         )
+
+'''
+@router.get("/pagos/comprobante/{referencia_pago}")
+def obtener_comprobante(referencia_pago: str):
+    # Supongamos que lo buscas en base de datos
+    pago = buscar_pago_por_referencia(referencia_pago)
+    if not pago or not pago.imagen:
+        raise HTTPException(status_code=404, detail="Comprobante no encontrado")
+    
+    return {"imagen": pago.imagen}
+'''
+
+
+
 
 # Endpoint para debugging - verificar referencias
 @router.get("/debug/verificar-referencia/{referencia}")
