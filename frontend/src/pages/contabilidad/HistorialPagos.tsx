@@ -3,7 +3,6 @@ import { saveAs } from "file-saver";
 import "../../styles/contabilidad/HistorialPagos.css";
 
 interface PagoHistorial {
-  creado_por: any;
   referencia_pago: string;
   valor: number | undefined;
   fecha: string;
@@ -19,7 +18,7 @@ interface PagoHistorial {
   modificado_por?: string;
   tracking?: string;
   fecha_registro?: string;
-  carrier?: string; // Nombre del carrier
+  creado_por?: string;
 }
 
 interface FiltrosHistorial {
@@ -29,7 +28,6 @@ interface FiltrosHistorial {
   referencia: string;
   conductor: string;
   entidad: string;
-  tracking?: string;
 }
 
 interface EstadisticasHistorial {
@@ -72,12 +70,10 @@ export default function HistorialPagos() {
       if (filtrosAUsar.estado) params.append("estado", filtrosAUsar.estado);
       if (filtrosAUsar.desde) params.append("desde", filtrosAUsar.desde);
       if (filtrosAUsar.hasta) params.append("hasta", filtrosAUsar.hasta);
-      if (filtrosAUsar.referencia) params.append("referencia", filtrosAUsar.referencia);
-      // No enviar entidad ni tracking como filtro a la API, se filtra visualmente
+      // No enviar referencia, entidad ni tracking como filtro a la API, se filtra visualmente
       params.append("limite", limite.toString());
 
       const url = `https://api.x-cargo.co/pagos/historial?${params.toString()}`;
-      
 
       const response = await fetch(url, {
         method: 'GET',
@@ -93,10 +89,15 @@ export default function HistorialPagos() {
 
       const data = await response.json();
 
-      
       if (data && data.historial && Array.isArray(data.historial)) {
-          
         let historialFiltrado = filtrarPorConductorYEntidad(data.historial, filtrosAUsar);
+        // Filtro visual por referencia si aplica
+        if (filtrosAUsar.referencia && filtrosAUsar.referencia.trim() !== "") {
+          const referenciaFiltro = filtrosAUsar.referencia.trim().toLowerCase();
+          historialFiltrado = historialFiltrado.filter(pago =>
+            (pago.referencia_pago || "").toLowerCase().includes(referenciaFiltro)
+          );
+        }
         // Filtro visual por tracking si aplica
         if (filtrosAUsar.tracking && filtrosAUsar.tracking.trim() !== "") {
           const trackingFiltro = filtrosAUsar.tracking.trim().toLowerCase();
@@ -104,7 +105,7 @@ export default function HistorialPagos() {
             (pago.tracking || "").toLowerCase().includes(trackingFiltro)
           );
         }
-   
+
         setPagos(historialFiltrado);
         calcularEstadisticas(historialFiltrado);
         
@@ -145,7 +146,6 @@ export default function HistorialPagos() {
       setPagos([]);
       setEstadisticas(null);
     } finally {
-
       setCargando(false);
     }
   };
@@ -217,8 +217,7 @@ export default function HistorialPagos() {
       hasta: "",
       referencia: "",
       conductor: "",
-      entidad: "",
-      tracking: ""
+      entidad: ""
     };
     setFiltros(filtrosVacios);
     obtenerHistorial(1, filtrosVacios);
@@ -230,9 +229,9 @@ export default function HistorialPagos() {
       return;
     }
 
-    const encabezado = "Referencia,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,Novedades,Fecha_Creacion,Modificado_Por\n";
+    const encabezado = "Referencia,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier\n";
     const filas = pagos.map(pago => 
-      `"${pago.referencia_pago}",${pago.valor},"${pago.fecha}","${pago.estado}","${pago.entidad}","${pago.tipo}","${pago.correo_conductor}",${pago.num_guias},"${pago.novedades || ''}","${pago.fecha_creacion || ''}","${pago.modificado_por || ''}"`
+      `"${pago.referencia_pago}",${pago.valor},"${pago.fecha}","${pago.estado}","${pago.entidad}","${pago.tipo}","${pago.correo_conductor}",${pago.num_guias},"${pago.tracking || ''}","${pago.imagen || ''}","${pago.creado_por || ''}"`
     ).join("\n");
 
     const blob = new Blob([encabezado + filas], {
@@ -544,9 +543,9 @@ export default function HistorialPagos() {
                       </button>
                     </td>
                     <td className="carrier-cell">
-                      {pago.carrier ? (
-                        <span className="carrier-text" title={pago.carrier}>
-                          {pago.carrier}
+                      {pago.creado_por ? (
+                        <span className="carrier-text" title={pago.creado_por}>
+                          {pago.creado_por}
                         </span>
                       ) : (
                         <span className="sin-carrier">-</span>

@@ -1340,6 +1340,7 @@ async def obtener_historial_pagos(
             COALESCE(valor_total_consignacion, valor) as valor_pago,
             estado_conciliacion,
             creado_en as fecha_registro,
+            creado_por,
             tracking,
             COUNT(*) OVER (PARTITION BY referencia_pago) as num_guias
         FROM `{project}.{dataset}.pagosconductor`
@@ -1385,6 +1386,8 @@ async def obtener_historial_pagos(
         # Convertir resultados
         historial = []
         for row in results:
+            # Log temporal para depuración de creado_por
+            logger.info(f"[HISTORIAL] referencia_pago={row.referencia_pago} | creado_por={getattr(row, 'creado_por', None)}")
             pago = {
                 "referencia_pago": row.referencia_pago or "",
                 "fecha": row.fecha_pago.isoformat() if row.fecha_pago else None,
@@ -1396,6 +1399,7 @@ async def obtener_historial_pagos(
                 "valor": float(row.valor_pago) if row.valor_pago else 0.0,
                 "estado": row.estado_conciliacion or "pendiente",
                 "fecha_registro": row.fecha_registro.isoformat() if row.fecha_registro else None,
+                "creado_por": getattr(row, 'creado_por', None) or "",
                 "tracking": row.tracking or "",
                 "num_guias": int(row.num_guias) if row.num_guias else 0,
                 "imagen": "",  # Agregar campo imagen vacío por compatibilidad
