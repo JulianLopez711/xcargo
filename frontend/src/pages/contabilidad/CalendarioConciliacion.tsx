@@ -7,9 +7,15 @@ interface DiaConciliacion {
   banco: number;
   diferencia: number;
   guias: number;
+  guias_totales?: number;
   movimientos: number;
+  movimientos_soportes?: number; 
+  cantidad_soportes?: number; // Nuevos campos
   avance: number; // en %
   estado?: 'pendiente' | 'en_proceso' | 'completado' | 'con_diferencias';
+  guias_pagadas?: number; // Nuevos campos
+  plata_comprobantes?: number; // Nuevos campos
+  plata_banco?: number; // Nuevo campo para plata del banco
 }
 
 const diasSemana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -18,7 +24,7 @@ const meses = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ];
 
-const API_URL = "https://api.x-cargo.co"; // Cambia aquí si tu backend está en localhost
+const API_URL = "http://127.0.0.1:8000"; // Cambia aquí si tu backend está en localhost
 
 export default function CalendarioConciliacion() {
   const [datos, setDatos] = useState<DiaConciliacion[]>([]);
@@ -31,6 +37,7 @@ export default function CalendarioConciliacion() {
   const [diaSeleccionado, setDiaSeleccionado] = useState<DiaConciliacion | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
+  
   // Cargar datos del mes
   const cargarDatosMes = async (mes: string) => {
     console.log(`🔄 Iniciando carga de datos para mes: ${mes}`);
@@ -67,6 +74,7 @@ export default function CalendarioConciliacion() {
       }
       
       const data = await response.json();
+      console.log(data.plata_banco);
       console.log("📦 Datos recibidos:", data);
       console.log("📈 Tipo de datos:", typeof data, "Es array:", Array.isArray(data));
       
@@ -114,7 +122,7 @@ export default function CalendarioConciliacion() {
       let mensajeError = "Error desconocido";
       
       if (err instanceof TypeError && err.message === "Failed to fetch") {
-        mensajeError = "No se pudo conectar con el servidor. Verifique que el backend esté ejecutándose en https://api.x-cargo.co";
+        mensajeError = "No se pudo conectar con el servidor. Verifique que el backend esté ejecutándose en http://127.0.0.1:8000";
       } else if (err instanceof Error && err.name === 'AbortError') {
         mensajeError = "La consulta tardó demasiado tiempo (más de 30 segundos)";
       } else if (err instanceof Error) {
@@ -190,10 +198,16 @@ export default function CalendarioConciliacion() {
     const completados = datos.filter(d => d.estado === 'completado').length;
     const conDiferencias = datos.filter(d => d.estado === 'con_diferencias').length;
     const totalSoportes = datos.reduce((sum, d) => sum + d.soportes, 0);
+    const cantidadSoportes = datos.reduce((sum, d) => sum + (d.cantidad_soportes ?? 0), 0);
+    const movimientos_soportes = datos.reduce((sum, d) => sum + (d.movimientos_soportes ?? 0), 0);
+    const cantidadGuias = datos.reduce((sum, d) => sum + (d.guias_totales ?? 0), 0);
     const totalBanco = datos.reduce((sum, d) => sum + d.banco, 0);
+    const plataBanco = datos.reduce((sum, d) => sum + (d.plata_banco ?? 0), 0);
     const totalDiferencia = datos.reduce((sum, d) => sum + d.diferencia, 0);
-    const totalGuias = datos.reduce((sum, d) => sum + d.guias, 0);
+    const guiasPagadas = datos.reduce((sum, d) => sum + d.guias, 0);
     const totalMovimientos = datos.reduce((sum, d) => sum + d.movimientos, 0);
+    const guias_pagadas = datos.reduce((sum, d) => sum + (d.guias_pagadas ?? 0), 0);
+    const plata_comprobantes = datos.reduce((sum, d) => sum + (d.plata_comprobantes ?? 0), 0);
     
     // Calcular recaudo pendiente de conciliación (estados pendiente y en_proceso)
     const recaudoPendienteConciliacion = datos
@@ -206,14 +220,22 @@ export default function CalendarioConciliacion() {
       conDiferencias,
       totalSoportes,
       totalBanco,
+      plataBanco,
       totalDiferencia,
-      totalGuias,
       totalMovimientos,
+      plata_comprobantes: plata_comprobantes,
+      cantidad_soportes: cantidadSoportes,
+      movimientos_soportes: movimientos_soportes,
+      guiasPagadas: guiasPagadas,
+      cantidad_guias: cantidadGuias,
+      guias_pagadas: guias_pagadas,
       recaudoPendienteConciliacion,
       promedioAvance: totalDias > 0 ? diasConMovimientos.reduce((sum, d) => sum + d.avance, 0) / totalDias : 0
     };
   };
 
+
+  
   // Formatear moneda
   const formatearMoneda = (valor: number) => {
     return `$${Math.abs(valor).toLocaleString('es-CO')}`;
@@ -260,35 +282,54 @@ export default function CalendarioConciliacion() {
       <div className="reporte-header">
         <div className="reporte-titulo">
           <h1>REPORTE CONCILIACIÓN BANCARIA CORTE {meses[mes - 1].toUpperCase()} {año}</h1>
+          {
           <div className="saldo-info">
-            <div>SALDO DE GUÍAS POR PAGAR</div>
-            <div>{formatearMoneda(estadisticas.totalDiferencia)}</div>
+            <div><strong>SALDO PENDIENTE POR CONCILIAR</strong></div>
+            <div>{formatearMoneda(estadisticas.totalBanco - estadisticas.plata_comprobantes)}</div>
           </div>
+          }
         </div>
       </div>
 
       {/* Panel de estadísticas estilo reporte */}
       <div className="estadisticas-reporte">
         <div className="estadisticas-panel">
-          <div className="estadistica-item soportes">
-            <span className="estadistica-label">Valor Soportes</span>
-            <span className="estadistica-valor">{formatearMoneda(estadisticas.totalSoportes)}</span>
-          </div>
           <div className="estadistica-item banco">
-            <span className="estadistica-label">Extracto Banco</span>
-            <span className="estadistica-valor">{formatearMoneda(estadisticas.totalBanco)}</span>
+            <span className="estadistica-label">TOTAL GUIAS {meses[mes - 1].toUpperCase()} </span>
+            <span className="estadistica-valor">{estadisticas.cantidad_guias.toLocaleString()}</span>
           </div>
           <div className="estadistica-item guias">
-            <span className="estadistica-label">Cantidad Guías Pagadas</span>
-            <span className="estadistica-valor">{estadisticas.totalGuias.toLocaleString()}</span>
+            <span className="estadistica-label">GUIAS PAGADAS CONCILIADAS {meses[mes - 1].toUpperCase()}</span>
+            <span className="estadistica-valor">{estadisticas.guias_pagadas.toLocaleString()}</span>
           </div>
           <div className="estadistica-item movimientos">
-            <span className="estadistica-label">Cantidad Mov. Bancarios</span>
+            <span className="estadistica-label">AVANCE POR GUIAS {meses[mes - 1].toUpperCase()}</span>
+            <span className="estadistica-valor">{(estadisticas.guias_pagadas/estadisticas.cantidad_guias * 100).toFixed(1)}%</span>
+          </div>
+          <div className="estadistica-item avance">
+            <span className="estadistica-label">TOTAL CONSIGNACIONES BANCO {meses[mes - 1].toUpperCase()}  </span>
             <span className="estadistica-valor">{estadisticas.totalMovimientos.toLocaleString()}</span>
           </div>
           <div className="estadistica-item avance">
-            <span className="estadistica-label">Avance Promedio</span>
-            <span className="estadistica-valor">{estadisticas.promedioAvance.toFixed(1)}%</span>
+            <span className="estadistica-label">CANTIDAD DE SOPORTES APROBADOS {meses[mes - 1].toUpperCase()}</span>
+            <span className="estadistica-valor">{estadisticas.cantidad_soportes.toLocaleString()}</span>
+          </div>
+          <div className="estadistica-item avance">
+            <span className="estadistica-label">AVANCE CONSIGNACIONES BANCARIAS {meses[mes - 1].toUpperCase()}</span>
+            <span className="estadistica-valor">{( estadisticas.cantidad_soportes / estadisticas.totalMovimientos * 100).toFixed(1)}%</span>
+          </div>
+
+          <div className="estadistica-item avance">
+            <span className="estadistica-label">VALOR TOTAL CONSIGNACIONES BANCO {meses[mes - 1].toUpperCase()}</span>
+            <span className="estadistica-valor">{formatearMoneda(estadisticas.totalBanco)}</span>
+          </div>
+          <div className="estadistica-item avance">
+            <span className="estadistica-label">VALOR TOTAL DE SOPORTES APROBADOS</span>
+            <span className="estadistica-valor">{formatearMoneda(estadisticas.totalSoportes)}</span>
+          </div>
+          <div className="estadistica-item avance">
+            <span className="estadistica-label">AVANCE BANCARIO</span>
+            <span className="estadistica-valor">{(estadisticas.plata_comprobantes / estadisticas.totalBanco * 100).toFixed(1)}%</span>
           </div>
         </div>
       </div>
@@ -358,10 +399,10 @@ export default function CalendarioConciliacion() {
                     BCO: {formatearMoneda(dia.banco)}
                   </div>
                   <div className={`info-diferencia ${dia.diferencia >= 0 ? 'positiva' : 'negativa'}`}>
-                    DIF: {formatearMoneda(dia.diferencia)}
+                   <strong>DIF: {formatearMoneda(dia.diferencia)}</strong> 
                   </div>
                   <div className="info-meta">
-                    {dia.guias} guías | {dia.movimientos} mov
+                    {dia.cantidad_soportes} sop | {dia.movimientos} mov
                   </div>
                 </div>
 

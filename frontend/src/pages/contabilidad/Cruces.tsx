@@ -63,16 +63,20 @@ interface EstadisticasGenerales {
     conciliados: number;
     pendientes: number;
     valor_total: number;
-    fecha_inicial?: string;
-    fecha_final?: string;
+    conciliados_exactos?: number; // Nuevo campo para conciliados exactos
+    conciliados_aproximados?: number; // Nuevo campo para conciliados aproximados
+    conciliados_manuales?: number; // Nuevo campo para conciliados manuales
+    //fecha_inicial?: string;
+    //fecha_final?: string;
   };
   resumen_por_estado: Array<{
     estado_conciliacion: string;
     cantidad: number;
     valor_total: number;
-    fecha_min?: string;
-    fecha_max?: string;
+    //fecha_min?: string;
+    //fecha_max?: string;
   }>;
+  total_valor_banco: number;
 }
 
 // Nueva interfaz para pagos pendientes de conciliar
@@ -171,6 +175,11 @@ const Cruces: React.FC = () => {
     percentage: 0,
     message: "",
   });
+
+    // Formatear moneda
+  const formatearMoneda = (valor: number) => {
+    return `$${Math.abs(valor).toLocaleString('es-CO')}`;
+  };
 
   const verDetallesPago = async (referenciaPago: string) => {
     try {
@@ -290,6 +299,7 @@ const Cruces: React.FC = () => {
           valor_total: 0,
         },
         resumen_por_estado: data.resumen_por_estado || [],
+        total_valor_banco: data.total_valor_banco || 0,
       };
 
       setEstadisticasGenerales(estadisticas);
@@ -312,6 +322,7 @@ const Cruces: React.FC = () => {
       }
 
       const data = await response.json();
+      console.log("Datos de pagos pendientes:", data.total);
       setPagosPendientes(data.pagos || []);
     } catch (err: any) {
       console.error("Error cargando pagos pendientes:", err);
@@ -1357,15 +1368,58 @@ const Cruces: React.FC = () => {
   return (
     <div className="cruces-container">
       <h2 className="titulo">Conciliación Bancaria Inteligente</h2>
-      <h3>Resumen General</h3>
-      {/* Estadísticas generales */}
+      <h3 style={{ textAlign: "center" , marginBottom: "3rem", fontSize: "40px" }}><strong>Resumen General Movimientos Bancarios Totales</strong></h3>
+      <div>
+        <div className="estadisticas-panel">
+          <div className="stat-card primary">
+            <div className="stat-icon">📊</div>
+             <span className="stat-label">TOTAL MOVIMIENTOS BANCARIOS  </span>
+             <span className="stat-number">{estadisticasGenerales?.resumen_general?.total_movimientos?.toLocaleString() ?? 0}</span>
+          </div>
+          <div className="stat-card primary">
+            <div className="stat-icon">💰</div>
+             <span className="stat-label">VALOR TOTAL MOVIMIENTOS BANCARIOS </span>
+             <span className="stat-number">{formatearMoneda(estadisticasGenerales?.total_valor_banco ?? 0)}</span>
+          </div>
+          <div className="stat-card primary">
+            <div className="stat-icon">⏳</div>
+             <span className="stat-label">MOVIMIENTOS PENDIENTES POR CONCILIAR </span>
+             <span className="stat-number">{estadisticasGenerales?.resumen_general?.pendientes?.toLocaleString() ?? 0}</span>
+          </div>
+          <div className="stat-card primary">
+            <div className="stat-icon">✅</div>
+             <span className="stat-label">MOVIMIENTOS CONCILIADOS EXACTOS </span>
+             <span className="stat-number">{estadisticasGenerales?.resumen_general?.conciliados_exactos?.toLocaleString() ?? 0}</span>
+          </div>
+          <div className="stat-card primary">
+            <div className="stat-icon">🔸</div>
+             <span className="stat-label">MOVIMIENTOS CONCILIADOS APROXIMADOS </span>
+             <span className="stat-number">{estadisticasGenerales?.resumen_general?.conciliados_aproximados?.toLocaleString() ?? 0}</span>
+          </div>
+          <div className="stat-card primary">
+            <div className="stat-icon">📄</div>
+             <span className="stat-label">MOVIMIENTOS CONCILIADOS MANUALES </span>
+             <span className="stat-number">{estadisticasGenerales?.resumen_general?.conciliados_manuales?.toLocaleString() ?? 0}</span>
+          </div>
+
+
+
+        </div>
+      </div>
+
+
+
+
+
+
+      {/* Estadísticas generales 
       {estadisticasGenerales && (
         <div className="estadisticas-panel">
-          <div className="estadisticas-grid">
+         
             <div className="stat-card primary">
               <div className="stat-icon">📊</div>
               <div className="stat-content">
-                <span className="stat-label">TOTAL MOVIMIENTOS</span>
+                <span className="stat-label">TOTAL MOVIMIENTOS </span>
                 <span className="stat-number">
                   {estadisticasGenerales?.resumen_general?.total_movimientos?.toLocaleString() ?? 0}
                 </span>
@@ -1426,9 +1480,9 @@ const Cruces: React.FC = () => {
                 </div>
               );
             })}
-          </div>
+          
         </div>
-      )}
+      )} */}
       {/* Carga de archivo */}
       <div className="carga-csv">
         <h3>📁 Cargar Archivo del Banco</h3>
