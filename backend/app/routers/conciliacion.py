@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Depends,status
 from fastapi.responses import StreamingResponse
 from google.cloud import bigquery
 from typing import List, Dict, Optional, Any, AsyncGenerator
@@ -11,6 +11,17 @@ import io
 import logging
 import json
 import asyncio
+
+def get_bigquery_client() -> bigquery.Client:
+    """Obtiene cliente de BigQuery con manejo de errores"""
+    try:
+        return bigquery.Client(project=PROJECT_ID)
+    except Exception as e:
+        
+        raise HTTPException(
+            status_code=500, 
+            detail="Error de configuración de base de datos"
+        )
 
 def convertir_decimales_a_float(obj):
     """Convierte recursivamente todos los objetos Decimal a float para serialización JSON"""
@@ -881,8 +892,6 @@ async def conciliacion_automatica_mejorada():
 
             total_referencias = len(pagos_por_referencia)
             procesadas = 0
-            ids_movimientos_usados = set()
-
 
             for referencia, pagos in pagos_por_referencia.items():
                 procesadas += 1
@@ -893,7 +902,7 @@ async def conciliacion_automatica_mejorada():
                 porcentaje_actual = porcentaje_base + int((procesadas / total_referencias) * porcentaje_procesamiento)
                 
                 valor_total = sum(float(pago.valor) for pago in pagos)
-                fecha_pago = normalizar_fecha(pagos[0].fecha_pago)
+                fecha_pago = pagos[0].fecha_pago
 
                 # Enviar progreso de procesamiento detallado con emoji y formato mejorado
                 mensaje_progreso = f"⏳ Procesando {procesadas}/{total_referencias} ({porcentaje_actual}%) - Referencia: {referencia} - Valor: ${valor_total:,.0f}"
@@ -905,13 +914,10 @@ async def conciliacion_automatica_mejorada():
                 match = next((
                     movimiento for movimiento in banco_rows
                     if abs(float(movimiento.valor_banco) - valor_total) <= margen_error
-                    and movimiento.id not in ids_movimientos_usados
-                    and normalizar_fecha(movimiento.fecha) == fecha_pago  # ✅ Comparación segura
+                    and str(movimiento.fecha) == str(fecha_pago)
                 ), None)
 
-
                 if match:
-                    ids_movimientos_usados.add(match.id)
                     # ✅ Conciliado exitosamente
                     resumen["conciliado_exacto"] += 1
                     referencias_usadas.add(referencia)
@@ -1682,12 +1688,13 @@ def obtener_resumen_conciliacion():
         SELECT 
             COUNT(*) as total_movimientos,
             COUNTIF(estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')) as conciliados,
+            COUNTIF(estado_conciliacion = 'conciliado_exacto') as conciliados_exactos,
+            COUNTIF(estado_conciliacion = 'conciliado_aproximado') as conciliados_aproximados,
+            COUNTIF(estado_conciliacion = 'conciliado_manual') as conciliados_manuales,
             COUNTIF(estado_conciliacion = 'pendiente') as pendientes,
-            SUM(valor_banco) as valor_total,
-            MIN(fecha) as fecha_inicial,
-            MAX(fecha) as fecha_final
+            SUM(SAFE_CAST(valor_banco AS FLOAT64)) as valor_total
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-        WHERE fecha >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
+    
         """
         
         resultado_general = list(client.query(query_general).result())[0]
@@ -1697,34 +1704,44 @@ def obtener_resumen_conciliacion():
         SELECT 
             estado_conciliacion,
             COUNT(*) as cantidad,
-            SUM(valor_banco) as valor_total,
+            SUM(SAFE_CAST(valor_banco AS FLOAT64)) as valor_total,
             MIN(fecha) as fecha_min,
             MAX(fecha) as fecha_max
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-        WHERE fecha >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
         GROUP BY estado_conciliacion
         ORDER BY cantidad DESC
         """
+        # 3. Total absoluto valor_banco
+        query_total_valor = """
+        SELECT
+             SUM(SAFE_CAST(valor_banco AS FLOAT64)) AS total_valor_banco
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        """
+        resultado_total = list(client.query(query_total_valor).result())[0]
         
         estados = []
         for row in client.query(query_estados).result():
             estados.append({
                 "estado_conciliacion": row["estado_conciliacion"],
                 "cantidad": int(row["cantidad"]),
-                "valor_total": float(row["valor_total"]) if row["valor_total"] else 0,
-                "fecha_min": row["fecha_min"].isoformat() if row["fecha_min"] else None,
-                "fecha_max": row["fecha_max"].isoformat() if row["fecha_max"] else None
+                "valor_total": float(row["valor_total"]) if row["valor_total"] else 0
+                #"fecha_min": row["fecha_min"].isoformat() if row["fecha_min"] else None,
+                #"fecha_max": row["fecha_max"].isoformat() if row["fecha_max"] else None
             })
         
         return {
             "resumen_general": {
                 "total_movimientos": int(resultado_general["total_movimientos"]),
                 "conciliados": int(resultado_general["conciliados"]),
+                "conciliados_exactos": int(resultado_general["conciliados_exactos"]),
+                "conciliados_aproximados": int(resultado_general["conciliados_aproximados"]),
+                "conciliados_manuales": int(resultado_general["conciliados_manuales"]),
                 "pendientes": int(resultado_general["pendientes"]),
-                "valor_total": float(resultado_general["valor_total"]) if resultado_general["valor_total"] else 0,
-                "fecha_inicial": resultado_general["fecha_inicial"].isoformat() if resultado_general["fecha_inicial"] else None,
-                "fecha_final": resultado_general["fecha_final"].isoformat() if resultado_general["fecha_final"] else None
+                "valor_total": float(resultado_general["valor_total"]) if resultado_general["valor_total"] else 0
+                #"fecha_inicial": resultado_general["fecha_inicial"].isoformat() if resultado_general["fecha_inicial"] else None,
+                #"fecha_final": resultado_general["fecha_final"].isoformat() if resultado_general["fecha_final"] else None
             },
+            "total_valor_banco": int(resultado_total["total_valor_banco"]) if resultado_total["total_valor_banco"] else 0,
             "resumen_por_estado": estados,
             "timestamp": datetime.utcnow().isoformat()
         }
@@ -2095,6 +2112,7 @@ async def obtener_pagos_pendientes_conciliar():
     client = bigquery.Client()
     
     try:
+    
         query = """
         SELECT 
             referencia_pago as referencia,
@@ -2115,7 +2133,6 @@ async def obtener_pagos_pendientes_conciliar():
                OR estado_conciliacion = 'pendiente_conciliacion')
         AND fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
         ORDER BY fecha_pago DESC
-        LIMIT 100
         """
         
         resultados = []
@@ -2161,6 +2178,7 @@ async def obtener_transacciones_bancarias_disponibles(referencia: str):
             fecha_pago,
             entidad,
             tipo
+
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
         WHERE referencia_pago = @referencia
         LIMIT 1
@@ -2460,34 +2478,3 @@ def get_nivel_match(porcentaje: float) -> str:
         return "🔴 Bajo"
     else:
         return "⚫ Muy Bajo"
-
-# Agrega esta función helper al inicio del archivo, después de los imports
-def normalizar_fecha(fecha_input):
-    """
-    Convierte cualquier tipo de fecha a datetime.date de forma segura
-    """
-    from datetime import datetime, date
-    
-    if fecha_input is None:
-        return None
-    
-    if isinstance(fecha_input, str):
-        # Si es string, parsearlo a date
-        try:
-            if 'T' in fecha_input or ' ' in fecha_input:
-                return datetime.fromisoformat(fecha_input.replace('Z', '+00:00')).date()
-            else:
-                return datetime.strptime(fecha_input, '%Y-%m-%d').date()
-        except:
-            return fecha_input
-    
-    elif isinstance(fecha_input, datetime):
-        # Si ya es datetime, extraer solo la fecha
-        return fecha_input.date()
-    
-    elif isinstance(fecha_input, date):
-        # Si ya es date, devolverlo tal como está
-        return fecha_input
-    
-    else:
-        return fecha_input

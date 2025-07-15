@@ -318,22 +318,28 @@ class EnhancedOCRExtractor:
             
             # Prompt mejorado para OpenAI
             prompt = """
-                    Eres un experto en análisis y extracción de datos de comprobantes de pago colombianos. 
-                    Tu tarea es analizar cuidadosamente la imagen y extraer SOLO los datos financieros más relevantes, 
-                    siguiendo estrictamente las reglas de validación que se describen a continuación.
+                    Eres un experto en análisis y extracción de datos de comprobantes de pago colombianos.
 
-                    Extrae EXCLUSIVAMENTE los siguientes campos en formato JSON:
+                    Tu tarea es analizar cuidadosamente la imagen y extraer **solo los datos financieros más relevantes** en formato JSON, siguiendo las **reglas estrictas de validación** que se describen a continuación.
 
+                    EXTRAE EXCLUSIVAMENTE los siguientes campos en formato JSON:
+
+                    ```json
                     {
-                    "valor": "solo números, sin símbolos ni comas (ej: 586600, 156000)",
+                    "valor": "solo números, sin símbolos ni comas (ej: 586600, 156000), debes ignorar todo lo que venga despues de la coma y evitar errores de redondeo",
+                    que se detecte un valor superior al real",
                     "fecha": "formato YYYY-MM-DD si encuentras fecha",
                     "hora": "formato HH:MM:SS en notación 24h si encuentras hora (convierte de a. m. / p. m. si es necesario)",
                     "entidad": "nombre exacto de la entidad emisora del comprobante (ej: Nequi, Bancolombia, Daviplata, etc.)",
                     "referencia": "número de referencia/autorización/recibo más relevante y completo",
                     "estado": "estado de la transacción si está visible; si no se encuentra, usar null",
                     "descripcion": "concepto o tipo de movimiento si está presente (por ejemplo: DEPOSITO, TRANSFERENCIA, PAGO, RECARGA, etc.)",
-                    "tipo_comprobante": "nequi, transferencia o consignacion — según las reglas a continuación"
+                    "tipo_comprobante": "nequi, transferencia o consignacion — obligatorio y debe cumplir reglas exactas"
                     }
+                    
+                    REGLAS PARA valor:
+                    - Al momento de extraer debes ser termianantemente esctricto para tomar únicamente el valor antes de la coma.
+                    - Aunque sean montos pequeños debes priorizar que el valor tomado ignore lo que venga después de la coma.
 
                     REGLAS PARA tipo_comprobante:
                     - Solo acepta estos valores exactos: "nequi", "transferencia", "consignacion".
@@ -348,13 +354,15 @@ class EnhancedOCRExtractor:
                     - Si no existe ninguno, usa null.
 
                     REGLAS ADICIONALES:
+                    - Solo se permiten únicamente tres tipos de comprobantes: "nequi", "transferencia", "consignacion".
                     - Si no encuentras un campo, usa null (sin comillas).
+                    - Fuerza tu modelo para ignorar completamente cualquier número después de la coma en el campo "valor".
                     - El JSON debe estar completo, limpio y sintácticamente válido.
                     - No incluyas texto adicional, solo el JSON.
                     - Corrige automáticamente formatos como "$ 156.000" → "156000"
                     - Convierte fechas y horas a los formatos requeridos.
                     """
-
+                    
 
 
             response = client.chat.completions.create(
@@ -475,7 +483,8 @@ class EnhancedOCRExtractor:
             r'valor.*?([0-9,.]+)',  # valor: 150,000
             r'total.*?([0-9,.]+)',  # total: 150,000
             r'monto.*?([0-9,.]+)',  # monto: 150,000
-            r'([0-9]{1,3}(?:,?[0-9]{3})*(?:\.[0-9]{2})?)'  # números con formato
+            r'([0-9]{1,3}(?:,?[0-9]{3})*(?:\.[0-9]{2})?)',
+            r' \b\d{1,3}(?:\.\d{3})*(?=,)|\b\d+(?=,)'  # números con formato
         ]
         
         for patron in patrones_valor:
