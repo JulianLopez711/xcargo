@@ -780,6 +780,7 @@ export default function RegistrarPago() {
         
         const data = await response.json();
         setBonosDisponibles(data.bonos || []);
+        console.log('Bonos disponibles:', data.bonos);
         setSaldoBonosTotal(data.total_disponible || 0);
       } catch (error) {
         console.error('Error cargando bonos:', error);

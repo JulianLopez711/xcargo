@@ -160,7 +160,7 @@ class AIValidator:
         if valor := datos.get("valor"):
             try:
                 valor_num = float(str(valor).replace(',', ''))
-                if 1000 <= valor_num <= 50000000:
+                if 0 < valor_num <= 50000000:
                     validaciones["valor"] = "OK"
                 else:
                     validaciones["valor"] = f"❌ Valor fuera de rango: {valor}"
@@ -237,7 +237,7 @@ class AIValidator:
         
         # Verificar que esté en rango razonable
         valor_num = int(valor_limpio)
-        return 1000 <= valor_num <= 500000000  # Entre $1.000 y $500M
+        return 0 <= valor_num <= 500000000  # Entre $1.000 y $500M
     
     def _es_fecha_valida(self, fecha: str) -> bool:
         """Valida formato y coherencia de fecha"""
