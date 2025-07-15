@@ -85,7 +85,7 @@ export default function GuiasPendientes() {
       if (filtroTracking) queryParams.append("tracking", filtroTracking);
       if (filtroCiudad) queryParams.append("ciudad", filtroCiudad);
       if (filtroFecha) queryParams.append("fecha", filtroFecha);      const response = await fetch(
-        `https://api.x-cargo.co/supervisor/guias-pendientes?${queryParams.toString()}`,
+        `http://127.0.0.1:8000/supervisor/guias-pendientes?${queryParams.toString()}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,

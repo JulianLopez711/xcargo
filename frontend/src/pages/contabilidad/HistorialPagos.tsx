@@ -28,6 +28,7 @@ interface FiltrosHistorial {
   referencia: string;
   conductor: string;
   entidad: string;
+  carrier?: string;
 }
 
 interface EstadisticasHistorial {
@@ -56,7 +57,8 @@ export default function HistorialPagos() {
     referencia: "",
     conductor: "",
     entidad: "",
-    tracking: ""
+    tracking: "",
+    carrier: ""
   });
 
   const obtenerHistorial = async (pagina = 1, nuevosFiltros?: FiltrosHistorial) => {
@@ -73,7 +75,7 @@ export default function HistorialPagos() {
       // No enviar referencia, entidad ni tracking como filtro a la API, se filtra visualmente
       params.append("limite", limite.toString());
 
-      const url = `https://api.x-cargo.co/pagos/historial?${params.toString()}`;
+      const url = `http://127.0.0.1:8000/pagos/historial?${params.toString()}`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -106,6 +108,13 @@ export default function HistorialPagos() {
           );
         }
 
+        // Filtro visual por carrier si aplica
+        if (filtrosAUsar.carrier && filtrosAUsar.carrier.trim() !== "") {
+          const carrierFiltro = filtrosAUsar.carrier.trim().toLowerCase();
+          historialFiltrado = historialFiltrado.filter(pago =>
+            (pago.creado_por || "").toLowerCase().includes(carrierFiltro)
+          );
+        }
         setPagos(historialFiltrado);
         calcularEstadisticas(historialFiltrado);
         
@@ -217,7 +226,9 @@ export default function HistorialPagos() {
       hasta: "",
       referencia: "",
       conductor: "",
-      entidad: ""
+      entidad: "",
+      tracking: "",
+      carrier: ""
     };
     setFiltros(filtrosVacios);
     obtenerHistorial(1, filtrosVacios);
@@ -423,6 +434,15 @@ export default function HistorialPagos() {
               onChange={e => setFiltros({...filtros, tracking: e.target.value})}
             />
           </div>
+          <div className="filtro-grupo">
+            <label>Carrier:</label>
+            <input
+              type="text"
+              placeholder="Buscar carrier..."
+              value={filtros.carrier || ""}
+              onChange={e => setFiltros({...filtros, carrier: e.target.value})}
+            />
+          </div>
         </div>
         
         <div className="filtros-acciones">
@@ -501,7 +521,11 @@ export default function HistorialPagos() {
                         {formatearMoneda(pago.valor)}
                       </span>
                     </td>
-                    <td>{new Date(pago.fecha).toLocaleDateString('es-ES')}</td>
+                    <td>
+                      {/^\d{4}-\d{2}-\d{2}$/.test(pago.fecha)
+                        ? pago.fecha
+                        : new Date(pago.fecha).toLocaleDateString('es-ES')}
+                    </td>
                     <td className="estado-cell">
                       <span 
                         className="estado-badge"
