@@ -585,7 +585,7 @@ async def conciliacion_mensual(
                     COUNT(*) as movimientos_soportes
                 FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
                 WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
-                    AND estado IN ('aprobado', 'pagado')
+                    AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
                     AND valor IS NOT NULL
                     AND SAFE_CAST(valor AS FLOAT64) > 0
                 GROUP BY DATE(fecha_pago)
@@ -593,8 +593,45 @@ async def conciliacion_mensual(
             datos_banco AS (
                 SELECT
                     DATE(fecha) as fecha,
-                    SUM(SAFE_CAST(valor_banco AS FLOAT64)) as valor_banco_real,
+                    SUM(valor_banco) as valor_banco_real,
                     COUNT(*) as movimientos_banco
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
+                WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
+                    AND valor_banco IS NOT NULL
+                    AND SAFE_CAST(valor_banco AS FLOAT64) > 0
+                GROUP BY DATE(fecha)
+            ),
+            guias_totales AS (
+                SELECT
+                    DATE(fecha) as fecha,
+                    COUNT(DISTINCT tracking) AS total_guias
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
+                GROUP BY DATE(fecha)
+            ),
+            comprobantes_conciliados AS (
+                SELECT
+                    DATE(fecha_pago) as fecha,
+                    COUNT(DISTINCT referencia_pago) as cantidad_soportes,
+                    SUM(SAFE_CAST(valor AS FLOAT64)) plata_comprobantes
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin 
+                    AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
+                GROUP BY DATE(fecha_pago)
+            ),
+            guias_pagadas AS (
+                SELECT
+                    DATE(fecha_pago) as fecha,
+                    COUNT(DISTINCT tracking) as guias_pagadas
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
+                    AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
+                GROUP BY DATE(fecha_pago)
+            ),
+            plata_banco AS (
+                SELECT
+                    DATE(fecha) as fecha,
+                    SUM(valor_banco) as plata_mov_banco
                 FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
                 WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
                     AND valor_banco IS NOT NULL
@@ -607,7 +644,14 @@ async def conciliacion_mensual(
                 COALESCE(db.valor_banco_real, 0) as banco,  -- SOLO datos reales, no estimaciones
                 COALESCE(ds.valor_soportes, 0) - COALESCE(db.valor_banco_real, 0) as diferencia,
                 COALESCE(ds.guias_soportes, 0) as guias,
-                COALESCE(ds.movimientos_soportes, 0) + COALESCE(db.movimientos_banco, 0) as movimientos,
+                COALESCE(plata_banco.plata_mov_banco, 0) as plata_banco,
+                COALESCE(gt.total_guias, 0) as guias_totales,
+                COALESCE(cc.cantidad_soportes, 0)  as cantidad_soportes,
+                COALESCE(cc.plata_comprobantes, 0) as plata_comprobantes,
+                COALESCE(guias_pagadas.guias_pagadas, 0) as guias_pagadas,
+                COALESCE(db.movimientos_banco, 0) as movimientos,
+                COALESCE(ds.movimientos_soportes, 0) as movimientos_soportes,
+                
                 CASE
                     WHEN COALESCE(ds.valor_soportes, 0) = 0 AND COALESCE(db.valor_banco_real, 0) = 0 THEN 0
                     WHEN COALESCE(ds.valor_soportes, 0) = 0 THEN 0
@@ -615,6 +659,10 @@ async def conciliacion_mensual(
                 END as avance
             FROM datos_soportes ds
             FULL OUTER JOIN datos_banco db ON ds.fecha = db.fecha
+            FULL OUTER JOIN guias_totales gt ON COALESCE(ds.fecha, db.fecha) = gt.fecha
+            FULL OUTER JOIN plata_banco ON COALESCE(ds.fecha, db.fecha) = plata_banco.fecha
+            FULL OUTER JOIN guias_pagadas ON COALESCE(ds.fecha, db.fecha) = guias_pagadas.fecha
+            FULL OUTER JOIN comprobantes_conciliados cc ON COALESCE(ds.fecha, db.fecha) = cc.fecha
             WHERE COALESCE(ds.fecha, db.fecha) IS NOT NULL
             ORDER BY COALESCE(ds.fecha, db.fecha)
             """
@@ -636,12 +684,19 @@ async def conciliacion_mensual(
             for row in rows:
                 dias_conciliacion.append({
                     "fecha": str(row.fecha),
+                    "plata_banco": float(row.plata_banco) if row.plata_banco is not None else 0.0,
                     "soportes": int(row.soportes) if row.soportes else 0,
                     "banco": int(row.banco) if row.banco else 0,
                     "diferencia": int(row.diferencia) if row.diferencia else 0,
                     "guias": int(row.guias) if row.guias else 0,
+                    "plata_comprobantes": float(row.plata_comprobantes) if row.plata_comprobantes is not None else 0.0,
+                    "guias_totales": int(row.guias_totales) if row.guias_totales else 0,
                     "movimientos": int(row.movimientos) if row.movimientos else 0,
-                    "avance": float(row.avance) if row.avance is not None else 0.0
+                    "guias_pagadas": int(row.guias_pagadas) if row.guias_pagadas else 0,
+                    "cantidad_soportes": int(row.cantidad_soportes) if row.cantidad_soportes else 0,
+                    "movimientos_soportes": int(row.movimientos_soportes) if row.movimientos_soportes else 0,
+                    "avance": float(row.avance) if row.avance is not None else 0.0,
+                    
                 })
                 
             if dias_conciliacion:
