@@ -326,7 +326,7 @@ export default function RegistrarPago() {
           valor: data.valor || "",
           fecha: convertirFechaAISO(data.fecha || ""),
           hora: normalizarHora(data.hora || ""),
-          tipo: data.tipo || data.entidad || "",
+          tipo: data.tipo || "",
           entidad: data.entidad || "",
           referencia: data.referencia || "",
         };
@@ -424,8 +424,14 @@ export default function RegistrarPago() {
   const agregarPago = () => {
     const campos = Object.entries(datosManuales);
     for (const [key, val] of campos) {
+      if (!datosManuales.tipo){
+        alert("Por favor seleccione un tipo de pago válido.");
+        return;
+      
+      }
       if (typeof val !== "string" || val.trim() === "") {
         alert(`El campo "${key}" es obligatorio`);
+
         return;
       }
     }
