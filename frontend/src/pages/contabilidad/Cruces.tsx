@@ -305,19 +305,8 @@ const Cruces: React.FC = () => {
 
 
 
-<<<<<<< HEAD
 
   // ✅ NUEVA FUNCIÓN PARA CARGAR PAGOS PENDIENTES DE CONCILIAR
-=======
-      const data = await response.json();
-      console.log("Datos de pagos pendientes:", data.total);
-      setPagosPendientes(data.pagos || []);
-    } catch (err: any) {
-      console.error("Error cargando pagos pendientes:", err);
-      setMensaje(`❌ Error al cargar pagos pendientes: ${err.message}`);
-    }
-  };
->>>>>>> origin/Oscar
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
