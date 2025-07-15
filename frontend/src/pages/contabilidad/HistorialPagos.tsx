@@ -19,6 +19,7 @@ interface PagoHistorial {
   tracking?: string;
   fecha_registro?: string;
   creado_por?: string;
+  carrier?: string;
 }
 
 interface FiltrosHistorial {
@@ -108,11 +109,11 @@ export default function HistorialPagos() {
           );
         }
 
-        // Filtro visual por carrier si aplica
+        // Filtro visual por carrier (nombre) si aplica
         if (filtrosAUsar.carrier && filtrosAUsar.carrier.trim() !== "") {
           const carrierFiltro = filtrosAUsar.carrier.trim().toLowerCase();
           historialFiltrado = historialFiltrado.filter(pago =>
-            (pago.creado_por || "").toLowerCase().includes(carrierFiltro)
+            (pago.carrier || "").toLowerCase().includes(carrierFiltro)
           );
         }
         setPagos(historialFiltrado);
@@ -241,8 +242,8 @@ export default function HistorialPagos() {
     }
 
     const encabezado = "Referencia,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier\n";
-    const filas = pagos.map(pago => 
-      `"${pago.referencia_pago}",${pago.valor},"${pago.fecha}","${pago.estado}","${pago.entidad}","${pago.tipo}","${pago.correo_conductor}",${pago.num_guias},"${pago.tracking || ''}","${pago.imagen || ''}","${pago.creado_por || ''}"`
+    const filas = pagosPaginados.map(pago => 
+      `"${pago.referencia_pago}",${pago.valor},"${pago.fecha}","${pago.estado}","${pago.entidad}","${pago.tipo}","${pago.correo_conductor}",${pago.num_guias},"${pago.tracking || ''}","${pago.imagen || ''}","${pago.carrier || ''}"`
     ).join("\n");
 
     const blob = new Blob([encabezado + filas], {
@@ -311,13 +312,22 @@ export default function HistorialPagos() {
       .filter(entidad => entidad !== null && entidad !== undefined && entidad !== '')
   )).sort();
 
+  // Mostrar cada TN (tracking) en su propia fila
+  const pagosExpandido = pagos.flatMap(pago => {
+    if (pago.tracking && pago.tracking.includes(',')) {
+      // Si tracking es una lista separada por coma
+      return pago.tracking.split(',').map(trk => ({ ...pago, tracking: trk.trim() }));
+    }
+    return [pago];
+  });
+
   // Paginación de datos - solo aplicar si hay límite
   const pagosPaginados = limite > 0 
     ? (() => {
         const inicio = (paginaActual - 1) * limite;
-        return pagos.slice(inicio, inicio + limite);
+        return pagosExpandido.slice(inicio, inicio + limite);
       })()
-    : pagos; // Si límite = 0, mostrar todos los pagos
+    : pagosExpandido; // Si límite = 0, mostrar todos los pagos
 
   // Calcular inicio para mostrar en la tabla
   const inicio = limite > 0 ? (paginaActual - 1) * limite : 0;
@@ -567,9 +577,9 @@ export default function HistorialPagos() {
                       </button>
                     </td>
                     <td className="carrier-cell">
-                      {pago.creado_por ? (
-                        <span className="carrier-text" title={pago.creado_por}>
-                          {pago.creado_por}
+                      {pago.carrier && pago.carrier !== 'N/A' ? (
+                        <span className="carrier-text" title={pago.carrier}>
+                          {pago.carrier}
                         </span>
                       ) : (
                         <span className="sin-carrier">-</span>
