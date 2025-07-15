@@ -27,7 +27,7 @@ class BankPatternValidator:
             "nequi": {
                 "referencia_formato": r"^[A-Z0-9]{6,15}$",
                 "monto_maximo": 2000000,  # $2M límite Nequi
-                "monto_minimo": 1000,
+                "monto_minimo": 1,
                 "horario_operacion": (0, 24),  # 24h para mayor flexibilidad
                 "formatos_aceptados": ["transferencia", "pago", "nequi"]
             },
