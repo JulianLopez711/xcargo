@@ -3,7 +3,6 @@ import { saveAs } from "file-saver";
 import "../../styles/contabilidad/HistorialPagos.css";
 
 interface PagoHistorial {
-  creado_por: any;
   referencia_pago: string;
   valor: number | undefined;
   fecha: string;
@@ -19,6 +18,8 @@ interface PagoHistorial {
   modificado_por?: string;
   tracking?: string;
   fecha_registro?: string;
+  creado_por?: string;
+  carrier?: string;
 }
 
 interface FiltrosHistorial {
@@ -28,7 +29,7 @@ interface FiltrosHistorial {
   referencia: string;
   conductor: string;
   entidad: string;
-  tracking: string;
+  carrier?: string;
 }
 
 interface EstadisticasHistorial {
@@ -57,7 +58,8 @@ export default function HistorialPagos() {
     referencia: "",
     conductor: "",
     entidad: "",
-    tracking: ""
+    tracking: "",
+    carrier: ""
   });
 
   const obtenerHistorial = async (pagina = 1, nuevosFiltros?: FiltrosHistorial) => {
@@ -71,12 +73,10 @@ export default function HistorialPagos() {
       if (filtrosAUsar.estado) params.append("estado", filtrosAUsar.estado);
       if (filtrosAUsar.desde) params.append("desde", filtrosAUsar.desde);
       if (filtrosAUsar.hasta) params.append("hasta", filtrosAUsar.hasta);
-      if (filtrosAUsar.referencia) params.append("referencia", filtrosAUsar.referencia);
-      // No enviar entidad ni tracking como filtro a la API, se filtra visualmente
+      // No enviar referencia, entidad ni tracking como filtro a la API, se filtra visualmente
       params.append("limite", limite.toString());
 
       const url = `https://api.x-cargo.co/pagos/historial?${params.toString()}`;
-      
 
       const response = await fetch(url, {
         method: 'GET',
@@ -92,10 +92,15 @@ export default function HistorialPagos() {
 
       const data = await response.json();
 
-      
       if (data && data.historial && Array.isArray(data.historial)) {
-          
         let historialFiltrado = filtrarPorConductorYEntidad(data.historial, filtrosAUsar);
+        // Filtro visual por referencia si aplica
+        if (filtrosAUsar.referencia && filtrosAUsar.referencia.trim() !== "") {
+          const referenciaFiltro = filtrosAUsar.referencia.trim().toLowerCase();
+          historialFiltrado = historialFiltrado.filter(pago =>
+            (pago.referencia_pago || "").toLowerCase().includes(referenciaFiltro)
+          );
+        }
         // Filtro visual por tracking si aplica
         if (filtrosAUsar.tracking && filtrosAUsar.tracking.trim() !== "") {
           const trackingFiltro = filtrosAUsar.tracking.trim().toLowerCase();
@@ -103,7 +108,14 @@ export default function HistorialPagos() {
             (pago.tracking || "").toLowerCase().includes(trackingFiltro)
           );
         }
-   
+
+        // Filtro visual por carrier (nombre) si aplica
+        if (filtrosAUsar.carrier && filtrosAUsar.carrier.trim() !== "") {
+          const carrierFiltro = filtrosAUsar.carrier.trim().toLowerCase();
+          historialFiltrado = historialFiltrado.filter(pago =>
+            (pago.carrier || "").toLowerCase().includes(carrierFiltro)
+          );
+        }
         setPagos(historialFiltrado);
         calcularEstadisticas(historialFiltrado);
         
@@ -144,7 +156,6 @@ export default function HistorialPagos() {
       setPagos([]);
       setEstadisticas(null);
     } finally {
-
       setCargando(false);
     }
   };
@@ -217,7 +228,8 @@ export default function HistorialPagos() {
       referencia: "",
       conductor: "",
       entidad: "",
-      tracking: ""
+      tracking: "",
+      carrier: ""
     };
     setFiltros(filtrosVacios);
     obtenerHistorial(1, filtrosVacios);
@@ -229,9 +241,9 @@ export default function HistorialPagos() {
       return;
     }
 
-    const encabezado = "Referencia,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,Novedades,Fecha_Creacion,Modificado_Por\n";
-    const filas = pagos.map(pago => 
-      `"${pago.referencia_pago}",${pago.valor},"${pago.fecha}","${pago.estado}","${pago.entidad}","${pago.tipo}","${pago.correo_conductor}",${pago.num_guias},"${pago.novedades || ''}","${pago.fecha_creacion || ''}","${pago.modificado_por || ''}"`
+    const encabezado = "Referencia,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier\n";
+    const filas = pagosPaginados.map(pago => 
+      `"${pago.referencia_pago}",${pago.valor},"${pago.fecha}","${pago.estado}","${pago.entidad}","${pago.tipo}","${pago.correo_conductor}",${pago.num_guias},"${pago.tracking || ''}","${pago.imagen || ''}","${pago.carrier || ''}"`
     ).join("\n");
 
     const blob = new Blob([encabezado + filas], {
@@ -300,13 +312,22 @@ export default function HistorialPagos() {
       .filter(entidad => entidad !== null && entidad !== undefined && entidad !== '')
   )).sort();
 
+  // Mostrar cada TN (tracking) en su propia fila
+  const pagosExpandido = pagos.flatMap(pago => {
+    if (pago.tracking && pago.tracking.includes(',')) {
+      // Si tracking es una lista separada por coma
+      return pago.tracking.split(',').map(trk => ({ ...pago, tracking: trk.trim() }));
+    }
+    return [pago];
+  });
+
   // Paginación de datos - solo aplicar si hay límite
   const pagosPaginados = limite > 0 
     ? (() => {
         const inicio = (paginaActual - 1) * limite;
-        return pagos.slice(inicio, inicio + limite);
+        return pagosExpandido.slice(inicio, inicio + limite);
       })()
-    : pagos; // Si límite = 0, mostrar todos los pagos
+    : pagosExpandido; // Si límite = 0, mostrar todos los pagos
 
   // Calcular inicio para mostrar en la tabla
   const inicio = limite > 0 ? (paginaActual - 1) * limite : 0;
@@ -423,6 +444,15 @@ export default function HistorialPagos() {
               onChange={e => setFiltros({...filtros, tracking: e.target.value})}
             />
           </div>
+          <div className="filtro-grupo">
+            <label>Carrier:</label>
+            <input
+              type="text"
+              placeholder="Buscar carrier..."
+              value={filtros.carrier || ""}
+              onChange={e => setFiltros({...filtros, carrier: e.target.value})}
+            />
+          </div>
         </div>
         
         <div className="filtros-acciones">
@@ -501,7 +531,11 @@ export default function HistorialPagos() {
                         {formatearMoneda(pago.valor)}
                       </span>
                     </td>
-                    <td>{new Date(pago.fecha).toLocaleDateString('es-ES')}</td>
+                    <td>
+                      {/^\d{4}-\d{2}-\d{2}$/.test(pago.fecha)
+                        ? pago.fecha
+                        : new Date(pago.fecha).toLocaleDateString('es-ES')}
+                    </td>
                     <td className="estado-cell">
                       <span 
                         className="estado-badge"
@@ -543,9 +577,9 @@ export default function HistorialPagos() {
                       </button>
                     </td>
                     <td className="carrier-cell">
-                      {pago.creado_por ? (
-                        <span className="carrier-text" title={pago.creado_por}>
-                          {pago.creado_por.split('@')[0]}
+                      {pago.carrier && pago.carrier !== 'N/A' ? (
+                        <span className="carrier-text" title={pago.carrier}>
+                          {pago.carrier}
                         </span>
                       ) : (
                         <span className="sin-carrier">-</span>

@@ -905,8 +905,6 @@ async def conciliacion_automatica_mejorada():
 
             total_referencias = len(pagos_por_referencia)
             procesadas = 0
-            ids_movimientos_usados = set()
-
 
             for referencia, pagos in pagos_por_referencia.items():
                 procesadas += 1
@@ -917,7 +915,7 @@ async def conciliacion_automatica_mejorada():
                 porcentaje_actual = porcentaje_base + int((procesadas / total_referencias) * porcentaje_procesamiento)
                 
                 valor_total = sum(float(pago.valor) for pago in pagos)
-                fecha_pago = normalizar_fecha(pagos[0].fecha_pago)
+                fecha_pago = pagos[0].fecha_pago
 
                 # Enviar progreso de procesamiento detallado con emoji y formato mejorado
                 mensaje_progreso = f"⏳ Procesando {procesadas}/{total_referencias} ({porcentaje_actual}%) - Referencia: {referencia} - Valor: ${valor_total:,.0f}"
@@ -929,13 +927,10 @@ async def conciliacion_automatica_mejorada():
                 match = next((
                     movimiento for movimiento in banco_rows
                     if abs(float(movimiento.valor_banco) - valor_total) <= margen_error
-                    and movimiento.id not in ids_movimientos_usados
-                    and normalizar_fecha(movimiento.fecha) == fecha_pago  # ✅ Comparación segura
+                    and str(movimiento.fecha) == str(fecha_pago)
                 ), None)
 
-
                 if match:
-                    ids_movimientos_usados.add(match.id)
                     # ✅ Conciliado exitosamente
                     resumen["conciliado_exacto"] += 1
                     referencias_usadas.add(referencia)
@@ -2496,34 +2491,3 @@ def get_nivel_match(porcentaje: float) -> str:
         return "🔴 Bajo"
     else:
         return "⚫ Muy Bajo"
-
-# Agrega esta función helper al inicio del archivo, después de los imports
-def normalizar_fecha(fecha_input):
-    """
-    Convierte cualquier tipo de fecha a datetime.date de forma segura
-    """
-    from datetime import datetime, date
-    
-    if fecha_input is None:
-        return None
-    
-    if isinstance(fecha_input, str):
-        # Si es string, parsearlo a date
-        try:
-            if 'T' in fecha_input or ' ' in fecha_input:
-                return datetime.fromisoformat(fecha_input.replace('Z', '+00:00')).date()
-            else:
-                return datetime.strptime(fecha_input, '%Y-%m-%d').date()
-        except:
-            return fecha_input
-    
-    elif isinstance(fecha_input, datetime):
-        # Si ya es datetime, extraer solo la fecha
-        return fecha_input.date()
-    
-    elif isinstance(fecha_input, date):
-        # Si ya es date, devolverlo tal como está
-        return fecha_input
-    
-    else:
-        return fecha_input

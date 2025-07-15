@@ -16,3 +16,5 @@ app/credentials/
 !tsconfig.node.json
 !vite.config.ts
 !Animation-1749523266862.json
+backend/consulta_referencia.py
+backend/consulta_tracking.py

@@ -1348,23 +1348,29 @@ async def obtener_historial_pagos(
         client = get_bigquery_client()
         
         # Construir la consulta base simplificada
-        query = """
+        query = f"""
         SELECT 
-            referencia_pago,
-            fecha_pago,
-            hora_pago,
-            correo as correo_conductor,
-            cliente,
-            tipo,
-            entidad,
-            COALESCE(valor_total_consignacion, valor) as valor_pago,
-            estado_conciliacion,
-            creado_en as fecha_registro,
-            tracking,
-            COUNT(*) OVER (PARTITION BY referencia_pago) as num_guias
-        FROM `{project}.{dataset}.pagosconductor`
+            pc.referencia_pago,
+            pc.fecha_pago,
+            pc.hora_pago,
+            pc.correo as correo_conductor,
+            pc.cliente,
+            pc.tipo,
+            pc.entidad,
+            COALESCE(pc.valor_total_consignacion, pc.valor) as valor_pago,
+            pc.estado_conciliacion,
+            pc.creado_en as fecha_registro,
+            pc.creado_por,
+            pc.tracking,
+            COUNT(*) OVER (PARTITION BY pc.referencia_pago) as num_guias,
+            COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+            ON pc.tracking = cod.tracking_number
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+            ON pc.tracking = gl.tracking_number
         WHERE 1=1
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
+        """
         
         # Agregar filtros dinámicamente
         query_params = []
@@ -1405,6 +1411,8 @@ async def obtener_historial_pagos(
         # Convertir resultados
         historial = []
         for row in results:
+            # Log temporal para depuración de creado_por
+            logger.info(f"[HISTORIAL] referencia_pago={row.referencia_pago} | creado_por={getattr(row, 'creado_por', None)} | carrier={getattr(row, 'carrier', None)}")
             pago = {
                 "referencia_pago": row.referencia_pago or "",
                 "fecha": row.fecha_pago.isoformat() if row.fecha_pago else None,
@@ -1416,10 +1424,12 @@ async def obtener_historial_pagos(
                 "valor": float(row.valor_pago) if row.valor_pago else 0.0,
                 "estado": row.estado_conciliacion or "pendiente",
                 "fecha_registro": row.fecha_registro.isoformat() if row.fecha_registro else None,
+                "creado_por": getattr(row, 'creado_por', None) or "",
                 "tracking": row.tracking or "",
                 "num_guias": int(row.num_guias) if row.num_guias else 0,
                 "imagen": "",  # Agregar campo imagen vacío por compatibilidad
-                "novedades": ""  # Agregar campo novedades vacío por compatibilidad
+                "novedades": "",  # Agregar campo novedades vacío por compatibilidad
+                "carrier": getattr(row, 'carrier', None) or "N/A"
             }
             historial.append(pago)
         
