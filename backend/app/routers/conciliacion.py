@@ -512,17 +512,30 @@ async def diagnosticar_archivo(file: UploadFile = File(...)):
 
 def normalizar_tipo_banco(descripcion: str) -> Optional[str]:
     desc = descripcion.lower()
+    
+    # Nequi
     if "nequi" in desc:
         return "nequi"
-    if "consignacion" in desc or "caj" in desc or "efectivo" in desc:
+    
+    # Consignaciones (efectivo, cajero, corresponsal, sucursal)
+    consignacion_keywords = [
+        "consignacion", "consig", "caj", "efectivo", "corresponsal", "mf autoservicios",
+        "hall au", "altavista"
+    ]
+    if any(palabra in desc for palabra in consignacion_keywords):
         return "consignacion"
-    if ("transferencia" in desc or "interbanc" in desc or
-        "suc virtual" in desc or "banca movil" in desc or
-        "daviviend" in desc or "tnt express" in desc or
-        "edwin" in desc or "dcd consultoria" in desc or
-        "leidy cecilia l" in desc):
+    
+    # Transferencias interbancarias
+    transferencia_keywords = [
+        "transferencia", "interbanc", "suc virtual", "banca movil", "tnt express",
+        "daviviend", "edwin", "dcd consultoria", "leidy", "gomile", "rodamel", "prov",
+        "ana maria", "luis ferna", "esneider"
+    ]
+    if any(palabra in desc for palabra in transferencia_keywords):
         return "transferencia"
+    
     return None
+
 
 
 def analizar_patrones_existentes(client: bigquery.Client, fecha: str) -> Dict[str, Dict[float, int]]:
