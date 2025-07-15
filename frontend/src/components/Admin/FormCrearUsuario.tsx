@@ -68,7 +68,7 @@ export default function FormCrearUsuario() {
         console.warn("⚠️ Faltan datos de usuario para headers");
       }
 
-      const response = await fetch("http://127.0.0.1:8000/admin/roles", {
+      const response = await fetch("https://api.x-cargo.co/admin/roles", {
         headers: headers
       });
 
@@ -181,7 +181,7 @@ export default function FormCrearUsuario() {
 
       console.log("📤 Headers enviados al crear usuario:", headers);
 
-      const response = await fetch("http://127.0.0.1:8000/admin/crear-usuario", {
+      const response = await fetch("https://api.x-cargo.co/admin/crear-usuario", {
         method: "POST",
         headers: headers, // Solo headers de auth, NO Content-Type para FormData
         body: formData
@@ -270,7 +270,7 @@ export default function FormCrearUsuario() {
         headers["X-User-Role"] = user.role;
       }
 
-      const response = await fetch(`http://127.0.0.1:8000/admin/buscar-usuarios?q=${encodeURIComponent(query)}`, {
+      const response = await fetch(`https://api.x-cargo.co/admin/buscar-usuarios?q=${encodeURIComponent(query)}`, {
         headers
       });
 
