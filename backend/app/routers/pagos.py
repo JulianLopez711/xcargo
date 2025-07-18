@@ -491,8 +491,9 @@ async def registrar_pago_conductor(
 
 
         # 🔥 FASE 1: Registrar bono por excedente si aplica
-       # 🔥 FASE 1: Registrar bono por excedente si aplica        try:
-            # Calcular excedente con validación
+        # 🔥 FASE 1: Registrar bono por excedente si aplica        
+            # try:
+                # Calcular excedente con validación
             try:
                 valor_total_guias = sum(float(g.get('valor', 0)) for g in lista_guias)
                 excedente = round(valor_total_combinado - valor_total_guias, 2)
