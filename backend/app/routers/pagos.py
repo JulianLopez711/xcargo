@@ -144,6 +144,13 @@ async def registrar_pago_conductor(
     client = get_bigquery_client()
     comprobante_url = None
 
+    # Obtener el nuevo Id_Transaccion autoincrementable SOLO UNA VEZ POR LOTE (request)
+    # Todas las guías asociadas en este request compartirán el mismo Id_Transaccion
+    query_id = f"SELECT MAX(Id_Transaccion) as max_id FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`"
+    result_id = list(client.query(query_id).result())
+    nuevo_id_transaccion = (result_id[0].max_id or 0) + 1
+    # Este valor se asigna a todas las filas generadas en este request, sin incrementarse por cada inserción
+
     try:
         try:
             valor_pago = float(valor_pago_str.replace(',', '').replace('$', ''))
@@ -312,11 +319,8 @@ async def registrar_pago_conductor(
 
         for i, guia in enumerate(lista_guias):
             referencia_value = str(guia.get("referencia", "")).strip()
-            
             if not referencia_value:
-                
                 continue
-
             # Obtener datos del cliente
             if referencia_value in clientes_data:
                 cliente_clean = clientes_data[referencia_value]["cliente"] or "Sin Cliente"
@@ -324,14 +328,13 @@ async def registrar_pago_conductor(
             else:
                 cliente_clean = "Sin Cliente"
                 valor_individual = float(guia.get("valor", 0))
-
             # Procesar tracking
             tracking_value = guia.get("tracking", "")
             if not tracking_value or str(tracking_value).lower() in ["null", "none", "", "undefined"]:
                 tracking_clean = referencia_value
             else:
                 tracking_clean = str(tracking_value).strip()
-
+            # Asignar el mismo Id_Transaccion a todas las filas de este request
             fila = {
                 "referencia": referencia_value,
                 "valor": valor_individual,
@@ -352,10 +355,10 @@ async def registrar_pago_conductor(
                 "referencia_pago": referencia,
                 "valor_total_consignacion": valor_pago,
                 "tracking": tracking_clean,
-                "cliente": cliente_clean,"estado_conciliacion": estado_conciliacion,
-
+                "cliente": cliente_clean,
+                "estado_conciliacion": estado_conciliacion,
+                "Id_Transaccion": nuevo_id_transaccion,
             }
-            
             filas.append(fila)
 
         if not filas:
@@ -413,8 +416,8 @@ async def registrar_pago_conductor(
             novedades, creado_en, creado_por, modificado_en, modificado_por,
             hora_pago, correo, fecha_pago, id_string, referencia_pago, 
             valor_total_consignacion, tracking, cliente,
-            estado_conciliacion
-        ) VALUES {', '.join(valores_sql)}
+            estado_conciliacion, Id_Transaccion
+        ) VALUES {', '.join([vs[:-1] + f", {escape_value(nuevo_id_transaccion, 'NUMERIC')})" for vs in valores_sql])}
         """
         
         # Timeout para inserción
@@ -441,6 +444,7 @@ async def registrar_pago_conductor(
                         @fecha_pago AS fecha_pago,
                         @valor AS valor_pagado,
                         @tipo AS metodo_pago,
+                        @id_transaccion AS Id_Transaccion,
                         CURRENT_TIMESTAMP() AS fecha_creacion,
                         CURRENT_TIMESTAMP() AS fecha_modificacion,
                         @correo AS creado_por,
@@ -459,11 +463,11 @@ async def registrar_pago_conductor(
                 WHEN NOT MATCHED THEN
                   INSERT (
                     tracking_number, employee_id, conductor_email, cliente, valor_guia, fecha_entrega,
-                    pago_referencia, fecha_pago, valor_pagado, metodo_pago,
+                    pago_referencia, fecha_pago, valor_pagado, metodo_pago, Id_Transaccion,
                     fecha_creacion, fecha_modificacion, creado_por, modificado_por, estado_liquidacion
                   ) VALUES (
                     src.tracking_number, src.employee_id, src.conductor_email, src.cliente, src.valor_guia, src.fecha_entrega,
-                    src.pago_referencia, src.fecha_pago, src.valor_pagado, src.metodo_pago,
+                    src.pago_referencia, src.fecha_pago, src.valor_pagado, src.metodo_pago, src.Id_Transaccion,
                     src.fecha_creacion, src.fecha_modificacion, src.creado_por, src.modificado_por, 'pagado'
                   )
                 """
@@ -476,7 +480,8 @@ async def registrar_pago_conductor(
                         bigquery.ScalarQueryParameter("valor", "FLOAT64", fila['valor']),
                         bigquery.ScalarQueryParameter("fecha_pago", "DATE", fila['fecha_pago']),
                         bigquery.ScalarQueryParameter("referencia_pago", "STRING", fila['referencia_pago']),
-                        bigquery.ScalarQueryParameter("tipo", "STRING", fila['tipo']),
+                    bigquery.ScalarQueryParameter("tipo", "STRING", fila['tipo']),
+                    bigquery.ScalarQueryParameter("id_transaccion", "INTEGER", nuevo_id_transaccion),
                     ]
                 )
                 client.query(merge_query, job_config=job_config).result()
