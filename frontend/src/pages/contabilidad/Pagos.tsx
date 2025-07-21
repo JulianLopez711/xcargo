@@ -612,7 +612,7 @@ export default function PagosContabilidad() {
             }}
             onClick={() => setDropdownAbierto((prev) => !prev)}
           >
-            <span>Estado: <span style={{color:'#333', fontWeight:400}}>{filtroEstados.length === estadosDisponibles.length ? 'Todos' : filtroEstados.map(getEstadoTexto).join(', ') || 'Ninguno'}</span></span>
+            <span><span style={{color:'#333', fontWeight:400}}>{filtroEstados.length === estadosDisponibles.length ? 'Todos' : filtroEstados.map(getEstadoTexto).join(', ') || 'Ninguno'}</span></span>
             <span style={{fontSize:'1.2em', color:'#1976d2'}}>{dropdownAbierto ? '▲' : '▼'}</span>
           </button>
           {dropdownAbierto && (
