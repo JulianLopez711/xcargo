@@ -50,6 +50,9 @@ interface PaginacionInfo {
 }
 
 export default function PagosContabilidad() {
+  // Dropdown de filtro de estado
+  const [dropdownAbierto, setDropdownAbierto] = useState(false);
+
   const [pagos, setPagos] = useState<Pago[]>([]);
   const [paginaActual, setPaginaActual] = useState(1);
   const pagosPorPagina = 20;
@@ -58,7 +61,13 @@ export default function PagosContabilidad() {
   const [filtroCarrier, setFiltroCarrier] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
-  const [filtroEstado, setFiltroEstado] = useState("");
+  const estadosDisponibles = [
+    'pendiente_conciliacion',
+    'conciliado_manual', 
+    'conciliado_automatico',
+    'rechazado'
+  ];
+  const [filtroEstados, setFiltroEstados] = useState<string[]>([...estadosDisponibles]);
   const [modalVisible, setModalVisible] = useState(false);
   const [novedad, setNovedad] = useState("");
   const [refPagoSeleccionada, setRefPagoSeleccionada] = useState("");
@@ -107,8 +116,10 @@ export default function PagosContabilidad() {
             params.append('fecha_hasta', fechaFormateada);
           }
         }
-        if (filtroEstado) {
-          params.append('estado', filtroEstado);
+        if (filtroEstados.length > 0) {
+          filtroEstados.forEach(estado => {
+            params.append('estado', estado);
+          });
         }
       }
 
@@ -197,19 +208,23 @@ export default function PagosContabilidad() {
 
   // Función para detectar si hay filtros activos
   const hayFiltrosActivos = () => {
-    return filtroCarrier.trim() !== "" ||
-           filtroReferencia.trim() !== "" || 
-           fechaDesde !== "" || 
-           fechaHasta !== "" || 
-           filtroEstado !== "";
+  return filtroCarrier.trim() !== "" ||
+       filtroReferencia.trim() !== "" || 
+       fechaDesde !== "" || 
+       fechaHasta !== "" || 
+       filtroEstados.length > 0;
   };
 
   // Estado para controlar si se aplicaron filtros
   const [filtrosAplicados, setFiltrosAplicados] = useState(false);
 
   useEffect(() => {
-    console.log("🔄 useEffect - Obteniendo pagos:", { paginaActual, filtrosAplicados });
-    obtenerPagos(paginaActual, filtrosAplicados);
+    // Si es la primera carga (filtrosAplicados es false y página 1), buscar con todos los estados activos
+    if (paginaActual === 1 && !filtrosAplicados) {
+      obtenerPagos(1, true);
+    } else {
+      obtenerPagos(paginaActual, filtrosAplicados);
+    }
   }, [paginaActual]);
 
   // Función para validar rango de fechas
@@ -246,7 +261,7 @@ export default function PagosContabilidad() {
     }
     
     // Mensaje informativo para búsqueda por referencia
-    if (filtroReferencia.trim() && !filtroEstado) {
+    if (filtroReferencia.trim() && filtroEstados.length === 0) {
       console.log("🔍 Búsqueda por referencia: se mostrarán todos los estados para esta referencia");
     }
     
@@ -314,8 +329,10 @@ export default function PagosContabilidad() {
           params.append('fecha_hasta', fechaFormateada);
         }
       }
-      if (filtroEstado) {
-        params.append('estado', filtroEstado);
+      if (filtroEstados.length > 0) {
+        filtroEstados.forEach(estado => {
+          params.append('estado', estado);
+        });
       }
 
       const response = await fetch(`http://127.0.0.1:8000/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
@@ -472,19 +489,14 @@ export default function PagosContabilidad() {
     setFiltroCarrier("");
     setFechaDesde("");
     setFechaHasta("");
-    setFiltroEstado("");
+    setFiltroEstados([...estadosDisponibles]);
     setPaginaActual(1);
     setFiltrosAplicados(false);
     obtenerPagos(1, false);
   };
 
   // Para obtener estados únicos, necesitamos hacer una consulta específica o usar todos los estados conocidos
-  const estadosDisponibles = [
-    'pendiente_conciliacion',
-    'conciliado_manual', 
-    'conciliado_automatico',
-    'rechazado'
-  ];
+  // ...existing code...
 
   // Funciones de paginación
   const irAPagina = (pagina: number) => {
@@ -574,17 +586,90 @@ export default function PagosContabilidad() {
             onKeyDown={manejarEnterFiltros}
           />
         </label> 
-        <label>
-          Estado:
-          <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
-            <option value="">Todos</option>
-            {estadosDisponibles.map((estado, idx) => (
-              <option key={estado || idx} value={estado}>
-                {getEstadoTexto(estado)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div style={{ minWidth: '180px', position: 'relative' }}>
+          <label style={{ display: "block", marginBottom: 4, fontWeight: 600, color: "#1976d2" }}>
+            Estado:
+          </label>
+          <button
+            type="button"
+            style={{
+              width: '100%',
+              background: '#f4f8fb',
+              border: '1px solid #b6d4fa',
+              borderRadius: 8,
+              padding: '0.6rem 1rem',
+              fontWeight: 600,
+              color: '#1976d2',
+              fontSize: '1rem',
+              textAlign: 'left',
+              cursor: 'pointer',
+              boxShadow: '0 1px 4px 0 #e3eaf3',
+              marginBottom: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8
+            }}
+            onClick={() => setDropdownAbierto((prev) => !prev)}
+          >
+            <span>Estado: <span style={{color:'#333', fontWeight:400}}>{filtroEstados.length === estadosDisponibles.length ? 'Todos' : filtroEstados.map(getEstadoTexto).join(', ') || 'Ninguno'}</span></span>
+            <span style={{fontSize:'1.2em', color:'#1976d2'}}>{dropdownAbierto ? '▲' : '▼'}</span>
+          </button>
+          {dropdownAbierto && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '110%',
+                left: 0,
+                zIndex: 10,
+                background: '#fff',
+                border: '1px solid #b6d4fa',
+                borderRadius: 8,
+                boxShadow: '0 2px 8px #b6d4fa55',
+                padding: '0.7rem 1rem',
+                minWidth: 210,
+                minHeight: 10,
+                marginTop: 2
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                {estadosDisponibles.map((estado) => (
+                  <label
+                    key={estado}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontWeight: 500,
+                      background: filtroEstados.includes(estado) ? '#e3f2fd' : 'transparent',
+                      borderRadius: 5,
+                      padding: '0.18rem 0.5rem',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s',
+                      border: filtroEstados.includes(estado) ? '1px solid #90caf9' : '1px solid transparent',
+                      boxShadow: filtroEstados.includes(estado) ? '0 1px 2px #b6d4fa33' : 'none',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={filtroEstados.includes(estado)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setFiltroEstados(prev => [...prev, estado]);
+                        } else {
+                          setFiltroEstados(prev => prev.filter(est => est !== estado));
+                        }
+                      }}
+                      style={{ accentColor: '#1976d2', width: 16, height: 16, marginRight: 2 }}
+                    />
+                    <span style={{ fontSize: '0.98rem', color: '#222', userSelect: 'none' }}>{getEstadoTexto(estado)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         <label>
           Desde:
           <input

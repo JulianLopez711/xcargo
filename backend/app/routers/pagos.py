@@ -3,7 +3,7 @@ from typing import List
 from fastapi.responses import JSONResponse
 from google.cloud import bigquery
 from google.api_core import exceptions as gcp_exceptions
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime, date
 from uuid import uuid4
 import pandas as pd
@@ -897,7 +897,7 @@ def obtener_pagos_pendientes_contabilidad(
     limit: int = Query(20, ge=1, le=100, description="Número de registros por página"),
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
     referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
-    estado: Optional[str] = Query(None, description="Filtrar por estado de conciliación"),
+    estado: Optional[List[str]] = Query(None, description="Filtrar por uno o varios estados de conciliación"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
 ):
@@ -925,11 +925,22 @@ def obtener_pagos_pendientes_contabilidad(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
 
-        if estado and estado.strip():
-            condiciones.append("estado_conciliacion = @estado_filtro")
-            parametros.append(
-                bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
-            )
+        if estado:
+            estados_limpios = [e.strip() for e in estado if e and e.strip()]
+            if len(estados_limpios) == 1:
+                condiciones.append("estado_conciliacion = @estado_filtro")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("estado_filtro", "STRING", estados_limpios[0])
+                )
+            elif len(estados_limpios) > 1:
+                in_params = []
+                for idx, est in enumerate(estados_limpios):
+                    param_name = f"estado_filtro_{idx}"
+                    in_params.append(f"@{param_name}")
+                    parametros.append(
+                        bigquery.ScalarQueryParameter(param_name, "STRING", est)
+                    )
+                condiciones.append(f"estado_conciliacion IN ({', '.join(in_params)})")
         elif not (referencia and referencia.strip()):
             condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
 
