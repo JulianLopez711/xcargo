@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Depends,status
+from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Depends, status, Request
+from typing import List
 from fastapi.responses import JSONResponse
 from google.cloud import bigquery
 from google.api_core import exceptions as gcp_exceptions
@@ -127,7 +128,10 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
         )
 
 @router.post("/registrar-conductor")
+
+@router.post("/registrar-conductor")
 async def registrar_pago_conductor(
+    request: Request,
     correo: str = Form(..., description="Correo del conductor"),
     valor_pago_str: str = Form(..., description="Valor total del pago"),
     fecha_pago: str = Form(..., description="Fecha del pago (YYYY-MM-DD)"),
@@ -135,14 +139,27 @@ async def registrar_pago_conductor(
     tipo: str = Form(..., description="Tipo de pago (Transferencia, Nequi, etc.)"),
     entidad: str = Form(..., description="Entidad bancaria"),
     referencia: str = Form(..., description="Referencia única del pago"),
-    comprobante: UploadFile = File(..., description="Imagen/PDF del comprobante"),
-    guias: str = Form(..., description="JSON con las guías asociadas")
+    guias: str = Form(..., description="JSON con las guías asociadas"),
+    comprobante: UploadFile = File(None, description="Imagen/PDF del comprobante (compatibilidad)")
 ):
     """
     Registra un pago realizado por un conductor con validaciones robustas
     """
     client = get_bigquery_client()
-    comprobante_url = None
+    comprobante_urls = []
+    # LOG: Mostrar los campos recibidos
+    logger.info(f"Campos recibidos: correo={correo}, valor_pago_str={valor_pago_str}, fecha_pago={fecha_pago}, hora_pago={hora_pago}, tipo={tipo}, entidad={entidad}, referencia={referencia}")
+    logger.info(f"Archivos recibidos: {request.headers.get('content-type')}")
+    # Obtener todos los archivos enviados como comprobante_0, comprobante_1, ...
+    form = await request.form()
+    archivos = []
+    for key in form.keys():
+        if key.startswith("comprobante_"):
+            archivos.append(form[key])
+    # Si no hay múltiples, usar el comprobante único (para compatibilidad)
+    if not archivos and comprobante is not None:
+        archivos = [comprobante]
+    logger.info(f"Total comprobantes recibidos: {len(archivos)}")
 
     # Obtener el nuevo Id_Transaccion autoincrementable SOLO UNA VEZ POR LOTE (request)
     # Todas las guías asociadas en este request compartirán el mismo Id_Transaccion
@@ -250,9 +267,14 @@ async def registrar_pago_conductor(
             
             clientes_data = {}
 
-        # PASO 6: Guardar comprobante
-        
-        comprobante_url = await guardar_comprobante(comprobante)
+
+        # PASO 6: Guardar comprobantes
+        for idx, archivo in enumerate(archivos):
+            logger.info(f"Guardando comprobante {idx+1}: {getattr(archivo, 'filename', 'sin nombre')}")
+            url = await guardar_comprobante(archivo)
+            comprobante_urls.append(url)
+        # Para compatibilidad, usar el primer comprobante como comprobante_url principal
+        comprobante_url = comprobante_urls[0] if comprobante_urls else None
 
         # PASO 7: Preparar datos para inserción
         
@@ -334,7 +356,8 @@ async def registrar_pago_conductor(
                 tracking_clean = referencia_value
             else:
                 tracking_clean = str(tracking_value).strip()
-            # Asignar el mismo Id_Transaccion a todas las filas de este request
+            # Asociar comprobante por índice (si hay suficientes, si no usar el primero)
+            comprobante_url_asociado = comprobante_urls[i] if i < len(comprobante_urls) else (comprobante_urls[0] if comprobante_urls else None)
             fila = {
                 "referencia": referencia_value,
                 "valor": valor_individual,
@@ -342,7 +365,7 @@ async def registrar_pago_conductor(
                 "entidad": entidad,
                 "estado": "pagado",
                 "tipo": tipo,
-                "comprobante": comprobante_url,
+                "comprobante": comprobante_url_asociado,
                 "novedades": "",
                 "creado_en": creado_en,
                 "creado_por": correo,
@@ -491,9 +514,8 @@ async def registrar_pago_conductor(
 
 
         # 🔥 FASE 1: Registrar bono por excedente si aplica
-        # 🔥 FASE 1: Registrar bono por excedente si aplica        
-            # try:
-                # Calcular excedente con validación
+       # 🔥 FASE 1: Registrar bono por excedente si aplica        try:
+            # Calcular excedente con validación
             try:
                 valor_total_guias = sum(float(g.get('valor', 0)) for g in lista_guias)
                 excedente = round(valor_total_combinado - valor_total_guias, 2)
