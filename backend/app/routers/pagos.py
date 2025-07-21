@@ -608,6 +608,7 @@ async def registrar_pago_conductor(
         )
 
 # 🔥 NUEVA RUTA: Consultar bonos disponibles por conductor
+
 @router.get("/bonos-disponibles")
 async def obtener_bonos_disponibles(
     client: bigquery.Client = Depends(get_bigquery_client),
@@ -617,9 +618,15 @@ async def obtener_bonos_disponibles(
     Obtiene los bonos disponibles del conductor con su saldo total
     """
     try:
-        # Obtener employee_id del usuario
-        employee_id = obtener_employee_id_usuario(current_user["email"], client)
+        logger.info(f"[BONOS DISPONIBLES] Usuario autenticado: {current_user}")
+        email = current_user.get("email") or current_user.get("correo") or current_user.get("sub")
+        if not email:
+            logger.error(f"[BONOS DISPONIBLES] No se recibió email/correo/sub en current_user: {current_user}")
+            raise HTTPException(status_code=401, detail="Usuario no autenticado o sin email/correo/sub")
+        employee_id = obtener_employee_id_usuario(email, client)
+        logger.info(f"[BONOS DISPONIBLES] employee_id para {email}: {employee_id}")
         if not employee_id:
+            logger.error(f"[BONOS DISPONIBLES] No se encontró employee_id para {email}")
             raise HTTPException(
                 status_code=404,
                 detail="No se encontró el ID de empleado asociado"
@@ -655,8 +662,12 @@ async def obtener_bonos_disponibles(
         total_disponible = 0
 
         # Ejecutar consulta
-        query_job = client.query(query, job_config=job_config)
-        results = query_job.result()
+        try:
+            query_job = client.query(query, job_config=job_config)
+            results = query_job.result()
+        except Exception as e:
+            logger.error(f"[BONOS DISPONIBLES] Error ejecutando consulta BigQuery: {e}")
+            raise HTTPException(status_code=500, detail=f"Error consultando bonos en BigQuery: {str(e)}")
 
         # Procesar resultados
         for row in results:
@@ -673,13 +684,14 @@ async def obtener_bonos_disponibles(
             bonos.append(bono)
             total_disponible += float(row.saldo_disponible)
 
+        logger.info(f"[BONOS DISPONIBLES] Bonos encontrados: {len(bonos)} | Total disponible: {total_disponible}")
         return {
             "bonos": bonos,
             "total_disponible": total_disponible
         }
 
     except Exception as e:
-        
+        logger.error(f"[BONOS DISPONIBLES] Error general: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Error consultando bonos disponibles: {str(e)}"
