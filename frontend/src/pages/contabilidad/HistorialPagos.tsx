@@ -76,7 +76,7 @@ export default function HistorialPagos() {
       // No enviar referencia, entidad ni tracking como filtro a la API, se filtra visualmente
       params.append("limite", limite.toString());
 
-      const url = `https://api.x-cargo.co/pagos/historial?${params.toString()}`;
+      const url = `http://127.0.0.1:8000/pagos/historial?${params.toString()}`;
 
       const response = await fetch(url, {
         method: 'GET',
