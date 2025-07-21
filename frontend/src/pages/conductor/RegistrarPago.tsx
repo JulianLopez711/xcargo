@@ -441,7 +441,22 @@ export default function RegistrarPago() {
       return;
     }
 
-    // 🔥 NUEVA VALIDACIÓN: Usar la función mejorada de duplicados
+    // Validar duplicado exacto (misma referencia y mismos datos)
+    const yaExiste = pagosCargados.some(
+      (p) =>
+        p.datos.referencia.trim() === datosManuales.referencia.trim() &&
+        p.datos.valor === datosManuales.valor &&
+        p.datos.fecha === datosManuales.fecha &&
+        p.datos.hora === datosManuales.hora &&
+        p.datos.entidad === datosManuales.entidad &&
+        p.datos.tipo === datosManuales.tipo
+    );
+    if (yaExiste) {
+      alert("Ya has agregado un pago con exactamente los mismos datos.");
+      return;
+    }
+
+    // 🔥 NUEVA VALIDACIÓN: Usar la función mejorada de duplicados (permite referencias repetidas si los datos son distintos)
     const validacion = validarDuplicado(datosManuales);
     if (validacion.esDuplicado) {
       alert(validacion.mensaje);
@@ -468,181 +483,69 @@ export default function RegistrarPago() {
     );
   };
 
-  // Función de registro de pagos (mantener la existente)
+  // Función de registro de pagos (unificada para enviar todos los comprobantes y guías en un solo request)
   const registrarTodosLosPagos = async () => {
     const totales = calcularTotales();
-
     if (totales.faltante > 0) {
-      if (usarBonos && bonoSeleccionado && bonoSeleccionado.length > 0) {
-        const usar = confirm(`Faltan $${totales.faltante.toLocaleString()}. ¿Deseas aplicar tus bonos disponibles?`);
-        if (usar) {
-          const bonosData = {
-            bonos_utilizados: Array.isArray(bonoSeleccionado) ? bonoSeleccionado.map((bonoId: any) => {
-              const bono = bonos?.detalles.find(b => b.id === bonoId);
-              return {
-                bono_id: bonoId,
-                valor_utilizado: bono?.saldo_disponible || 0
-              };
-            }) : [],
-            total_bonos: montoBonosUsar,
-            guias: guias.map(g => ({
-              referencia: g.referencia,
-              tracking: g.tracking || g.referencia,
-              liquidacion_id: g.liquidacion_id
-            }))
-          };
-
-          const responseBonos = await fetch("http://127.0.0.1:8000/pagos/aplicar-bonos", {
-            method: "POST",
-            headers: {
-              'Authorization': `Bearer ${getToken()}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(bonosData)
-          });
-
-          if (!responseBonos.ok) {
-            const errorBonos = await responseBonos.json();
-            throw new Error(`Error aplicando bonos: ${errorBonos.detail}`);
-          }
-
-          const resultBonos = await responseBonos.json();
-          console.log("✅ Bonos aplicados exitosamente:", resultBonos.referencia_pago);
-        } else {
-          return;
-        }
-      } else {
-        alert(`Faltan ${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
-        return;
-      }
+      alert(`Faltan $${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
+      return;
     }
-
     setCargando(true);
-
     try {
-      let referenciaBonos = null;
-      if (usarBonos && bonoSeleccionado && bonoSeleccionado.length > 0) {
-        console.log("🎯 Aplicando bonos...");
-        
-        const bonosData = {
-          bonos_utilizados: Array.isArray(bonoSeleccionado) ? bonoSeleccionado.map((bonoId: string) => {
-            const bono = bonos?.detalles.find(b => b.id === bonoId);
-            return {
-              bono_id: bonoId,
-              valor_utilizado: bono?.saldo_disponible || 0
-            };
-          }) : [],
-          total_bonos: montoBonosUsar,
-          guias: guias.map(g => ({
-            referencia: g.referencia,
-            tracking: g.tracking || g.referencia,
-            liquidacion_id: g.liquidacion_id
-          }))
-        };
-
-        const responseBonos = await fetch("http://127.0.0.1:8000/pagos/aplicar-bonos", {
-          method: "POST",
-          headers: {
-            'Authorization': `Bearer ${getToken()}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(bonosData)
-        });
-
-        if (!responseBonos.ok) {
-          const errorBonos = await responseBonos.json();
-          throw new Error(`Error aplicando bonos: ${errorBonos.detail}`);
-        }
-
-        const resultBonos = await responseBonos.json();
-        referenciaBonos = resultBonos.referencia_pago;
-        console.log("✅ Bonos aplicados exitosamente:", referenciaBonos);
+      const usuario = JSON.parse(localStorage.getItem("user")!);
+      const correo = usuario.email;
+      const formData = new FormData();
+      // Adjuntar todos los comprobantes
+      pagosCargados.forEach((pago, idx) => {
+        formData.append(`comprobante_${idx}`, pago.archivo);
+      });
+      // Para compatibilidad, también enviar el primer comprobante como 'comprobante'
+      if (pagosCargados[0]) {
+        formData.append("comprobante", pagosCargados[0].archivo);
+      }
+      // Adjuntar todas las guías y los datos de los pagos cargados
+      // Cada pago cargado se envía como una "guía" independiente, manteniendo el mismo Id_Transaccion en el backend
+      const guiasConPagos = pagosCargados.map((pago, idx) => ({
+        ...(guias[0] || {}), // Si hay varias guías seleccionadas, puedes ajustar la lógica aquí
+        ...pago.datos
+      }));
+      formData.append("correo", correo);
+      formData.append("valor_pago_str", totales.totalPagosEfectivo.toString());
+      formData.append("fecha_pago", pagosCargados[0]?.datos.fecha || "");
+      formData.append("hora_pago", pagosCargados[0]?.datos.hora || "");
+      formData.append("tipo", pagosCargados[0]?.datos.tipo || "");
+      formData.append("entidad", pagosCargados[0]?.datos.entidad || "");
+      formData.append("referencia", pagosCargados[0]?.datos.referencia || "");
+      formData.append("guias", JSON.stringify(guiasConPagos));
+      // Si hay bonos, adjuntar info de bonos
+      if (usarBonos && bonoSeleccionado && montoBonosUsar > 0) {
+        formData.append("bonos_aplicados", montoBonosUsar.toString());
+        formData.append("bonos_utilizados", JSON.stringify(Array.isArray(bonoSeleccionado) ? bonoSeleccionado : [bonoSeleccionado]));
       }
 
-      if (pagosCargados.length > 0) {
-        console.log("💳 Registrando pagos en efectivo/transferencia...");
-        
-        for (const p of pagosCargados) {
-          const formData = new FormData();
-          const usuario = JSON.parse(localStorage.getItem("user")!);
-          const correo = usuario.email;
-
-          const guiasConCliente = guias.map((g) => {
-            const guiaObj: any = {
-              referencia: String(g.referencia).trim(),
-              valor: Number(g.valor),
-              cliente: g.cliente || "Sin Cliente",
-            };
-
-            if (g.liquidacion_id) {
-              guiaObj.liquidacion_id = g.liquidacion_id;
-            }
-
-            const trackingStr = g.tracking ? String(g.tracking).trim() : "";
-            if (trackingStr && 
-                trackingStr.toLowerCase() !== "null" && 
-                trackingStr.toLowerCase() !== "undefined" &&
-                trackingStr !== "") {
-              guiaObj.tracking = trackingStr;
-            } else {
-              guiaObj.tracking = g.referencia;
-            }
-
-            return guiaObj;
-          });
-
-          formData.append("correo", correo);
-          formData.append("valor_pago_str", parseValorMonetario(p.datos.valor).toString());
-          formData.append("fecha_pago", p.datos.fecha);
-          formData.append("hora_pago", normalizarHoraParaEnvio(p.datos.hora));
-          formData.append("tipo", p.datos.tipo);
-          formData.append("entidad", p.datos.entidad);
-          formData.append("referencia", p.datos.referencia);
-          formData.append("guias", JSON.stringify(guiasConCliente));
-          formData.append("comprobante", p.archivo);
-
-          if (referenciaBonos && montoBonosUsar > 0) {
-            formData.append("bonos_aplicados", montoBonosUsar.toString());
-            formData.append("referencia_bonos", referenciaBonos);
-          }
-
-          const endpoint = (referenciaBonos && montoBonosUsar > 0) 
-            ? "http://127.0.0.1:8000/pagos/registrar-conductor-con-bonos"
-            : "http://127.0.0.1:8000/pagos/registrar-conductor";
-
-          const response = await fetch(endpoint, {
-            method: "POST",
-            body: formData,
-          });
-
-          const result = await response.json();
-          if (!response.ok) {
-            throw new Error(result.detail || "Error al registrar pago");
-          }
-
-          console.log("✅ Pago registrado:", result);
-        }
-      }
-
-      if (pagosCargados.length === 0 && usarBonos && montoBonosUsar > 0) {
-        console.log("🎯 Solo bonos aplicados - registro completado");
-      }
-
-      const mensajeExito = (() => {
-        if (pagosCargados.length > 0 && usarBonos && montoBonosUsar > 0) {
-          return `✅ Pago híbrido registrado: ${pagosCargados.length} comprobante(s) por ${totales.totalPagosEfectivo.toLocaleString()} + bonos por ${montoBonosUsar.toLocaleString()}.`;
-        } else if (pagosCargados.length > 0) {
-          return `✅ ${pagosCargados.length} pago(s) en efectivo registrado(s) por ${totales.totalPagosEfectivo.toLocaleString()}.`;
-        } else if (usarBonos && montoBonosUsar > 0) {
-          return `✅ Pago con bonos registrado: ${montoBonosUsar.toLocaleString()}.`;
+      // LOG: Mostrar el contenido del FormData antes de enviar
+      console.log("==== ENVÍO DE PAGO ====");
+      for (let pair of formData.entries()) {
+        if (pair[1] instanceof File) {
+          console.log(pair[0], "[Archivo]", (pair[1] as File).name);
         } else {
-          return "✅ Procesamiento completado.";
+          console.log(pair[0], pair[1]);
         }
-      })();
-
-      alert(mensajeExito);
+      }
+      // Enviar al backend
+      const response = await fetch("http://127.0.0.1:8000/pagos/registrar-conductor", {
+        method: "POST",
+        body: formData,
+        headers: {
+          'Authorization': `Bearer ${getToken()}`
+        }
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.detail || "Error al registrar pago");
+      }
+      alert(result.mensaje || "Pago registrado correctamente");
       navigate("/conductor/pagos");
-
     } catch (error: any) {
       console.error("❌ Error registrando pagos:", error);
       alert(`❌ Error: ${error.message}`);
@@ -1168,14 +1071,14 @@ export default function RegistrarPago() {
                 <th>Comprobante</th>
                 <th>Acción</th>
               </tr>
-            </thead>            <tbody>
+            </thead>
+            <tbody>
               {pagosCargados.map((p, idx) => {
                 // 🔥 NUEVO: Detectar si esta referencia se repite
                 const referenciasIguales = pagosCargados.filter(pago => 
                   pago.datos.referencia.trim() === p.datos.referencia.trim()
                 ).length;
                 const esReferenciaRepetida = referenciasIguales > 1;
-                
                 return (
                   <tr key={idx} className={esReferenciaRepetida ? 'referencia-repetida' : ''}>
                     <td>${parseValorMonetario(p.datos.valor).toLocaleString("es-CO")}</td>

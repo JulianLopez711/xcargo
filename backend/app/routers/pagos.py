@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Depends,status
+from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Depends, status, Request
+from typing import List
 from fastapi.responses import JSONResponse
 from google.cloud import bigquery
 from google.api_core import exceptions as gcp_exceptions
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime, date
 from uuid import uuid4
 import pandas as pd
@@ -127,7 +128,10 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
         )
 
 @router.post("/registrar-conductor")
+
+@router.post("/registrar-conductor")
 async def registrar_pago_conductor(
+    request: Request,
     correo: str = Form(..., description="Correo del conductor"),
     valor_pago_str: str = Form(..., description="Valor total del pago"),
     fecha_pago: str = Form(..., description="Fecha del pago (YYYY-MM-DD)"),
@@ -135,14 +139,34 @@ async def registrar_pago_conductor(
     tipo: str = Form(..., description="Tipo de pago (Transferencia, Nequi, Consignación)"),
     entidad: str = Form(..., description="Entidad bancaria"),
     referencia: str = Form(..., description="Referencia única del pago"),
-    comprobante: UploadFile = File(..., description="Imagen/PDF del comprobante"),
-    guias: str = Form(..., description="JSON con las guías asociadas")
+    guias: str = Form(..., description="JSON con las guías asociadas"),
+    comprobante: UploadFile = File(None, description="Imagen/PDF del comprobante (compatibilidad)")
 ):
     """
     Registra un pago realizado por un conductor con validaciones robustas
     """
     client = get_bigquery_client()
-    comprobante_url = None
+    comprobante_urls = []
+    # LOG: Mostrar los campos recibidos
+    logger.info(f"Campos recibidos: correo={correo}, valor_pago_str={valor_pago_str}, fecha_pago={fecha_pago}, hora_pago={hora_pago}, tipo={tipo}, entidad={entidad}, referencia={referencia}")
+    logger.info(f"Archivos recibidos: {request.headers.get('content-type')}")
+    # Obtener todos los archivos enviados como comprobante_0, comprobante_1, ...
+    form = await request.form()
+    archivos = []
+    for key in form.keys():
+        if key.startswith("comprobante_"):
+            archivos.append(form[key])
+    # Si no hay múltiples, usar el comprobante único (para compatibilidad)
+    if not archivos and comprobante is not None:
+        archivos = [comprobante]
+    logger.info(f"Total comprobantes recibidos: {len(archivos)}")
+
+    # Obtener el nuevo Id_Transaccion autoincrementable SOLO UNA VEZ POR LOTE (request)
+    # Todas las guías asociadas en este request compartirán el mismo Id_Transaccion
+    query_id = f"SELECT MAX(Id_Transaccion) as max_id FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`"
+    result_id = list(client.query(query_id).result())
+    nuevo_id_transaccion = (result_id[0].max_id or 0) + 1
+    # Este valor se asigna a todas las filas generadas en este request, sin incrementarse por cada inserción
 
     try:
         try:
@@ -243,9 +267,14 @@ async def registrar_pago_conductor(
             
             clientes_data = {}
 
-        # PASO 6: Guardar comprobante
-        
-        comprobante_url = await guardar_comprobante(comprobante)
+
+        # PASO 6: Guardar comprobantes
+        for idx, archivo in enumerate(archivos):
+            logger.info(f"Guardando comprobante {idx+1}: {getattr(archivo, 'filename', 'sin nombre')}")
+            url = await guardar_comprobante(archivo)
+            comprobante_urls.append(url)
+        # Para compatibilidad, usar el primer comprobante como comprobante_url principal
+        comprobante_url = comprobante_urls[0] if comprobante_urls else None
 
         # PASO 7: Preparar datos para inserción
         
@@ -312,11 +341,8 @@ async def registrar_pago_conductor(
 
         for i, guia in enumerate(lista_guias):
             referencia_value = str(guia.get("referencia", "")).strip()
-            
             if not referencia_value:
-                
                 continue
-
             # Obtener datos del cliente
             if referencia_value in clientes_data:
                 cliente_clean = clientes_data[referencia_value]["cliente"] or "Sin Cliente"
@@ -324,14 +350,14 @@ async def registrar_pago_conductor(
             else:
                 cliente_clean = "Sin Cliente"
                 valor_individual = float(guia.get("valor", 0))
-
             # Procesar tracking
             tracking_value = guia.get("tracking", "")
             if not tracking_value or str(tracking_value).lower() in ["null", "none", "", "undefined"]:
                 tracking_clean = referencia_value
             else:
                 tracking_clean = str(tracking_value).strip()
-
+            # Asociar comprobante por índice (si hay suficientes, si no usar el primero)
+            comprobante_url_asociado = comprobante_urls[i] if i < len(comprobante_urls) else (comprobante_urls[0] if comprobante_urls else None)
             fila = {
                 "referencia": referencia_value,
                 "valor": valor_individual,
@@ -339,7 +365,7 @@ async def registrar_pago_conductor(
                 "entidad": entidad,
                 "estado": "pagado",
                 "tipo": tipo,
-                "comprobante": comprobante_url,
+                "comprobante": comprobante_url_asociado,
                 "novedades": "",
                 "creado_en": creado_en,
                 "creado_por": correo,
@@ -352,10 +378,10 @@ async def registrar_pago_conductor(
                 "referencia_pago": referencia,
                 "valor_total_consignacion": valor_pago,
                 "tracking": tracking_clean,
-                "cliente": cliente_clean,"estado_conciliacion": estado_conciliacion,
-
+                "cliente": cliente_clean,
+                "estado_conciliacion": estado_conciliacion,
+                "Id_Transaccion": nuevo_id_transaccion,
             }
-            
             filas.append(fila)
 
         if not filas:
@@ -413,8 +439,8 @@ async def registrar_pago_conductor(
             novedades, creado_en, creado_por, modificado_en, modificado_por,
             hora_pago, correo, fecha_pago, id_string, referencia_pago, 
             valor_total_consignacion, tracking, cliente,
-            estado_conciliacion
-        ) VALUES {', '.join(valores_sql)}
+            estado_conciliacion, Id_Transaccion
+        ) VALUES {', '.join([vs[:-1] + f", {escape_value(nuevo_id_transaccion, 'NUMERIC')})" for vs in valores_sql])}
         """
         
         # Timeout para inserción
@@ -441,6 +467,7 @@ async def registrar_pago_conductor(
                         @fecha_pago AS fecha_pago,
                         @valor AS valor_pagado,
                         @tipo AS metodo_pago,
+                        @id_transaccion AS Id_Transaccion,
                         CURRENT_TIMESTAMP() AS fecha_creacion,
                         CURRENT_TIMESTAMP() AS fecha_modificacion,
                         @correo AS creado_por,
@@ -459,11 +486,11 @@ async def registrar_pago_conductor(
                 WHEN NOT MATCHED THEN
                   INSERT (
                     tracking_number, employee_id, conductor_email, cliente, valor_guia, fecha_entrega,
-                    pago_referencia, fecha_pago, valor_pagado, metodo_pago,
+                    pago_referencia, fecha_pago, valor_pagado, metodo_pago, Id_Transaccion,
                     fecha_creacion, fecha_modificacion, creado_por, modificado_por, estado_liquidacion
                   ) VALUES (
                     src.tracking_number, src.employee_id, src.conductor_email, src.cliente, src.valor_guia, src.fecha_entrega,
-                    src.pago_referencia, src.fecha_pago, src.valor_pagado, src.metodo_pago,
+                    src.pago_referencia, src.fecha_pago, src.valor_pagado, src.metodo_pago, src.Id_Transaccion,
                     src.fecha_creacion, src.fecha_modificacion, src.creado_por, src.modificado_por, 'pagado'
                   )
                 """
@@ -476,7 +503,8 @@ async def registrar_pago_conductor(
                         bigquery.ScalarQueryParameter("valor", "FLOAT64", fila['valor']),
                         bigquery.ScalarQueryParameter("fecha_pago", "DATE", fila['fecha_pago']),
                         bigquery.ScalarQueryParameter("referencia_pago", "STRING", fila['referencia_pago']),
-                        bigquery.ScalarQueryParameter("tipo", "STRING", fila['tipo']),
+                    bigquery.ScalarQueryParameter("tipo", "STRING", fila['tipo']),
+                    bigquery.ScalarQueryParameter("id_transaccion", "INTEGER", nuevo_id_transaccion),
                     ]
                 )
                 client.query(merge_query, job_config=job_config).result()
@@ -580,6 +608,7 @@ async def registrar_pago_conductor(
         )
 
 # 🔥 NUEVA RUTA: Consultar bonos disponibles por conductor
+
 @router.get("/bonos-disponibles")
 async def obtener_bonos_disponibles(
     client: bigquery.Client = Depends(get_bigquery_client),
@@ -589,9 +618,15 @@ async def obtener_bonos_disponibles(
     Obtiene los bonos disponibles del conductor con su saldo total
     """
     try:
-        # Obtener employee_id del usuario
-        employee_id = obtener_employee_id_usuario(current_user["email"], client)
+        logger.info(f"[BONOS DISPONIBLES] Usuario autenticado: {current_user}")
+        email = current_user.get("email") or current_user.get("correo") or current_user.get("sub")
+        if not email:
+            logger.error(f"[BONOS DISPONIBLES] No se recibió email/correo/sub en current_user: {current_user}")
+            raise HTTPException(status_code=401, detail="Usuario no autenticado o sin email/correo/sub")
+        employee_id = obtener_employee_id_usuario(email, client)
+        logger.info(f"[BONOS DISPONIBLES] employee_id para {email}: {employee_id}")
         if not employee_id:
+            logger.error(f"[BONOS DISPONIBLES] No se encontró employee_id para {email}")
             raise HTTPException(
                 status_code=404,
                 detail="No se encontró el ID de empleado asociado"
@@ -627,8 +662,12 @@ async def obtener_bonos_disponibles(
         total_disponible = 0
 
         # Ejecutar consulta
-        query_job = client.query(query, job_config=job_config)
-        results = query_job.result()
+        try:
+            query_job = client.query(query, job_config=job_config)
+            results = query_job.result()
+        except Exception as e:
+            logger.error(f"[BONOS DISPONIBLES] Error ejecutando consulta BigQuery: {e}")
+            raise HTTPException(status_code=500, detail=f"Error consultando bonos en BigQuery: {str(e)}")
 
         # Procesar resultados
         for row in results:
@@ -645,13 +684,14 @@ async def obtener_bonos_disponibles(
             bonos.append(bono)
             total_disponible += float(row.saldo_disponible)
 
+        logger.info(f"[BONOS DISPONIBLES] Bonos encontrados: {len(bonos)} | Total disponible: {total_disponible}")
         return {
             "bonos": bonos,
             "total_disponible": total_disponible
         }
 
     except Exception as e:
-        
+        logger.error(f"[BONOS DISPONIBLES] Error general: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Error consultando bonos disponibles: {str(e)}"
@@ -857,7 +897,7 @@ def obtener_pagos_pendientes_contabilidad(
     limit: int = Query(20, ge=1, le=100, description="Número de registros por página"),
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
     referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
-    estado: Optional[str] = Query(None, description="Filtrar por estado de conciliación"),
+    estado: Optional[List[str]] = Query(None, description="Filtrar por uno o varios estados de conciliación"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
     carrier: Optional[str] = Query(None, description="Filtrar por carrier específico")
@@ -886,6 +926,7 @@ def obtener_pagos_pendientes_contabilidad(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
 
+<<<<<<< HEAD
         if carrier and carrier.strip():
             condiciones.append("LOWER(COALESCE(cod.Carrier, gl.carrier, '')) LIKE @carrier_filtro")
             parametros.append(
@@ -904,6 +945,25 @@ def obtener_pagos_pendientes_contabilidad(
             fecha_hasta
         ]):
             # Solo aplica si no hay ningún otro filtro
+=======
+        if estado:
+            estados_limpios = [e.strip() for e in estado if e and e.strip()]
+            if len(estados_limpios) == 1:
+                condiciones.append("estado_conciliacion = @estado_filtro")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("estado_filtro", "STRING", estados_limpios[0])
+                )
+            elif len(estados_limpios) > 1:
+                in_params = []
+                for idx, est in enumerate(estados_limpios):
+                    param_name = f"estado_filtro_{idx}"
+                    in_params.append(f"@{param_name}")
+                    parametros.append(
+                        bigquery.ScalarQueryParameter(param_name, "STRING", est)
+                    )
+                condiciones.append(f"estado_conciliacion IN ({', '.join(in_params)})")
+        elif not (referencia and referencia.strip()):
+>>>>>>> origin/SergioTest
             condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
 
         if fecha_desde:
