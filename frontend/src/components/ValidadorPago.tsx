@@ -70,7 +70,7 @@ const ValidadorPago: React.FC<Props> = ({ guiasSeleccionadas, valorConsignado, o
 
             setCargando(true);
             try {
-                const res = await fetch("http://127.0.0.1:8000/pagos-avanzados/validar-pago", {
+                const res = await fetch("https://api.x-cargo.co/pagos-avanzados/validar-pago", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",

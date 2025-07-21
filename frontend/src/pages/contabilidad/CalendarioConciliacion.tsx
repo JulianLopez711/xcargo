@@ -24,7 +24,7 @@ const meses = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ];
 
-const API_URL = "http://127.0.0.1:8000"; // Cambia aquí si tu backend está en localhost
+const API_URL = "https://api.x-cargo.co"; // Cambia aquí si tu backend está en localhost
 
 export default function CalendarioConciliacion() {
   const [datos, setDatos] = useState<DiaConciliacion[]>([]);
@@ -122,7 +122,7 @@ export default function CalendarioConciliacion() {
       let mensajeError = "Error desconocido";
       
       if (err instanceof TypeError && err.message === "Failed to fetch") {
-        mensajeError = "No se pudo conectar con el servidor. Verifique que el backend esté ejecutándose en http://127.0.0.1:8000";
+        mensajeError = "No se pudo conectar con el servidor. Verifique que el backend esté ejecutándose en https://api.x-cargo.co";
       } else if (err instanceof Error && err.name === 'AbortError') {
         mensajeError = "La consulta tardó demasiado tiempo (más de 30 segundos)";
       } else if (err instanceof Error) {
