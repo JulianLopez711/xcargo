@@ -514,22 +514,22 @@ export default function HistorialPagos() {
           </div>
         ) : (
           <>
-            <table className="historial-tabla">
+            <table className="historial-tabla" style={{minWidth: '1200px'}}>
               <thead>
                 <tr>
-                  <th>ID</th>
-                  <th>Referencia</th>
-                  <th>Valor</th>
-                  <th>Fecha</th>
-                  <th>Estado</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>ID</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>REFERENCIA</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>VALOR</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>FECHA</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>ESTADO</th>
                   {/* Columna entidad oculta */}
-                  <th style={{display:'none'}}>Entidad</th>
-                  <th>Tipo</th>
-                  <th>Guías</th>
-                  <th>TN</th>
-                  <th>Comprobante</th>
-                  <th>Carrier</th>
-                  <th>Correo</th>
+                  <th style={{display:'none', position:'sticky', top:0, background:'#fff', zIndex:2}}>Entidad</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>TIPO</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>GUÍAS</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>TN</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>COMPROBANTE</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>CARRIER</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Correo</th>
                 </tr>
               </thead>
               <tbody>
