@@ -503,12 +503,16 @@ export default function RegistrarPago() {
       if (pagosCargados[0]) {
         formData.append("comprobante", pagosCargados[0].archivo);
       }
-      // Adjuntar todas las guías y los datos de los pagos cargados
-      // Cada pago cargado se envía como una "guía" independiente, manteniendo el mismo Id_Transaccion en el backend
-      const guiasConPagos = pagosCargados.map((pago, idx) => ({
-        ...(guias[0] || {}), // Si hay varias guías seleccionadas, puedes ajustar la lógica aquí
-        ...pago.datos
-      }));
+      // Adjuntar todas las guías seleccionadas, cada una con los datos del pago (todas tendrán el mismo id_transaccion)
+      let guiasConPagos: any[] = [];
+      pagosCargados.forEach((pago) => {
+        guias.forEach((guia) => {
+          guiasConPagos.push({
+            ...guia,
+            ...pago.datos
+          });
+        });
+      });
       formData.append("correo", correo);
       formData.append("valor_pago_str", totales.totalPagosEfectivo.toString());
       formData.append("fecha_pago", pagosCargados[0]?.datos.fecha || "");
@@ -526,7 +530,15 @@ export default function RegistrarPago() {
       // LOG: Mostrar el contenido del FormData antes de enviar
       console.log("==== ENVÍO DE PAGO ====");
       for (let pair of formData.entries()) {
-        if (pair[1] instanceof File) {
+        if (pair[0] === "guias") {
+          try {
+            const guiasLog = JSON.parse(pair[1] as string);
+            console.log("Referencias de guías cargadas:", guiasLog.map((g: any) => g.referencia || g.tracking));
+            console.log("Trackings de guías cargadas:", guiasLog.map((g: any) => g.tracking));
+          } catch (e) {
+            console.log("No se pudo parsear guias para log");
+          }
+        } else if (pair[1] instanceof File) {
           console.log(pair[0], "[Archivo]", (pair[1] as File).name);
         } else {
           console.log(pair[0], pair[1]);
