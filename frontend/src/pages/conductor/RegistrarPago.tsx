@@ -302,7 +302,7 @@ export default function RegistrarPago() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
+      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -503,12 +503,16 @@ export default function RegistrarPago() {
       if (pagosCargados[0]) {
         formData.append("comprobante", pagosCargados[0].archivo);
       }
-      // Adjuntar todas las guías y los datos de los pagos cargados
-      // Cada pago cargado se envía como una "guía" independiente, manteniendo el mismo Id_Transaccion en el backend
-      const guiasConPagos = pagosCargados.map((pago, idx) => ({
-        ...(guias[0] || {}), // Si hay varias guías seleccionadas, puedes ajustar la lógica aquí
-        ...pago.datos
-      }));
+      // Adjuntar todas las guías seleccionadas, cada una con los datos del pago (todas tendrán el mismo id_transaccion)
+      let guiasConPagos: any[] = [];
+      pagosCargados.forEach((pago) => {
+        guias.forEach((guia) => {
+          guiasConPagos.push({
+            ...guia,
+            ...pago.datos
+          });
+        });
+      });
       formData.append("correo", correo);
       formData.append("valor_pago_str", totales.totalPagosEfectivo.toString());
       formData.append("fecha_pago", pagosCargados[0]?.datos.fecha || "");
@@ -526,14 +530,22 @@ export default function RegistrarPago() {
       // LOG: Mostrar el contenido del FormData antes de enviar
       console.log("==== ENVÍO DE PAGO ====");
       for (let pair of formData.entries()) {
-        if (pair[1] instanceof File) {
+        if (pair[0] === "guias") {
+          try {
+            const guiasLog = JSON.parse(pair[1] as string);
+            console.log("Referencias de guías cargadas:", guiasLog.map((g: any) => g.referencia || g.tracking));
+            console.log("Trackings de guías cargadas:", guiasLog.map((g: any) => g.tracking));
+          } catch (e) {
+            console.log("No se pudo parsear guias para log");
+          }
+        } else if (pair[1] instanceof File) {
           console.log(pair[0], "[Archivo]", (pair[1] as File).name);
         } else {
           console.log(pair[0], pair[1]);
         }
       }
       // Enviar al backend
-      const response = await fetch("https://api.x-cargo.co/pagos/registrar-conductor", {
+      const response = await fetch("http://127.0.0.1:8000/pagos/registrar-conductor", {
         method: "POST",
         body: formData,
         headers: {
@@ -642,7 +654,7 @@ export default function RegistrarPago() {
       formData.append('sobrante', totales.sobrante.toString());
 
       // Enviar al backend
-      const response = await fetch('https://api.x-cargo.co/pagos/registrar-conductor', {
+      const response = await fetch('http://127.0.0.1:8000/pagos/registrar-conductor', {
         method: 'POST',
         body: formData,
         headers: {
@@ -679,7 +691,7 @@ export default function RegistrarPago() {
   useEffect(() => {
     const cargarBonos = async () => {
       try {
-        const response = await fetch('https://api.x-cargo.co/pagos/bonos-disponibles', {
+        const response = await fetch('http://127.0.0.1:8000/pagos/bonos-disponibles', {
           headers: {
             'Authorization': `Bearer ${getToken()}`
           }

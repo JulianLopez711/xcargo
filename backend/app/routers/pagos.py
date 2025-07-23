@@ -230,11 +230,11 @@ async def registrar_pago_conductor(
 
         try:
             lista_guias = json.loads(guias)
-            
-            
+            # LOG: Mostrar referencias y trackings recibidos
+            logger.info(f"Referencias de guías recibidas: {[g.get('referencia') for g in lista_guias]}")
+            logger.info(f"Trackings de guías recibidas: {[g.get('tracking') for g in lista_guias]}")
             if not lista_guias:
                 raise HTTPException(status_code=400, detail="Debe asociar al menos una guía")
-                
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Formato de guías inválido (JSON requerido)")
 
@@ -637,13 +637,19 @@ async def obtener_bonos_disponibles(
         SELECT
             id,
             employee_id,
+            conductor_email,
             tipo_bono,
             valor_bono,
             saldo_disponible,
             referencia_pago_origen,
+            descripcion,
             fecha_generacion,
             estado_bono,
-            descripcion
+            fecha_ultimo_uso,
+            fecha_creacion,
+            fecha_modificacion,
+            creado_por,
+            modificado_por
         FROM `datos-clientes-441216.Conciliaciones.conductor_bonos`
         WHERE employee_id = @employee_id
         AND estado_bono = 'activo'
@@ -673,13 +679,20 @@ async def obtener_bonos_disponibles(
         for row in results:
             bono = {
                 "id": row.id,
+                "employee_id": row.employee_id,
+                "conductor_email": getattr(row, "conductor_email", None),
                 "tipo_bono": row.tipo_bono,
                 "valor_bono": float(row.valor_bono),
                 "saldo_disponible": float(row.saldo_disponible),
                 "referencia_pago_origen": row.referencia_pago_origen,
-                "fecha_generacion": row.fecha_generacion.isoformat(),
+                "descripcion": row.descripcion,
+                "fecha_generacion": row.fecha_generacion.isoformat() if row.fecha_generacion else None,
                 "estado_bono": row.estado_bono,
-                "descripcion": row.descripcion
+                "fecha_ultimo_uso": row.fecha_ultimo_uso.isoformat() if getattr(row, "fecha_ultimo_uso", None) else None,
+                "fecha_creacion": row.fecha_creacion.isoformat() if getattr(row, "fecha_creacion", None) else None,
+                "fecha_modificacion": row.fecha_modificacion.isoformat() if getattr(row, "fecha_modificacion", None) else None,
+                "creado_por": getattr(row, "creado_por", None),
+                "modificado_por": getattr(row, "modificado_por", None)
             }
             bonos.append(bono)
             total_disponible += float(row.saldo_disponible)
