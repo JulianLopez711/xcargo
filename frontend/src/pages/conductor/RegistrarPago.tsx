@@ -147,12 +147,21 @@ export default function RegistrarPago() {
     };
   };
 
-  console.log(usuario);
-  console.log(calcularTotales().totalBonos.toLocaleString());
+  // Logs mejorados para depuración de usuario y totales
+  const totales = calcularTotales();
+  console.log("[DEBUG][usuario]", usuario);
+  console.log("[DEBUG][bonosDisponibles]", bonosDisponibles, "length:", bonosDisponibles.length);
+  console.log("[DEBUG][totales]", JSON.stringify(totales, null, 2));
+  console.log("[DEBUG][totales.sobrante]", totales.sobrante);
+  if (totales.sobrante && totales.sobrante > 0) {
+    console.log("[BONO/EXCEDENTE DETECTADO] Se generará bono con sobrante:", totales.sobrante);
+  } else {
+    console.log("[SIN BONO/EXCEDENTE] No se generará bono. Sobrante:", totales.sobrante);
+  }
 
   
   // Eliminar calcularTotalConBonos ya que está duplicado
-  const totales = calcularTotales();
+  // (declaración de 'totales' ya está arriba para logs)
 
   // 🔥 NUEVA FUNCIÓN: Manejar cambio de modo de pago
   const handleModoPagoChange = (nuevoModo: ModoPago) => {
@@ -490,6 +499,26 @@ export default function RegistrarPago() {
       alert(`Faltan $${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
       return;
     }
+    // LOG DETALLADO: Mostrar todos los valores relevantes antes de enviar
+    console.log("==== LOG DETALLADO DE ENVÍO DE PAGO ====");
+    console.log("total (suma guías):", total);
+    console.log("totales:", totales);
+    console.log("usarBonos:", usarBonos);
+    console.log("bonoSeleccionado:", bonoSeleccionado);
+    console.log("pagosCargados:", pagosCargados);
+    console.log("guias:", guias);
+    // === LOG: Si hay sobrante (bono) ===
+    if (totales.sobrante > 0) {
+      console.log("[BONO] Sobrante detectado para bono:", {
+        valor_bono: totales.sobrante,
+        empleado: usuario?.email,
+        fecha: new Date().toISOString(),
+        descripcion: "bono a favor"
+      });
+    } else {
+      console.log("[BONO] No hay sobrante detectado en submit. Valor sobrante:", totales.sobrante);
+    }
+    // Fin log detallado
     setCargando(true);
     try {
       const usuario = JSON.parse(localStorage.getItem("user")!);
@@ -507,12 +536,39 @@ export default function RegistrarPago() {
       let guiasConPagos: any[] = [];
       pagosCargados.forEach((pago) => {
         guias.forEach((guia) => {
+          // Usar el valor original de la guía, no el valor del pago cargado
+          const datosSinValor = { ...pago.datos };
+          delete datosSinValor.valor;
           guiasConPagos.push({
             ...guia,
-            ...pago.datos
+            ...datosSinValor
           });
         });
       });
+console.log("[REGISTRO PAGO] Guías a enviar:", guiasConPagos);
+// LOG: Mostrar el contenido del FormData antes de enviar
+console.log("==== ENVÍO DE PAGO (FormData) ====");
+for (let pair of formData.entries()) {
+  console.log(pair[0], pair[1]);
+}
+      // LOG: Mostrar el array de guías que se va a enviar
+      console.log("[REGISTRO PAGO] Guías a enviar:", guiasConPagos);
+      // LOG: Mostrar el contenido del FormData antes de enviar
+      console.log("==== ENVÍO DE PAGO (FormData) ====");
+      for (let pair of formData.entries()) {
+        if (pair[1] instanceof File) {
+          console.log(pair[0], `[Archivo]`, (pair[1] as File).name);
+        } else {
+          try {
+            // Si es JSON, intenta parsear para mostrar bonito
+            const parsed = JSON.parse(pair[1] as string);
+            console.log(pair[0], JSON.stringify(parsed, null, 2));
+          } catch {
+            console.log(pair[0], pair[1]);
+          }
+        }
+      }
+
       formData.append("correo", correo);
       formData.append("valor_pago_str", totales.totalPagosEfectivo.toString());
       formData.append("fecha_pago", pagosCargados[0]?.datos.fecha || "");
@@ -553,10 +609,17 @@ export default function RegistrarPago() {
         }
       });
       const result = await response.json();
+      console.log('[BONO][RESPUESTA BACKEND]', result);
       if (!response.ok) {
+        alert(result.detail || "Error al registrar pago");
         throw new Error(result.detail || "Error al registrar pago");
       }
-      alert(result.mensaje || "Pago registrado correctamente");
+      let msg = result.mensaje || "Pago registrado correctamente";
+      if (result.bono_excedente_log) {
+        msg += `\n\n[LOG BONO EXCEDENTE]\n` + JSON.stringify(result.bono_excedente_log, null, 2);
+        console.log('[BONO][LOG EXCEDENTE]', result.bono_excedente_log);
+      }
+      alert(msg);
       navigate("/conductor/pagos");
     } catch (error: any) {
       console.error("❌ Error registrando pagos:", error);

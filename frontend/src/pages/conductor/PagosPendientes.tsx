@@ -88,7 +88,11 @@ export default function PagosPendientes() {
       // Procesar respuesta de bonos
       if (bonosRes.bonos_disponibles !== undefined) {
         setBonosDisponibles(bonosRes.bonos_disponibles);
-        setDetallesBonos(bonosRes.detalles || []);
+        // Filtrar solo bonos con estado_bono 'Disponible' (o 'disponible')
+        const detallesFiltrados = (bonosRes.detalles || []).filter(
+          (bono: any) => (bono.estado_bono || bono.estado || '').toLowerCase() === 'disponible'
+        );
+        setDetallesBonos(detallesFiltrados);
       }
 
       // Procesar respuesta de guías
@@ -407,14 +411,16 @@ export default function PagosPendientes() {
         )}
 
         {/* Información de bonos */}
-        {bonosDisponibles > 0 && (
+        {detallesBonos.length > 0 && (
           <div className="bonos-info-enhanced">
             <div className="bonos-header">
               <div className="bono-principal">
                 <span className="bono-icon">💰</span>
                 <div className="bono-content">
                   <span className="bono-label">Bonos Disponibles</span>
-                  <span className="bono-valor">${bonosDisponibles.toLocaleString()}</span>
+                  <span className="bono-valor">$
+                    {detallesBonos.reduce((acc, b) => acc + (b.saldo_disponible || 0), 0).toLocaleString()}
+                  </span>
                 </div>
               </div>
               <button 

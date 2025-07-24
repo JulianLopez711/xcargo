@@ -342,6 +342,16 @@ export default function RegistrarPagoSupervisor() {
       return;
     }
 
+    // === LOG: Si hay sobrante (bono) ===
+    if (totales.sobrante > 0) {
+      console.log("[BONO] Sobrante detectado para bono:", {
+        valor_bono: totales.sobrante,
+        empleado: supervisor?.email || user?.email,
+        fecha: new Date().toISOString(),
+        descripcion: "bono a favor"
+      });
+    }
+
     setCargando(true);
 
     try {
@@ -361,12 +371,29 @@ export default function RegistrarPagoSupervisor() {
       // Adjuntar todas las guías seleccionadas, cada una con los datos del pago
       let guiasConPagos: any[] = [];
       guias.forEach((guia) => {
+        // Usar el valor original de la guía, no el valor del pago cargado
+        const datosSinValor = { ...p.datos };
+        delete datosSinValor.valor;
         guiasConPagos.push({
           ...guia,
-          ...p.datos
+          ...datosSinValor
         });
       });
       formData.append("guias", JSON.stringify(guiasConPagos));
+
+        // ============================
+    // LOGS ANTES DEL FETCH AQUÍ 👇
+    // ============================
+    // LOG: Mostrar el array de guías que se va a enviar
+    console.log("[REGISTRO PAGO SUPERVISOR] Guías a enviar:", guiasConPagos);
+    // LOG: Mostrar el contenido del FormData antes de enviar
+    console.log("==== ENVÍO DE PAGO SUPERVISOR (FormData) ====");
+    for (let pair of formData.entries()) {
+      console.log(pair[0], pair[1]);
+    }
+    // ============================
+
+
       // Endpoint
       const endpoint = "http://127.0.0.1:8000/pagos/registrar-conductor";
       const response = await fetch(endpoint, {

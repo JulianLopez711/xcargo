@@ -24,6 +24,7 @@ interface Pago {
   fecha_creacion?: string;
   fecha_modificacion?: string;
   carrier?: string; // Agregado para mostrar el carrier
+  Id_Transaccion?: number; // Agregado para detalles correctos
 }
 
 interface DetalleTracking {
@@ -140,6 +141,12 @@ export default function PagosContabilidad() {
       }
 
       const data = await response.json();
+      // Mostrar Id_Transaccion en el log de cada pago
+      if (Array.isArray(data.pagos)) {
+        data.pagos.forEach((pago: { referencia_pago: string; Id_Transaccion?: number; num_guias: number; estado_conciliacion: string }, idx: number) => {
+          console.log(`Pago[${idx}]: Ref=${pago.referencia_pago}, Id_Transaccion=${pago.Id_Transaccion}, Guías=${pago.num_guias}, Estado=${pago.estado_conciliacion}`);
+        });
+      }
       console.log('📊 Datos recibidos:', data);
       
       // Si la respuesta incluye información de paginación
@@ -387,14 +394,16 @@ export default function PagosContabilidad() {
     setImagenSeleccionada(src);
   };
 
-  const verDetallesPago = async (referenciaPago: string) => {
+  const verDetallesPago = async (referenciaPago: string, idTransaccion?: number) => {
     try {
-      const response = await fetch(`http://127.0.0.1:8000/pagos/detalles-pago/${referenciaPago}`);
-      
+      let url = `http://127.0.0.1:8000/pagos/detalles-pago/${referenciaPago}`;
+      if (idTransaccion !== undefined) {
+        url += `?id_transaccion=${idTransaccion}`;
+      }
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
       }
-      
       const data = await response.json();
       setDetalleTracking(data.detalles || []);
       setModalDetallesVisible(true);
@@ -794,7 +803,7 @@ export default function PagosContabilidad() {
                   </td>
                   <td>
                     <button
-                      onClick={() => verDetallesPago(p.referencia_pago)}
+                      onClick={() => verDetallesPago(p.referencia_pago, p.Id_Transaccion)}
                       className="btn-ver"
                       title={p.trackings_preview}
                     >

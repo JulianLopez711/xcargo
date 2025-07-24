@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Depends, status, Request
+from fastapi import Query as FastAPIQuery
 from typing import List
 from fastapi.responses import JSONResponse
 from google.cloud import bigquery
@@ -281,6 +282,7 @@ async def registrar_pago_conductor(
         creado_en = datetime.utcnow()
         filas = []
 
+
         # Calcular valor_bonos y valor_total_combinado
         valor_bonos = 0.0
         referencia_bonos = None
@@ -297,6 +299,15 @@ async def registrar_pago_conductor(
                     referencia_bonos = guia["referencia_bonos"]
 
         valor_total_combinado = valor_pago + valor_bonos
+
+        # LOG DETALLADO para depuración de excedente
+        logger.info("[DEBUG-EXCEDENTE] === INICIO CALCULO EXCEDENTE ===")
+        logger.info(f"[DEBUG-EXCEDENTE] valor_pago: {valor_pago}")
+        logger.info(f"[DEBUG-EXCEDENTE] valor_bonos: {valor_bonos}")
+        logger.info(f"[DEBUG-EXCEDENTE] valor_total_combinado: {valor_total_combinado}")
+        logger.info(f"[DEBUG-EXCEDENTE] lista_guias: {json.dumps(lista_guias, ensure_ascii=False)}")
+        # El valor_total_guias se calcula más adelante, pero aquí ya tienes el input
+        logger.info("[DEBUG-EXCEDENTE] === FIN LOG INPUT ===")
 
         # 🔎 FASE 2: Verificar conciliación automática con banco
         try:
@@ -510,37 +521,33 @@ async def registrar_pago_conductor(
                 client.query(merge_query, job_config=job_config).result()
             
         except Exception as e:
-            
-
+            pass
 
         # 🔥 FASE 1: Registrar bono por excedente si aplica
-       # 🔥 FASE 1: Registrar bono por excedente si aplica        try:
+        bono_excedente_log = None
+        try:
             # Calcular excedente con validación
             try:
                 valor_total_guias = sum(float(g.get('valor', 0)) for g in lista_guias)
                 excedente = round(valor_total_combinado - valor_total_guias, 2)
-                
+                logger.info(f"[BONO-EXCEDENTE] valor_total_combinado={valor_total_combinado} | valor_total_guias={valor_total_guias} | excedente={excedente}")
             except Exception as e:
-                
-                return
-
+                logger.error(f"[BONO-EXCEDENTE] Error calculando excedente: {e}")
+                bono_excedente_log = {"error": str(e)}
+                excedente = 0
             if excedente > 0:
-                
-
                 # Obtener y validar employee_id
                 employee_id = obtener_employee_id_usuario(correo, client)
                 if not employee_id:
-                    
-                    # Enviar notificación al administrador
                     await notificar_error_bono(correo, excedente, "No se encontró employee_id")
                     logger.warning(f"⚠️ No se pudo obtener el Employee ID para {correo}, no se registrará bono")
+                    bono_excedente_log = {"error": "No se encontró employee_id", "correo": correo, "excedente": excedente}
                 else:
                     timestamp_actual = datetime.now()
                     bono_id = f"BONO_EXCEDENTE_{timestamp_actual.strftime('%Y%m%d_%H%M%S')}_{employee_id}"
-                    
-                    # Construir descripción detallada
                     descripcion = f"Excedente generado automáticamente del pago ref: {referencia}. Valor total pagado: ${valor_total_combinado}, Valor guías: ${valor_total_guias}"
-                    
+                    # LOG explícito antes de insertar el bono
+                    logger.warning(f"[BONO BACKEND][PRE-INSERT] Insertando bono: id={bono_id} valor_bono={excedente} employee_id={employee_id} email={correo} tipo=excedente saldo_disponible={excedente} descripcion={descripcion} referencia_pago_origen={referencia}")
                     insertar_bono_query = f"""
                     INSERT INTO `{PROJECT_ID}.{DATASET_CONCILIACIONES}.conductor_bonos` (
                         id, tipo_bono, valor_bono, saldo_disponible, descripcion,
@@ -554,8 +561,6 @@ async def registrar_pago_conductor(
                         @creado_por, @modificado_por
                     )
                     """
-                    
-                    # Configuración mejorada de parámetros
                     job_config = bigquery.QueryJobConfig(query_parameters=[
                         bigquery.ScalarQueryParameter("id", "STRING", bono_id),
                         bigquery.ScalarQueryParameter("valor", "FLOAT64", excedente),
@@ -567,12 +572,24 @@ async def registrar_pago_conductor(
                         bigquery.ScalarQueryParameter("modificado_por", "STRING", correo),
                     ])
                     client.query(insertar_bono_query, job_config=job_config).result()
-                    
+                    logger.warning(f"[BONO BACKEND][POST-INSERT] Bono insertado exitosamente (ID: {bono_id})")
+                    bono_excedente_log = None
+                    try:
+                        # Calcular excedente con validación
+                        try:
+                            # ...existing code...
+                            pass
+                        except Exception as e:
+                            pass
+                        if 'excedente' in locals() and excedente > 0:
+                            # ...existing code...
+                            pass
+                    except Exception as e:
+                        logger.warning(f"⚠️ Continuando sin registrar bono de excedente: {e}")
+                        bono_excedente_log = {"error": str(e)}
         except Exception as e:
-            
-            # ⚠️ IMPORTANTE: NO hacer raise aquí a menos que quieras que falle todo el pago
-            # Solo registrar el error pero continuar con el flujo
-            logger.warning("⚠️ Continuando sin registrar bono de excedente")
+            logger.warning(f"⚠️ Continuando sin registrar bono de excedente: {e}")
+            bono_excedente_log = {"error": str(e)}
 
         # ✅ RESPUESTA EXITOSA - Esta debe estar FUERA del try/except del bono
         return {
@@ -584,7 +601,8 @@ async def registrar_pago_conductor(
             "referencia_pago": referencia,
             "referencia_bonos": referencia_bonos,
             "comprobante_url": comprobante_url,
-            "tipo_pago": "híbrido" if valor_bonos > 0 else "efectivo"
+            "tipo_pago": "híbrido" if valor_bonos > 0 else "efectivo",
+            "bono_excedente_log": bono_excedente_log
         }
 
     except HTTPException:
@@ -824,45 +842,114 @@ async def aplicar_bonos_conductor(
             detail=f"Error aplicando bono: {str(e)}"        )
 
 @router.get("/detalles-pago/{referencia_pago}")
-def obtener_detalles_pago(referencia_pago: str):
+def obtener_detalles_pago(
+    referencia_pago: str,
+    id_transaccion: Optional[Any] = FastAPIQuery(None, description="Id de la transacción"),
+    carrier: str = FastAPIQuery(None, description="Carrier"),
+    fecha: str = FastAPIQuery(None, description="Fecha (YYYY-MM-DD)"),
+    tipo: str = FastAPIQuery(None, description="Tipo de pago"),
+    estado: str = FastAPIQuery(None, description="Estado de conciliación")
+):
     """
     Obtiene los detalles de un pago específico incluyendo todas las guías asociadas
     """
     try:
         client = get_bigquery_client()
-        
-        # Consultar detalles del pago con JOIN para obtener el carrier real
-        query = """
-        SELECT 
-            pc.referencia_pago,
-            pc.referencia,
-            pc.tracking,
-            pc.valor,
-            pc.cliente,
-            COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier,
-            pc.tipo,
-            pc.fecha_pago,
-            pc.hora_pago,
-            pc.estado_conciliacion as estado,
-            pc.novedades,
-            pc.comprobante
-        FROM `{project}.{dataset}.pagosconductor` pc
-        LEFT JOIN `{project}.{dataset}.COD_pendientes_v1` cod 
-            ON pc.tracking = cod.tracking_number
-        LEFT JOIN `{project}.{dataset}.guias_liquidacion` gl 
-            ON pc.tracking = gl.tracking_number
-        WHERE pc.referencia_pago = @referencia_pago
-        ORDER BY pc.creado_en ASC
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
-        
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
+        # Validar si el parámetro id_transaccion viene como string 'null' y convertirlo a None
+        id_transaccion_final = id_transaccion
+        if isinstance(id_transaccion_final, str) and id_transaccion_final.lower() == "null":
+            id_transaccion_final = None
+
+        # Si id_transaccion es None, traer solo las guías de esa referencia que no tienen Id_Transaccion (faltantes)
+        if id_transaccion_final is None:
+            query = f"""
+            SELECT 
+                pc.referencia_pago,
+                pc.referencia,
+                pc.tracking,
+                pc.valor,
+                pc.cliente,
+                COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier,
+                pc.tipo,
+                pc.fecha_pago,
+                pc.hora_pago,
+                pc.estado_conciliacion as estado,
+                pc.novedades,
+                pc.comprobante,
+                pc.Id_Transaccion
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+                ON pc.tracking = cod.tracking_number
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+                ON pc.tracking = gl.tracking_number
+            WHERE pc.referencia_pago = @referencia_pago
+              AND pc.Id_Transaccion IS NULL
+            """
+            query_params = [
                 bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago)
             ]
-        )
-        
-        results = client.query(query, job_config=job_config).result()
-        
+            if carrier:
+                query += " AND (COALESCE(cod.Carrier, gl.carrier, 'N/A') = @carrier)"
+                query_params.append(bigquery.ScalarQueryParameter("carrier", "STRING", carrier))
+            if fecha:
+                query += " AND pc.fecha_pago = @fecha"
+                query_params.append(bigquery.ScalarQueryParameter("fecha", "DATE", fecha))
+            if tipo:
+                query += " AND pc.tipo = @tipo"
+                query_params.append(bigquery.ScalarQueryParameter("tipo", "STRING", tipo))
+            if estado:
+                query += " AND pc.estado_conciliacion = @estado"
+                query_params.append(bigquery.ScalarQueryParameter("estado", "STRING", estado))
+            query += " ORDER BY pc.creado_en ASC"
+
+            job_config = bigquery.QueryJobConfig(query_parameters=query_params)
+            results = list(client.query(query, job_config=job_config).result())
+        else:
+            # Consultar solo las guías asociadas a ese Id_Transaccion
+            query = f"""
+            SELECT 
+                pc.referencia_pago,
+                pc.referencia,
+                pc.tracking,
+                pc.valor,
+                pc.cliente,
+                COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier,
+                pc.tipo,
+                pc.fecha_pago,
+                pc.hora_pago,
+                pc.estado_conciliacion as estado,
+                pc.novedades,
+                pc.comprobante,
+                pc.Id_Transaccion
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+                ON pc.tracking = cod.tracking_number
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+                ON pc.tracking = gl.tracking_number
+            WHERE pc.referencia_pago = @referencia_pago
+              AND pc.Id_Transaccion = @id_transaccion
+            """
+            query_params = [
+                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
+                bigquery.ScalarQueryParameter("id_transaccion", "INT64", id_transaccion_final)
+            ]
+            if carrier:
+                query += " AND (COALESCE(cod.Carrier, gl.carrier, 'N/A') = @carrier)"
+                query_params.append(bigquery.ScalarQueryParameter("carrier", "STRING", carrier))
+            if fecha:
+                query += " AND pc.fecha_pago = @fecha"
+                query_params.append(bigquery.ScalarQueryParameter("fecha", "DATE", fecha))
+            if tipo:
+                query += " AND pc.tipo = @tipo"
+                query_params.append(bigquery.ScalarQueryParameter("tipo", "STRING", tipo))
+            if estado:
+                query += " AND pc.estado_conciliacion = @estado"
+                query_params.append(bigquery.ScalarQueryParameter("estado", "STRING", estado))
+            query += " ORDER BY pc.creado_en ASC"
+
+            job_config = bigquery.QueryJobConfig(query_parameters=query_params)
+            results = list(client.query(query, job_config=job_config).result())
+
         detalles = []
         for row in results:
             detalle = {
@@ -876,30 +963,28 @@ def obtener_detalles_pago(referencia_pago: str):
                 "hora_pago": row.hora_pago or "N/A",
                 "estado": row.estado or "N/A",
                 "novedades": row.novedades or "",
-                "comprobante": row.comprobante or ""
+                "comprobante": row.comprobante or "",
+                "Id_Transaccion": row.Id_Transaccion
             }
             detalles.append(detalle)
-        
+
         if not detalles:
             raise HTTPException(
                 status_code=404,
-                detail=f"No se encontraron detalles para la referencia de pago: {referencia_pago}"
+                detail=f"No se encontraron detalles para la referencia de pago: {referencia_pago} y transacción: {id_transaccion_final}"
             )
-        
-    
-        
+
         return {
             "detalles": detalles,
             "total_guias": len(detalles),
             "valor_total": sum(d["valor"] for d in detalles),
             "referencia_pago": referencia_pago,
+            "Id_Transaccion": id_transaccion_final,
             "timestamp": datetime.now().isoformat()
         }
-        
     except HTTPException:
         raise
     except Exception as e:
-        
         raise HTTPException(
             status_code=500,
             detail=f"Error interno del servidor: {str(e)}"
@@ -1005,7 +1090,8 @@ def obtener_pagos_pendientes_contabilidad(
             MAX(pc.novedades) as novedades,
             MAX(pc.creado_en) as fecha_creacion,
             MAX(pc.modificado_en) as fecha_modificacion,
-            MAX(COALESCE(cod.Carrier, gl.carrier, 'N/A')) as carrier
+            MAX(COALESCE(cod.Carrier, gl.carrier, 'N/A')) as carrier,
+            MAX(pc.Id_Transaccion) as Id_Transaccion
         FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
         LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
             ON pc.tracking = cod.tracking_number
@@ -1053,7 +1139,8 @@ def obtener_pagos_pendientes_contabilidad(
                 "correo_conductor": str(row.get("correo_conductor", "")),
                 "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
                 "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
-                "carrier": str(row.get("carrier", "N/A"))
+                "carrier": str(row.get("carrier", "N/A")),
+                "Id_Transaccion": row.get("Id_Transaccion", None)
             })
 
         paginacion_info = {
