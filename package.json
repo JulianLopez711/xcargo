@@ -3,10 +3,12 @@
     "file-saver": "^2.0.5",
     "lottie-react": "^2.4.1",
     "lucide-react": "^0.511.0",
+    "react-window": "^1.8.11",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/file-saver": "^2.0.7",
+    "@types/react-window": "^1.8.8",
     "@types/xlsx": "^0.0.35",
     "vite-plugin-pwa": "^1.0.0"
   }

@@ -136,7 +136,7 @@ interface LoadingProgress {
 
 const Cruces: React.FC = () => {
   // ✅ CONFIGURACIÓN DE API - Usar servidor local para desarrollo
-  const API_BASE_URL = 'https://api.x-cargo.co';
+  const API_BASE_URL = 'http://127.0.0.1:8000';
 
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
@@ -172,7 +172,7 @@ const Cruces: React.FC = () => {
 
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const response = await fetch(`https://api.x-cargo.co/pagos/detalles-pago/${referenciaPago}`);
+      const response = await fetch(`http://127.0.0.1:8000/pagos/detalles-pago/${referenciaPago}`);
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -305,19 +305,8 @@ const Cruces: React.FC = () => {
 
 
 
-<<<<<<< HEAD
 
   // ✅ NUEVA FUNCIÓN PARA CARGAR PAGOS PENDIENTES DE CONCILIAR
-=======
-      const data = await response.json();
-      console.log("Datos de pagos pendientes:", data.total);
-      setPagosPendientes(data.pagos || []);
-    } catch (err: any) {
-      console.error("Error cargando pagos pendientes:", err);
-      setMensaje(`❌ Error al cargar pagos pendientes: ${err.message}`);
-    }
-  };
->>>>>>> origin/Oscar
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
