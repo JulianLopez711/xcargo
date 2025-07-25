@@ -115,8 +115,17 @@ export default function RegistrarPago() {
   // Estados para manejo de bonos
   const [bonosDisponibles, setBonosDisponibles] = useState<Bono[]>([]);
   const [saldoBonosTotal, setSaldoBonosTotal] = useState<number>(0);
-  const [usarBonos, setUsarBonos] = useState<boolean>(false);
+  // El bono seleccionado siempre será el primero disponible
   const [bonoSeleccionado, setBonoSeleccionado] = useState<string | null>(null);
+  const [usarBonos, setUsarBonos] = useState<boolean>(true);
+
+  // Seleccionar bono automáticamente al cargar
+  useEffect(() => {
+    if (bonosDisponibles.length > 0) {
+      setBonoSeleccionado(bonosDisponibles[0].id);
+      setUsarBonos(true);
+    }
+  }, [bonosDisponibles]);
 
   // Calcular el monto de bonos a usar basado en el bono seleccionado
   const montoBonosUsar = usarBonos && bonoSeleccionado 
@@ -164,16 +173,11 @@ export default function RegistrarPago() {
   // (declaración de 'totales' ya está arriba para logs)
 
   // 🔥 NUEVA FUNCIÓN: Manejar cambio de modo de pago
-  const handleModoPagoChange = (nuevoModo: ModoPago) => {
+  const handleModoPagoChange = async (nuevoModo: ModoPago) => {
     setModoPago(nuevoModo);
-    
-    // Limpiar estados según el modo seleccionado
     if (nuevoModo === 'comprobante') {
       setUsarBonos(false);
       setBonoSeleccionado(null);
-    } else if (nuevoModo === 'bono') {
-      setUsarBonos(true);
-      // Limpiar comprobantes si solo se van a usar bonos
       setPagosCargados([]);
       setArchivo(null);
       setDatosManuales({
@@ -184,6 +188,38 @@ export default function RegistrarPago() {
         entidad: "",
         referencia: "",
       });
+    } else if (nuevoModo === 'bono') {
+      setUsarBonos(true);
+      setPagosCargados([]);
+      setArchivo(null);
+      setDatosManuales({
+        valor: "",
+        fecha: "",
+        hora: "",
+        tipo: "",
+        entidad: "",
+        referencia: "",
+      });
+      // Si hay bono seleccionado y cubre el total, agregar comprobante automático
+      if (bonoSeleccionado) {
+        const bono = bonosDisponibles.find(b => b.id === bonoSeleccionado);
+        if (bono) {
+          // Usar los datos disponibles del bono
+          const fechaBono = bono.fecha_generacion.split("T")[0] || "";
+          const horaBono = bono.fecha_generacion.split("T")[1]?.slice(0,5) || "00:00";
+          const datosBono: DatosPago = {
+            valor: bono.saldo_disponible.toString(),
+            fecha: fechaBono,
+            hora: horaBono,
+            tipo: "consignacion", // Por defecto
+            entidad: "Bono", // Por defecto
+            referencia: `${bono.referencia_pago_origen || bono.id}-Bono`,
+          };
+          // Archivo placeholder
+          const archivoBono = new File([`Bono generado: ${bono.id}`], `bono_${bono.id}.txt`, { type: "text/plain" });
+          setPagosCargados([{ datos: datosBono, archivo: archivoBono }]);
+        }
+      }
     } else if (nuevoModo === 'mixto') {
       setUsarBonos(true);
       // Mantener ambos formularios disponibles
@@ -532,27 +568,12 @@ export default function RegistrarPago() {
       if (pagosCargados[0]) {
         formData.append("comprobante", pagosCargados[0].archivo);
       }
-      // Adjuntar todas las guías seleccionadas, cada una con los datos del pago (todas tendrán el mismo id_transaccion)
-      let guiasConPagos: any[] = [];
-      pagosCargados.forEach((pago) => {
-        guias.forEach((guia) => {
-          // Usar el valor original de la guía, no el valor del pago cargado
-          const datosSinValor = { ...pago.datos };
-          delete datosSinValor.valor;
-          guiasConPagos.push({
-            ...guia,
-            ...datosSinValor
-          });
-        });
-      });
-console.log("[REGISTRO PAGO] Guías a enviar:", guiasConPagos);
-// LOG: Mostrar el contenido del FormData antes de enviar
-console.log("==== ENVÍO DE PAGO (FormData) ====");
-for (let pair of formData.entries()) {
-  console.log(pair[0], pair[1]);
-}
+
+      // Enviar todas las guías seleccionadas tal cual, sin duplicar por comprobante
+      formData.append("guias", JSON.stringify(guias));
+
       // LOG: Mostrar el array de guías que se va a enviar
-      console.log("[REGISTRO PAGO] Guías a enviar:", guiasConPagos);
+      console.log("[REGISTRO PAGO] Guías a enviar:", guias);
       // LOG: Mostrar el contenido del FormData antes de enviar
       console.log("==== ENVÍO DE PAGO (FormData) ====");
       for (let pair of formData.entries()) {
@@ -576,7 +597,6 @@ for (let pair of formData.entries()) {
       formData.append("tipo", pagosCargados[0]?.datos.tipo || "");
       formData.append("entidad", pagosCargados[0]?.datos.entidad || "");
       formData.append("referencia", pagosCargados[0]?.datos.referencia || "");
-      formData.append("guias", JSON.stringify(guiasConPagos));
       // Si hay bonos, adjuntar info de bonos
       if (usarBonos && bonoSeleccionado && montoBonosUsar > 0) {
         formData.append("bonos_aplicados", montoBonosUsar.toString());
@@ -819,14 +839,14 @@ for (let pair of formData.entries()) {
               {bonosDisponibles.map((bono) => (
                 <div 
                   key={bono.id} 
-                  className={`bono-checkbox ${bonoSeleccionado === bono.id ? 'seleccionado' : ''}`}
-                  onClick={() => handleSeleccionBono(bono.id)}
+                  className={`bono-checkbox seleccionado`}
+                  // El bono siempre está seleccionado y no se puede deseleccionar
                 >
                   <input
                     type="radio"
                     name="bonoSeleccionado"
                     checked={bonoSeleccionado === bono.id}
-                    onChange={() => handleSeleccionBono(bono.id)}
+                    disabled // Deshabilitado para que no se pueda cambiar
                   />
                   <div className="bono-info-seleccion">
                     <div className="bono-tipo-sel">

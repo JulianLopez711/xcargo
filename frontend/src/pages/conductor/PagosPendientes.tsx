@@ -25,6 +25,13 @@ interface Pago {
 
 const ITEMS_POR_PAGINA = 20;
 
+// Mostrar el token apenas se carga el archivo
+const rawToken = localStorage.getItem('token');
+console.log('[PagosPendientes] Token en localStorage:', rawToken);
+if (!rawToken) {
+  console.warn('[PagosPendientes] No hay token en localStorage');
+}
+
 export default function PagosPendientes() {
   const { isLoading, withLoading } = useLoading(true);
   const [pagos, setPagos] = useState<Pago[]>([]);
@@ -46,6 +53,9 @@ export default function PagosPendientes() {
     
     try {
       const token = getToken();
+      if (typeof window !== 'undefined') {
+        console.log('🔑 Token enviado:', token);
+      }
       if (!token) {
         navigate('/login');
         return;
@@ -56,7 +66,7 @@ export default function PagosPendientes() {
 
       const [bonosRes, guiasRes] = await withLoading(() => Promise.all([
         // Cargar bonos
-        fetch("http://127.0.0.1:8000/guias/bonos-disponibles", {
+        fetch("http://127.0.0.1:8000/pagos/bonos-disponibles", {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
@@ -91,9 +101,9 @@ export default function PagosPendientes() {
       ]));
 
       // Procesar respuesta de bonos
-      if (bonosRes.bonos_disponibles !== undefined) {
-        setBonosDisponibles(bonosRes.bonos_disponibles);
-        setDetallesBonos(bonosRes.detalles || []);
+      if (bonosRes.total_disponible !== undefined) {
+        setBonosDisponibles(bonosRes.total_disponible);
+        setDetallesBonos(bonosRes.bonos || []);
       }
 
       // Procesar respuesta de guías
@@ -142,10 +152,12 @@ export default function PagosPendientes() {
 
   // Cargar datos cuando el usuario esté disponible
   useEffect(() => {
-    if (!authLoading && user) {
-      cargarDatos();
-    }
-  }, [user, authLoading]);
+    cargarDatos();
+    // Si es necesario, agregar dependencias como [user, authLoading] para controlar mejor cuándo recargar
+  }, []);
+
+  // Mostrar en cada render
+  console.log('[PagosPendientes] Renderizando componente, token actual:', localStorage.getItem('token'));
 
   // ✅ FUNCIÓN DE DEBUG
   const verificarDatosConductor = async () => {
@@ -623,7 +635,7 @@ export default function PagosPendientes() {
                   <span className="action-count">
                     {seleccionados.length} guía{seleccionados.length !== 1 ? "s" : ""} seleccionada{seleccionados.length !== 1 ? "s" : ""}
                   </span>
-                  <span className="action-total">Total: ${totalSeleccionado.toLocaleString()}</span>
+                  <span className="action-total">Total: ${Math.max(0, totalSeleccionado - bonosDisponibles).toLocaleString()}</span>
                 </div>
                 <button className="btn-primary action-button" onClick={handlePagar}>
                   💳 Procesar Pago
