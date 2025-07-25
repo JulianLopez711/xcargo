@@ -62,6 +62,11 @@ export default function PagosPendientes() {
             'Content-Type': 'application/json'
           }
         }).then(async res => {
+          if (res.status === 401) {
+            localStorage.removeItem('token');
+            sessionStorage.removeItem('token');
+            throw new Error('No autorizado');
+          }
           if (!res.ok) throw new Error(`Error cargando bonos: ${res.status}`);
           return res.json();
         }),
@@ -88,11 +93,7 @@ export default function PagosPendientes() {
       // Procesar respuesta de bonos
       if (bonosRes.bonos_disponibles !== undefined) {
         setBonosDisponibles(bonosRes.bonos_disponibles);
-        // Filtrar solo bonos con estado_bono 'Disponible' (o 'disponible')
-        const detallesFiltrados = (bonosRes.detalles || []).filter(
-          (bono: any) => (bono.estado_bono || bono.estado || '').toLowerCase() === 'disponible'
-        );
-        setDetallesBonos(detallesFiltrados);
+        setDetallesBonos(bonosRes.detalles || []);
       }
 
       // Procesar respuesta de guías
@@ -411,16 +412,14 @@ export default function PagosPendientes() {
         )}
 
         {/* Información de bonos */}
-        {detallesBonos.length > 0 && (
+        {bonosDisponibles > 0 && (
           <div className="bonos-info-enhanced">
             <div className="bonos-header">
               <div className="bono-principal">
                 <span className="bono-icon">💰</span>
                 <div className="bono-content">
                   <span className="bono-label">Bonos Disponibles</span>
-                  <span className="bono-valor">$
-                    {detallesBonos.reduce((acc, b) => acc + (b.saldo_disponible || 0), 0).toLocaleString()}
-                  </span>
+                  <span className="bono-valor">${bonosDisponibles.toLocaleString()}</span>
                 </div>
               </div>
               <button 
