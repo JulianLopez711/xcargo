@@ -108,7 +108,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
         os.chmod(ruta_local, 0o644)
         
         # URL para acceso
-        comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
+        comprobante_url = f"http://127.0.0.1:8000/static/{nombre_archivo}"
   
         
         return comprobante_url
@@ -910,6 +910,7 @@ def obtener_pagos_pendientes_contabilidad(
     limit: int = Query(20, ge=1, le=100, description="Número de registros por página"),
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
     referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
+    carrier: Optional[str] = Query(None, description="Filtar por carrier"),
     estado: Optional[List[str]] = Query(None, description="Filtrar por uno o varios estados de conciliación"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
@@ -932,11 +933,19 @@ def obtener_pagos_pendientes_contabilidad(
             bigquery.ScalarQueryParameter("fecha_minima_auto", "DATE", FECHA_MINIMA)
         )
 
+        
         if referencia and referencia.strip():
             condiciones.append("referencia_pago LIKE @referencia_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
+
+        if carrier and carrier.strip():
+            condiciones.append("LOWER(COALESCE(cod.Carrier, gl.carrier, '')) LIKE @carrier_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("carrier_filtro", "STRING", f"%{carrier.strip().lower()}%")
+            )
+
 
         if estado:
             estados_limpios = [e.strip() for e in estado if e and e.strip()]
@@ -954,7 +963,12 @@ def obtener_pagos_pendientes_contabilidad(
                         bigquery.ScalarQueryParameter(param_name, "STRING", est)
                     )
                 condiciones.append(f"estado_conciliacion IN ({', '.join(in_params)})")
-        elif not (referencia and referencia.strip()):
+        elif not any([
+            referencia and referencia.strip(),
+            carrier and carrier.strip(),
+            fecha_desde,
+            fecha_hasta
+        ]):
             condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
 
         if fecha_desde:
@@ -979,13 +993,17 @@ def obtener_pagos_pendientes_contabilidad(
 
         where_clause = "WHERE " + " AND ".join(condiciones)
 
-        logger.info(f"🔍 Filtros aplicados - Referencia: {referencia}, Estado: {estado}, Fecha desde: {fecha_desde}, Fecha hasta: {fecha_hasta}")
+        logger.info(f"🔍 Filtros aplicados - Referencia: {referencia}, Carrier: {carrier}, Estado: {estado}, Fecha desde: {fecha_desde}, Fecha hasta: {fecha_hasta}")
         logger.info(f"📋 Condiciones SQL: {condiciones}")
         logger.info(f"🔧 WHERE clause: {where_clause}")
 
         count_query = f"""
             SELECT COUNT(DISTINCT pc.referencia_pago) as total
             FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+                ON pc.tracking = cod.tracking_number
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+                ON pc.tracking = gl.tracking_number
             {where_clause}
             """
 
@@ -1074,7 +1092,8 @@ def obtener_pagos_pendientes_contabilidad(
                 "referencia": referencia,
                 "estado": estado,
                 "fecha_desde": fecha_desde,
-                "fecha_hasta": fecha_hasta
+                "fecha_hasta": fecha_hasta,
+                "carrier": carrier
             },
             "timestamp": datetime.now().isoformat(),
             "status": "success"
