@@ -286,6 +286,7 @@ async def registrar_pago_conductor(
         # Calcular valor_bonos y valor_total_combinado
         valor_bonos = 0.0
         referencia_bonos = None
+        bono_id_utilizado = None
         valor_total_combinado = valor_pago  # Por defecto solo efectivo
 
         # Si las guías tienen campo 'bono_aplicado', sumar
@@ -297,8 +298,69 @@ async def registrar_pago_conductor(
                     pass
                 if "referencia_bonos" in guia and guia["referencia_bonos"]:
                     referencia_bonos = guia["referencia_bonos"]
+                if "bono_id" in guia and guia["bono_id"]:
+                    bono_id_utilizado = guia["bono_id"]
 
         valor_total_combinado = valor_pago + valor_bonos
+
+        # Si el pago es solo con bono, modificar la referencia y procesar el bono
+        referencia_pago_final = referencia
+        if valor_pago == 0 and valor_bonos > 0 and bono_id_utilizado:
+            referencia_pago_final = f"{referencia} (BONO)"
+            # Obtener el bono original
+            query_bono = f"""
+            SELECT * FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.conductor_bonos`
+            WHERE id = @bono_id
+            LIMIT 1
+            """
+            job_config_bono = bigquery.QueryJobConfig(query_parameters=[
+                bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id_utilizado)
+            ])
+            bono_result = list(client.query(query_bono, job_config=job_config_bono).result())
+            if bono_result:
+                bono_original = bono_result[0]
+                # Marcar bono original como usado
+                update_bono = f"""
+                UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.conductor_bonos`
+                SET estado_bono = 'usado', saldo_disponible = 0, fecha_ultimo_uso = CURRENT_DATE(), fecha_modificacion = CURRENT_TIMESTAMP()
+                WHERE id = @bono_id
+                """
+                job_config_update = bigquery.QueryJobConfig(query_parameters=[
+                    bigquery.ScalarQueryParameter("bono_id", "STRING", bono_id_utilizado)
+                ])
+                client.query(update_bono, job_config=job_config_update).result()
+                # Si hay saldo restante, crear nuevo bono disponible
+                saldo_restante = float(bono_original["saldo_disponible"]) - valor_bonos
+                if saldo_restante > 0.01:
+                    nuevo_bono_id = f"BONO_{uuid4()}"
+                    descripcion = f"Saldo restante de bono original {bono_original['referencia_pago_origen']} tras uso completo."
+                    insert_bono = f"""
+                    INSERT INTO `{PROJECT_ID}.{DATASET_CONCILIACIONES}.conductor_bonos` (
+                        id, tipo_bono, valor_bono, saldo_disponible, descripcion,
+                        fecha_generacion, referencia_pago_origen, estado_bono, employee_id,
+                        conductor_email, fecha_creacion, fecha_modificacion, 
+                        creado_por, modificado_por, Id_Transaccion
+                    ) VALUES (
+                        @id, @tipo_bono, @valor_bono, @saldo_disponible, @descripcion,
+                        CURRENT_DATE(), @referencia_pago_origen, 'activo', @employee_id,
+                        @conductor_email, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP(),
+                        @creado_por, @modificado_por, @id_transaccion
+                    )
+                    """
+                    job_config_insert = bigquery.QueryJobConfig(query_parameters=[
+                        bigquery.ScalarQueryParameter("id", "STRING", nuevo_bono_id),
+                        bigquery.ScalarQueryParameter("tipo_bono", "STRING", bono_original["tipo_bono"]),
+                        bigquery.ScalarQueryParameter("valor_bono", "FLOAT64", saldo_restante),
+                        bigquery.ScalarQueryParameter("saldo_disponible", "FLOAT64", saldo_restante),
+                        bigquery.ScalarQueryParameter("descripcion", "STRING", descripcion),
+                        bigquery.ScalarQueryParameter("referencia_pago_origen", "STRING", f"{bono_original['referencia_pago_origen']} (BONO)"),
+                        bigquery.ScalarQueryParameter("employee_id", "INTEGER", bono_original["employee_id"]),
+                        bigquery.ScalarQueryParameter("conductor_email", "STRING", bono_original["conductor_email"]),
+                        bigquery.ScalarQueryParameter("creado_por", "STRING", correo),
+                        bigquery.ScalarQueryParameter("modificado_por", "STRING", correo),
+                        bigquery.ScalarQueryParameter("id_transaccion", "INTEGER", nuevo_id_transaccion),
+                    ])
+                    client.query(insert_bono, job_config=job_config_insert).result()
 
         # LOG DETALLADO para depuración de excedente
         logger.info("[DEBUG-EXCEDENTE] === INICIO CALCULO EXCEDENTE ===")
@@ -386,7 +448,7 @@ async def registrar_pago_conductor(
                 "correo": correo,
                 "fecha_pago": fecha_pago,
                 "id_string": None,
-                "referencia_pago": referencia,
+                "referencia_pago": referencia_pago_final,
                 "valor_total_consignacion": valor_pago,
                 "tracking": tracking_clean,
                 "cliente": cliente_clean,

@@ -233,7 +233,8 @@ export default function RegistrarPago() {
       case 'comprobante':
         return pagosCargados.length > 0 && totales.totalPagosEfectivo >= total;
       case 'bono':
-        return usarBonos && totales.totalBonos >= total;
+        // Mostrar botón si hay bono seleccionado y cubre el total
+        return usarBonos && bonoSeleccionado && totales.totalBonos >= total;
       case 'mixto':
         return (pagosCargados.length > 0 || (usarBonos && totales.totalBonos > 0)) && totales.totalCubierto >= total;
       default:

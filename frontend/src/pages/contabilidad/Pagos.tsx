@@ -217,8 +217,8 @@ export default function PagosContabilidad() {
   const hayFiltrosActivos = () => {
   return filtroCarrier.trim() !== "" ||
        filtroReferencia.trim() !== "" || 
-       fechaDesde !== "" || 
-       fechaHasta !== "" || 
+       fechaDesde !== "" ||
+       fechaHasta !== "" ||
        filtroEstados.length > 0;
   };
 
