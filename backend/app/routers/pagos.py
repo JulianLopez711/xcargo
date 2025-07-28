@@ -331,6 +331,7 @@ async def registrar_pago_conductor(
                 client.query(update_bono, job_config=job_config_update).result()
                 # Si hay saldo restante, crear nuevo bono disponible
                 saldo_restante = float(bono_original["saldo_disponible"]) - valor_bonos
+                # Si el saldo restante es mayor a 0.01, se genera un nuevo bono con el saldo sobrante
                 if saldo_restante > 0.01:
                     nuevo_bono_id = f"BONO_{uuid4()}"
                     descripcion = f"Saldo restante de bono original {bono_original['referencia_pago_origen']} tras uso completo."
@@ -338,7 +339,7 @@ async def registrar_pago_conductor(
                     INSERT INTO `{PROJECT_ID}.{DATASET_CONCILIACIONES}.conductor_bonos` (
                         id, tipo_bono, valor_bono, saldo_disponible, descripcion,
                         fecha_generacion, referencia_pago_origen, estado_bono, employee_id,
-                        conductor_email, fecha_creacion, fecha_modificacion, 
+                        conductor_email, fecha_creacion, fecha_modificacion,
                         creado_por, modificado_por, Id_Transaccion
                     ) VALUES (
                         @id, @tipo_bono, @valor_bono, @saldo_disponible, @descripcion,

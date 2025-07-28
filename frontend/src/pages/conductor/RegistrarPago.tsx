@@ -924,37 +924,33 @@ export default function RegistrarPago() {
 
             <div className="bonos-lista">
               {bonosDisponibles.map((bono) => (
-                <div
-                  key={bono.id}
-                  className={`bono-checkbox seleccionado`}
-                  // El bono siempre está seleccionado y no se puede deseleccionar
-                >
-                  <input
-                    type="radio"
-                    name="bonoSeleccionado"
-                    checked={bonoSeleccionado === bono.id}
-                    disabled // Deshabilitado para que no se pueda cambiar
-                  />
-                  <div className="bono-info-seleccion">
-                    <div className="bono-tipo-sel">{bono.tipo_bono}</div>
-                    <div className="bono-valor-sel">
-                      ${bono.saldo_disponible.toLocaleString()}
+                <div key={bono.id} className="bono-radio">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="bonoSeleccionado"
+                      checked={bonoSeleccionado === bono.id}
+                      onChange={() => {
+                        setBonoSeleccionado(bono.id);
+                        setUsarBonos(true);
+                      }}
+                    />
+                    <div className="bono-info-seleccion">
+                      <div className="bono-tipo-sel">{bono.tipo_bono}</div>
+                      <div className="bono-valor-sel">${bono.saldo_disponible.toLocaleString()}</div>
+                      <div className="bono-desc-sel">
+                        Generado: {new Date(bono.fecha_generacion).toLocaleDateString()}
+                        {bono.descripcion && <span> - {bono.descripcion}</span>}
+                      </div>
                     </div>
-                    <div className="bono-desc-sel">
-                      Generado:{" "}
-                      {new Date(bono.fecha_generacion).toLocaleDateString()}
-                      {bono.descripcion && <span> - {bono.descripcion}</span>}
-                    </div>
-                  </div>
+                  </label>
                 </div>
               ))}
             </div>
 
             {bonoSeleccionado && (
               <div className="bonos-seleccionados-resumen">
-                <strong>
-                  Bono Seleccionado: ${montoBonosUsar.toLocaleString()}
-                </strong>
+                <strong>Bono Seleccionado: ${montoBonosUsar.toLocaleString()}</strong>
                 {montoBonosUsar >= total ? (
                   <div style={{ color: "#059669", marginTop: "0.5rem" }}>
                     ✅ Cubre el total requerido
