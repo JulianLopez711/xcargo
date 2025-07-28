@@ -998,14 +998,18 @@ def obtener_pagos_pendientes_contabilidad(
         logger.info(f"🔧 WHERE clause: {where_clause}")
 
         count_query = f"""
-            SELECT COUNT(DISTINCT pc.referencia_pago) as total
-            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
-            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
-                ON pc.tracking = cod.tracking_number
-            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
-                ON pc.tracking = gl.tracking_number
-            {where_clause}
-            """
+            SELECT COUNT(*) as total
+            FROM (
+                SELECT pc.referencia_pago, pc.correo
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+                LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+                    ON pc.tracking = cod.tracking_number
+                LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+                    ON pc.tracking = gl.tracking_number
+                {where_clause}
+                GROUP BY pc.referencia_pago, pc.correo
+            )
+        """
 
 
         main_query = f"""
@@ -1545,7 +1549,7 @@ async def obtener_historial_pagos(
 @router.get("/exportar-pendientes-contabilidad")
 def exportar_todos_pagos_pendientes_contabilidad(
     referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
-    estado: Optional[str] = Query(None, description="Filtrar por estado de conciliación"),
+    estado: Optional[List[str]] = Query(None, description="Filtrar por estados de conciliación"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
 ):
@@ -1577,12 +1581,23 @@ def exportar_todos_pagos_pendientes_contabilidad(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
         
-        # Filtro por estado
-        if estado and estado.strip():
+   # Filtro por estado
+        if estado:
+            estados_limpios = [e.strip() for e in estado if e and e.strip()]
+        if len(estados_limpios) == 1:
             condiciones.append("pc.estado_conciliacion = @estado_filtro")
             parametros.append(
-                bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
+                bigquery.ScalarQueryParameter("estado_filtro", "STRING", estados_limpios[0])
             )
+        elif len(estados_limpios) > 1:
+            in_params = []
+            for idx, est in enumerate(estados_limpios):
+                param_name = f"estado_filtro_{idx}"
+                in_params.append(f"@{param_name}")
+                parametros.append(
+                    bigquery.ScalarQueryParameter(param_name, "STRING", est)
+                )
+            condiciones.append(f"pc.estado_conciliacion IN ({', '.join(in_params)})")
         else:
             # Solo filtrar por pendiente_conciliacion si NO se está buscando por referencia específica
             # Si se busca por referencia, mostrar todos los estados para esa referencia

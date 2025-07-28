@@ -523,30 +523,17 @@ async def diagnosticar_archivo(file: UploadFile = File(...)):
 
 def normalizar_tipo_banco(descripcion: str) -> Optional[str]:
     desc = descripcion.lower()
-    
-    # Nequi
     if "nequi" in desc:
         return "nequi"
-    
-    # Consignaciones (efectivo, cajero, corresponsal, sucursal)
-    consignacion_keywords = [
-        "consignacion", "consig", "caj", "efectivo", "corresponsal", "mf autoservicios",
-        "hall au", "altavista"
-    ]
-    if any(palabra in desc for palabra in consignacion_keywords):
+    if "consignacion" in desc or "caj" in desc or "efectivo" in desc:
         return "consignacion"
-    
-    # Transferencias interbancarias
-    transferencia_keywords = [
-        "transferencia", "interbanc", "suc virtual", "banca movil", "tnt express",
-        "daviviend", "edwin", "dcd consultoria", "leidy", "gomile", "rodamel", "prov",
-        "ana maria", "luis ferna", "esneider"
-    ]
-    if any(palabra in desc for palabra in transferencia_keywords):
+    if ("transferencia" in desc or "interbanc" in desc or
+        "suc virtual" in desc or "banca movil" in desc or
+        "daviviend" in desc or "tnt express" in desc or
+        "edwin" in desc or "dcd consultoria" in desc or
+        "leidy cecilia l" in desc):
         return "transferencia"
-    
     return None
-
 
 
 def analizar_patrones_existentes(client: bigquery.Client, fecha: str) -> Dict[str, Dict[float, int]]:
@@ -1695,16 +1682,18 @@ def obtener_resumen_conciliacion():
     """
     client = bigquery.Client()
     
+    import os
+    import csv
     try:
         # 1. Resumen general
         query_general = """
         SELECT 
-            COUNT(*) as total_movimientos,
-            COUNTIF(estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')) as conciliados,
+            COUNT(DISTINCT id) as total_movimientos,
+            COUNTIF(estado_conciliacion IN ('conciliado_automatico','conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')) as conciliados,
             COUNTIF(estado_conciliacion = 'conciliado_exacto') as conciliados_exactos,
             COUNTIF(estado_conciliacion = 'conciliado_aproximado') as conciliados_aproximados,
             COUNTIF(estado_conciliacion = 'conciliado_manual') as conciliados_manuales,
-            COUNTIF(estado_conciliacion = 'pendiente') as pendientes,
+            COUNTIF(estado_conciliacion IN ('pendiente')) as pendientes,
             SUM(SAFE_CAST(valor_banco AS FLOAT64)) as valor_total
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
     
@@ -1727,11 +1716,106 @@ def obtener_resumen_conciliacion():
         # 3. Total absoluto valor_banco
         query_total_valor = """
         SELECT
-             SUM(SAFE_CAST(valor_banco AS FLOAT64)) AS total_valor_banco
+            SUM(SAFE_CAST(valor_banco AS FLOAT64)) AS total_valor_banco
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
         """
+
+        query_movimientos = """
+        SELECT
+            COUNTIF(estado_conciliacion = 'pendiente_conciliacion') AS pendientes_reales,
+            COUNTIF(estado_conciliacion = 'conciliado_manual') AS manuales_reales,
+            COUNT(DISTINCT referencia_pago) AS total_pc,
+            COUNTIF(estado_conciliacion = 'conciliado_exacto') AS exactos_reales,
+            COUNTIF(estado_conciliacion IN ('conciliado_automatico', 'conciliado_manual')) AS aprox_reales
+            
+        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+        """
+
+        pendientes_pc = """
+        SELECT COUNT(*) AS pendientes_pc
+        FROM (
+            SELECT referencia_pago, correo
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE estado_conciliacion = 'pendiente_conciliacion' 
+                AND (novedades IS NULL OR novedades = '')
+            GROUP BY referencia_pago, correo
+        )
+        """
+
+        conciliados_pc = """
+        SELECT COUNT(*) AS conciliados_pc
+        FROM (
+            SELECT referencia_pago, correo
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
+                AND referencia_pago IS NOT NULL
+                AND correo IS NOT NULL
+                AND (novedades IS NULL OR novedades = '')
+            GROUP BY referencia_pago, correo
+        )
+        """
+
+        rechazados_pc = """
+        SELECT 
+            COUNT(*) AS rechazados_pc
+        FROM (
+            SELECT referencia_pago, correo
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE estado_conciliacion = "rechazado"
+            GROUP BY referencia_pago, correo
+        )
+
+        """
+
+        total_pagosconductor = """
+        SELECT 
+            COUNT(*) AS total_pagosconductor
+        FROM (
+            SELECT referencia_pago, correo
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE estado_conciliacion IS NOT NULL
+            GROUP BY referencia_pago, correo
+        )
+        """
+
+        pendientes_pc = list(client.query(pendientes_pc).result())[0]
         resultado_total = list(client.query(query_total_valor).result())[0]
-        
+        res_conciliados_pc_rows = list(client.query(conciliados_pc).result())[0]
+        result_query_movimientos = list(client.query(query_movimientos).result())[0]
+        res_total_pagosconductor_rows = list(client.query(total_pagosconductor).result())[0]
+        res_rechazados_pc = list(client.query(rechazados_pc).result())[0]
+
+        '''
+        # Exportar resultado de conciliados_pc a CSV
+        export_path_conciliados_pc = os.path.join(os.path.dirname(__file__), "conciliados_pc_export.csv")
+        try:
+            with open(export_path_conciliados_pc, mode="w", newline='', encoding="utf-8") as csvfile:
+                writer = csv.writer(csvfile)
+                if res_conciliados_pc_rows:
+                    writer.writerow(list(res_conciliados_pc_rows[0].keys()))
+                    for row in res_conciliados_pc_rows:
+                        writer.writerow([row[k] for k in row.keys()])
+            logger.info(f"✅ Exportación CSV de conciliados_pc completada: {export_path_conciliados_pc}")
+        except Exception as e:
+            logger.warning(f"Error exportando CSV de conciliados_pc: {e}")
+      
+
+        # Exportar resultado de total_pagosconductor a CSV
+        import csv
+        import os
+        export_path_total_pc = os.path.join(os.path.dirname(__file__), "total_pagosconductor_export.csv")
+        try:
+            with open(export_path_total_pc, mode="w", newline='', encoding="utf-8") as csvfile:
+                writer = csv.writer(csvfile)
+                if res_total_pagosconductor_rows:
+                    writer.writerow(list(res_total_pagosconductor_rows[0].keys()))
+                    for row in res_total_pagosconductor_rows:
+                        writer.writerow([row[k] for k in row.keys()])
+            logger.info(f"✅ Exportación CSV de total_pagosconductor completada: {export_path_total_pc}")
+        except Exception as e:
+            logger.warning(f"Error exportando CSV de total_pagosconductor: {e}")
+        '''
+
         estados = []
         for row in client.query(query_estados).result():
             estados.append({
@@ -1741,7 +1825,7 @@ def obtener_resumen_conciliacion():
                 #"fecha_min": row["fecha_min"].isoformat() if row["fecha_min"] else None,
                 #"fecha_max": row["fecha_max"].isoformat() if row["fecha_max"] else None
             })
-        
+
         return {
             "resumen_general": {
                 "total_movimientos": int(resultado_general["total_movimientos"]),
@@ -1754,6 +1838,16 @@ def obtener_resumen_conciliacion():
                 #"fecha_inicial": resultado_general["fecha_inicial"].isoformat() if resultado_general["fecha_inicial"] else None,
                 #"fecha_final": resultado_general["fecha_final"].isoformat() if resultado_general["fecha_final"] else None
             },
+            #"pendientes_reales": len(pendientes_pc),
+            "total_pagosconductor": int(res_total_pagosconductor_rows["total_pagosconductor"]) if res_total_pagosconductor_rows["total_pagosconductor"] else 0,
+            "rechazados_pc": int(res_rechazados_pc["rechazados_pc"]) if res_rechazados_pc["rechazados_pc"] else 0,
+            "conciliados_pc": int(res_conciliados_pc_rows["conciliados_pc"]) if res_conciliados_pc_rows["conciliados_pc"] else 0,
+            "pendientes_pc": int(pendientes_pc["pendientes_pc"]) if pendientes_pc["pendientes_pc"] else 0,
+            
+            "total_pc": int(result_query_movimientos["total_pc"]) if result_query_movimientos["total_pc"] else 0,
+            "aprox_reales": int(result_query_movimientos["aprox_reales"]) if result_query_movimientos["aprox_reales"] else 0,
+            "exactos_reales": int(result_query_movimientos["exactos_reales"]) if result_query_movimientos["exactos_reales"] else 0,
+            "manuales_reales": int(result_query_movimientos["manuales_reales"]) if result_query_movimientos["manuales_reales"] else 0,
             "total_valor_banco": int(resultado_total["total_valor_banco"]) if resultado_total["total_valor_banco"] else 0,
             "resumen_por_estado": estados,
             "timestamp": datetime.utcnow().isoformat()
@@ -2144,7 +2238,6 @@ async def obtener_pagos_pendientes_conciliar():
                OR estado_conciliacion = '' 
                OR estado_conciliacion = 'pendiente'
                OR estado_conciliacion = 'pendiente_conciliacion')
-        AND fecha_pago >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
         ORDER BY fecha_pago DESC
         """
         
@@ -2239,7 +2332,6 @@ async def obtener_transacciones_bancarias_disponibles(referencia: str):
         AND (estado_conciliacion = 'pendiente' OR estado_conciliacion IS NULL)
         AND (referencia_pago_asociada IS NULL OR referencia_pago_asociada = '')
         ORDER BY ABS(valor_banco - @valor_pago), fecha DESC
-        LIMIT 20
         """
         
         job_config_transacciones = bigquery.QueryJobConfig(
