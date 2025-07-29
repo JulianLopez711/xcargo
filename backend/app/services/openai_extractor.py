@@ -331,7 +331,7 @@ class EnhancedOCRExtractor:
                     "fecha": "formato YYYY-MM-DD si encuentras fecha",
                     "hora": "formato HH:MM:SS en notación 24h si encuentras hora (convierte de a. m. / p. m. si es necesario)",
                     "entidad": "nombre exacto de la entidad emisora del comprobante (ej: Nequi, Bancolombia, Daviplata, etc.)",
-                    "referencia": "número de referencia/autorización/recibo más relevante y completo",
+                    "referencia": "número de referencia/autorización/recibo/aprobación más relevante y completo",
                     "estado": "estado de la transacción si está visible; si no se encuentra, usar null",
                     "descripcion": "concepto o tipo de movimiento si está presente (por ejemplo: DEPOSITO, TRANSFERENCIA, PAGO, RECARGA, etc.)",
                     "tipo_comprobante": "nequi, transferencia o consignacion — obligatorio y debe cumplir reglas exactas"
@@ -341,17 +341,27 @@ class EnhancedOCRExtractor:
                     - Al momento de extraer debes ser termianantemente esctricto para tomar únicamente el valor antes de la coma.
                     - Aunque sean montos pequeños debes priorizar que el valor tomado ignore lo que venga después de la coma.
 
+                    REGLAS PARA entidad:
+                    - Cuando identifiques en la imagen texto como "CORRESPONSAL BANCOLOMBIA" o "Redeban" entonces el campo entidad debe ser estrictamente 'BANCOLOMBIA'.
+
                     REGLAS PARA tipo_comprobante:
                     - Solo acepta estos valores exactos: "nequi", "transferencia", "consignacion".
                     - Si el comprobante es de la app Nequi (por diseño, logo, colores rosados, QR, o menciones explícitas), entonces tipo_comprobante = "nequi".
                     - Si aparece la palabra "Redeban" o términos como "consignación", "depósito", "recibo", "corresponsal", "taquilla", o parece un recibo físico en papel térmico, entonces tipo_comprobante = "consignacion".
+                    - Cuando idenhtifiques en la imagen algún texto como: "Redeban", "Corresponsal Bancolombia", estos debe considerarse automáticamente como tipo_comprobante = 'consignación'.
+                    - El campo de tipo_comprobantes es una lista desplegable con los tres valores posibles, eres libre de 
                     - Si es una transferencia digital (por app bancaria como Bancolombia, Daviplata, entre cuentas o PSE) y no aplica lo anterior, entonces tipo_comprobante = "transferencia".
                     - No adivines. Aplica las reglas exactamente como están.
+                    
 
                     REGLAS PARA CAMPO "referencia":
-                    - Usa campos explícitos como "No. de comprobante", "RRN", "REFERENCIA", "AUTORIZACIÓN", "APRO", etc.
+                    - Usa campos explícitos como "No. de comprobante", "REFERENCIA", "AUTORIZACIÓN", "APRO", etc.
+                    - Cuando la imagen de comprobante tenga algún texto como: "Redeban", "Corresponsal Bancolombia", en este tipo de comprobantes solo debe usarse lo que venga después de "APRO:" para usarlo como referencia de pago.                    
+                    - Cuando en la imagen del comprobante de pago se encuentre el campo de "APRO" debes utitlizar obligatoriamente este valor.
+                    - EjEMPLO: “... RECIBO: 152960 RRN: 163968 APRO: 520584 VALOR $ 72.425 ...” debes responder solo 520584 como referencia.
                     - Si hay varios, elige el más largo o más relevante.
                     - Si no existe ninguno, usa null.
+                    
 
                     REGLAS ADICIONALES:
                     - Solo se permiten únicamente tres tipos de comprobantes: "nequi", "transferencia", "consignacion".
@@ -360,6 +370,8 @@ class EnhancedOCRExtractor:
                     - El JSON debe estar completo, limpio y sintácticamente válido.
                     - No incluyas texto adicional, solo el JSON.
                     - Corrige automáticamente formatos como "$ 156.000" → "156000"
+                    - Corrige automáticamente formatos como "$ 156.000,00" → "156000"
+                    - Corrige automáticamente formatos como "$ 156,000.00" → "156000"
                     - Convierte fechas y horas a los formatos requeridos.
                     """
                     
@@ -549,7 +561,8 @@ class EnhancedOCRExtractor:
             r'referencia.*?([A-Z0-9]{6,})',
             r'autorizaci[oó]n.*?([A-Z0-9]{6,})',
             r'c[oó]digo.*?([A-Z0-9]{6,})',
-            r'([A-Z0-9]{8,15})'  # Secuencia alfanumérica larga
+            r'([A-Z0-9]{8,15})',  # Secuencia alfanumérica larga
+            r'APRO[: ]+\s*(\d+)'
         ]
         
         for patron in patrones_referencia:
