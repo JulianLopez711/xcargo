@@ -911,6 +911,7 @@ def obtener_pagos_pendientes_contabilidad(
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
     referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
     carrier: Optional[str] = Query(None, description="Filtar por carrier"),
+    valor: Optional[float] = Query(None, ge=0, description="Filtrar por valor del pago"),
     estado: Optional[List[str]] = Query(None, description="Filtrar por uno o varios estados de conciliación"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
@@ -944,6 +945,12 @@ def obtener_pagos_pendientes_contabilidad(
             condiciones.append("LOWER(COALESCE(cod.Carrier, gl.carrier, '')) LIKE @carrier_filtro")
             parametros.append(
                 bigquery.ScalarQueryParameter("carrier_filtro", "STRING", f"%{carrier.strip().lower()}%")
+            )
+        
+        if valor is not None:
+            condiciones.append("valor_total_consignacion = @valor_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("valor_filtro", "FLOAT64", float(valor))
             )
 
 
@@ -1101,7 +1108,8 @@ def obtener_pagos_pendientes_contabilidad(
                 "estado": estado,
                 "fecha_desde": fecha_desde,
                 "fecha_hasta": fecha_hasta,
-                "carrier": carrier
+                "carrier": carrier,
+                "valor": valor
             },
             "timestamp": datetime.now().isoformat(),
             "status": "success"

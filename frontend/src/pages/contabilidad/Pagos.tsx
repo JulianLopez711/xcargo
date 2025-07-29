@@ -59,6 +59,9 @@ export default function PagosContabilidad() {
   const pagosPorPagina = 20;
   const [cargando, setCargando] = useState(false);
   const [filtroReferencia, setFiltroReferencia] = useState("");
+  const [filtroValor, setFiltroValor] = useState("");
+  // Estado para el valor formateado visualmente
+  const [filtroValorFormateado, setFiltroValorFormateado] = useState("");
   const [filtroCarrier, setFiltroCarrier] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -102,6 +105,9 @@ export default function PagosContabilidad() {
         if(filtroCarrier.trim()){
           params.append('carrier',filtroCarrier.trim());
           }
+        if (filtroValor.trim()) {
+          params.append('valor', filtroValor.trim());
+        }
         if (filtroReferencia.trim()) {
           params.append('referencia', filtroReferencia.trim());
         }
@@ -213,7 +219,8 @@ export default function PagosContabilidad() {
        filtroReferencia.trim() !== "" || 
        fechaDesde !== "" || 
        fechaHasta !== "" || 
-       filtroEstados.length > 0;
+       filtroEstados.length > 0 ||
+       filtroValor.trim() !== "";
   };
 
   // Estado para controlar si se aplicaron filtros
@@ -496,6 +503,7 @@ function parseFechaLocal(fechaStr: string) {
     setFechaDesde("");
     setFechaHasta("");
     setFiltroEstados([...estadosDisponibles]);
+    setFiltroValor("");
     setPaginaActual(1);
     setFiltrosAplicados(false);
     obtenerPagos(1, false);
@@ -545,6 +553,31 @@ function parseFechaLocal(fechaStr: string) {
     return numeros;
   };
 
+  function limpiarValorMoneda(valor: string) {
+    return valor.replace(/[^\d.]/g, "").replace(/(\..*)\./g, '$1');
+  }
+
+  function formatearComoMoneda(valor: string) {
+    if (!valor) return "";
+    const partes = valor.split(".");
+    let entero = partes[0].replace(/^0+(?!$)/, "");
+    let decimal = partes[1] || "";
+    entero = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return decimal ? `${entero}.${decimal}` : entero;
+  }
+
+  function manejarCambioValor(e: React.ChangeEvent<HTMLInputElement>) {
+    const valorLimpio = limpiarValorMoneda(e.target.value);
+    setFiltroValor(valorLimpio);
+    setFiltroValorFormateado(formatearComoMoneda(valorLimpio));
+  }
+
+  useEffect(() => {
+    if (filtroValor === "") {
+      setFiltroValorFormateado("");
+    }
+  }, [filtroValor]);
+
   return (
     <div className="pagos-page">
       <h2 className="pagos-title">Módulo de Pagos - Contabilidad</h2>
@@ -580,6 +613,18 @@ function parseFechaLocal(fechaStr: string) {
             value={filtroReferencia}
             onChange={(e) => setFiltroReferencia(e.target.value)}
             onKeyDown={manejarEnterFiltros}
+          />
+        </label>
+        <label>
+          Buscar valor:
+          <input
+            type="text"
+            placeholder="Ej: 10"
+            value={filtroValorFormateado}
+            onChange={manejarCambioValor}
+            onKeyDown={manejarEnterFiltros}
+            inputMode="decimal"
+            autoComplete="off"
           />
         </label>
         <label>
