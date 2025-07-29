@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { saveAs } from "file-saver";
 import "../../styles/contabilidad/Pagos.css";
+import { concat } from "lodash";
 
 // Utilidad para obtener el token desde localStorage
 function getToken(): string {
@@ -21,7 +22,7 @@ interface Pago {
   trackings_completos?: string; // Added this property
   correo_conductor: string;
   hora_pago?: string; // Added this property
-  fecha_creacion?: string;
+  creado_en?: string;
   fecha_modificacion?: string;
   carrier?: string; // Agregado para mostrar el carrier
 }
@@ -58,6 +59,9 @@ export default function PagosContabilidad() {
   const pagosPorPagina = 20;
   const [cargando, setCargando] = useState(false);
   const [filtroReferencia, setFiltroReferencia] = useState("");
+  const [filtroValor, setFiltroValor] = useState("");
+  // Estado para el valor formateado visualmente
+  const [filtroValorFormateado, setFiltroValorFormateado] = useState("");
   const [filtroCarrier, setFiltroCarrier] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -101,6 +105,9 @@ export default function PagosContabilidad() {
         if(filtroCarrier.trim()){
           params.append('carrier',filtroCarrier.trim());
           }
+        if (filtroValor.trim()) {
+          params.append('valor', filtroValor.trim());
+        }
         if (filtroReferencia.trim()) {
           params.append('referencia', filtroReferencia.trim());
         }
@@ -141,7 +148,7 @@ export default function PagosContabilidad() {
 
       const data = await response.json();
       console.log('📊 Datos recibidos:', data);
-      
+      console.log(data)      
       // Si la respuesta incluye información de paginación
       if (data.pagos && data.paginacion) {
         console.log("📈 Actualizando con paginación:", data.pagos.length, "pagos");
@@ -152,7 +159,7 @@ export default function PagosContabilidad() {
         console.log("📈 Actualizando sin paginación:", Array.isArray(data) ? data.length : "datos no válidos");
         setPagos(Array.isArray(data) ? data : []);
         // Calcular paginación estimada
-        const totalEstimado = data.length === pagosPorPagina ? (pagina * pagosPorPagina) + 1 : (pagina - 1) * pagosPorPagina + data.length;
+        const totalEstimado = data.length
         setPaginacionInfo({
           total_registros: totalEstimado,
           total_paginas: Math.ceil(totalEstimado / pagosPorPagina),
@@ -212,7 +219,8 @@ export default function PagosContabilidad() {
        filtroReferencia.trim() !== "" || 
        fechaDesde !== "" || 
        fechaHasta !== "" || 
-       filtroEstados.length > 0;
+       filtroEstados.length > 0 ||
+       filtroValor.trim() !== "";
   };
 
   // Estado para controlar si se aplicaron filtros
@@ -283,7 +291,7 @@ export default function PagosContabilidad() {
     const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Fecha_Creacion\n";
     const filas = pagosFiltrados
       .map((p: Pago, idx: number) =>
-        `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${p.estado_conciliacion}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${p.fecha_creacion || ''}"`
+        `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${p.estado_conciliacion}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${p.creado_en || ''}"`
       )
       .join("\n");
 
@@ -356,7 +364,7 @@ export default function PagosContabilidad() {
       const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Trackings_Completos,Hora_Pago,Novedades,Fecha_Creacion,Fecha_Modificacion\n";
       const filas = data.pagos
         .map((p: Pago, idx: number) =>
-          `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${getEstadoTexto(p.estado_conciliacion)}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${(p.trackings_completos || '').replace(/"/g, '""')}","${p.hora_pago || ''}","${(p.novedades || '').replace(/"/g, '""')}","${p.fecha_creacion || ''}","${p.fecha_modificacion || ''}"`
+          `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${getEstadoTexto(p.estado_conciliacion)}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${(p.trackings_completos || '').replace(/"/g, '""')}","${p.hora_pago || ''}","${(p.novedades || '').replace(/"/g, '""')}","${p.creado_en || ''}","${p.fecha_modificacion || ''}"`
         )
         .join("\n");
 
@@ -495,6 +503,7 @@ function parseFechaLocal(fechaStr: string) {
     setFechaDesde("");
     setFechaHasta("");
     setFiltroEstados([...estadosDisponibles]);
+    setFiltroValor("");
     setPaginaActual(1);
     setFiltrosAplicados(false);
     obtenerPagos(1, false);
@@ -544,6 +553,31 @@ function parseFechaLocal(fechaStr: string) {
     return numeros;
   };
 
+  function limpiarValorMoneda(valor: string) {
+    return valor.replace(/[^\d.]/g, "").replace(/(\..*)\./g, '$1');
+  }
+
+  function formatearComoMoneda(valor: string) {
+    if (!valor) return "";
+    const partes = valor.split(".");
+    let entero = partes[0].replace(/^0+(?!$)/, "");
+    let decimal = partes[1] || "";
+    entero = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return decimal ? `${entero}.${decimal}` : entero;
+  }
+
+  function manejarCambioValor(e: React.ChangeEvent<HTMLInputElement>) {
+    const valorLimpio = limpiarValorMoneda(e.target.value);
+    setFiltroValor(valorLimpio);
+    setFiltroValorFormateado(formatearComoMoneda(valorLimpio));
+  }
+
+  useEffect(() => {
+    if (filtroValor === "") {
+      setFiltroValorFormateado("");
+    }
+  }, [filtroValor]);
+
   return (
     <div className="pagos-page">
       <h2 className="pagos-title">Módulo de Pagos - Contabilidad</h2>
@@ -579,6 +613,18 @@ function parseFechaLocal(fechaStr: string) {
             value={filtroReferencia}
             onChange={(e) => setFiltroReferencia(e.target.value)}
             onKeyDown={manejarEnterFiltros}
+          />
+        </label>
+        <label>
+          Buscar valor:
+          <input
+            type="text"
+            placeholder="Ej: 10"
+            value={filtroValorFormateado}
+            onChange={manejarCambioValor}
+            onKeyDown={manejarEnterFiltros}
+            inputMode="decimal"
+            autoComplete="off"
           />
         </label>
         <label>
@@ -759,6 +805,7 @@ function parseFechaLocal(fechaStr: string) {
               <th>Valor Total</th>
               <th>Guías</th>
               <th>Fecha</th>
+              <th>Fecha Creación</th>
               <th>Carrier</th>
               <th>Tipo</th>
               <th>Estado</th>
@@ -780,6 +827,7 @@ function parseFechaLocal(fechaStr: string) {
                   <td>${p.valor.toLocaleString()}</td>
                   <td>{p.num_guias}</td>
                   <td>{p.fecha}</td>
+                  <td>{p.creado_en}</td>
                   <td>{p.carrier || "N/A"}</td>
                   <td>{p.tipo}</td>
                   <td style={{
