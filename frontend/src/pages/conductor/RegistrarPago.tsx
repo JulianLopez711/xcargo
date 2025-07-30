@@ -16,10 +16,6 @@ type Bono = {
   descripcion?: string;
 };
 
-type BonosState = {
-  disponible: number;
-  detalles: Bono[];
-};
 
 type GuiaPago = {
   referencia: string;
@@ -80,7 +76,7 @@ export default function RegistrarPago() {
   const {
     guias,
     total,
-    bonos,
+  // bonos,
   }: {
     guias: GuiaPago[];
     total: number;
@@ -91,8 +87,8 @@ export default function RegistrarPago() {
     bonos: { disponible: 0, detalles: [] },
   };
 
-  // 🔥 NUEVO: Estado para modo de pago seleccionado
-  const [modoPago, setModoPago] = useState<ModoPago>("comprobante");
+  // 🔥 NUEVO: Estado para modo de pago seleccionado (solo lectura)
+  const [modoPago] = useState<ModoPago>("comprobante");
   const [archivo, setArchivo] = useState<File | null>(null);
   const [cargando, setCargando] = useState(false);
   const [analizando, setAnalizando] = useState(false);
@@ -186,27 +182,7 @@ export default function RegistrarPago() {
   // (declaración de 'totales' ya está arriba para logs)
 
   // 🔥 NUEVA FUNCIÓN: Manejar cambio de modo de pago
-  const handleModoPagoChange = async (nuevoModo: ModoPago) => {
-    setModoPago(nuevoModo);
-    if (nuevoModo === "comprobante") {
-      setUsarBonos(false);
-      setBonoSeleccionado(null);
-      setPagosCargados([]);
-      setArchivo(null);
-      setDatosManuales({
-        valor: "",
-        fecha: "",
-        hora: "",
-        tipo: "",
-        entidad: "",
-        referencia: "",
-      });
-      // El comprobante automático se generará en un useEffect
-  } else if (nuevoModo === "mixto") {
-      setUsarBonos(true);
-      // Mantener ambos formularios disponibles
-    }
-  };
+  // handleModoPagoChange eliminado por no usarse
 
   // useEffect para comprobante automático de bono (debe ir antes del return)
   useEffect(() => {
@@ -322,23 +298,7 @@ export default function RegistrarPago() {
     }
   };
 
-  const normalizarHoraParaEnvio = (hora: string): string => {
-    if (!hora) return "00:00:00";
-
-    if (/^\d{2}:\d{2}:\d{2}$/.test(hora)) {
-      return hora;
-    }
-
-    if (/^\d{2}:\d{2}$/.test(hora)) {
-      return `${hora}:00`;
-    }
-
-    if (/^\d{1}:\d{2}$/.test(hora)) {
-      return `0${hora}:00`;
-    }
-
-    return `${hora.slice(0, 5)}:00`;
-  };
+  // normalizarHoraParaEnvio eliminado por no usarse
 
   function parseValorMonetario(valor: string): number {
     const limpio = valor
@@ -553,11 +513,7 @@ export default function RegistrarPago() {
     setCalidadOCR(0);
   };
 
-  const eliminarPago = (referencia: string) => {
-    setPagosCargados((prev) =>
-      prev.filter((p) => p.datos.referencia !== referencia)
-    );
-  };
+  // eliminarPago eliminado por no usarse
 
   // Función de registro de pagos (unificada para enviar todos los comprobantes y guías en un solo request)
   const registrarTodosLosPagos = async () => {
@@ -711,129 +667,13 @@ export default function RegistrarPago() {
     return "#ef4444";
   };
 
-  const toggleBono = (bonoId: string) => {
-    const bonoAUsar = bonosDisponibles.find((b) => b.id === bonoId);
-    if (!bonoAUsar) return;
-
-    if (bonoSeleccionado === bonoId) {
-      setBonoSeleccionado(null);
-      setUsarBonos(false);
-    } else {
-      setBonoSeleccionado(bonoId);
-      setUsarBonos(true);
-    }
-  };
+  // toggleBono eliminado por no usarse
 
   // Función para manejar la selección de bonos
-  const handleSeleccionBono = (bonoId: string) => {
-    if (bonoSeleccionado === bonoId) {
-      setBonoSeleccionado(null);
-      setUsarBonos(false);
-    } else {
-      const bonoAUsar = bonosDisponibles.find((b) => b.id === bonoId);
-      if (bonoAUsar) {
-        setBonoSeleccionado(bonoId);
-        setUsarBonos(true);
-      }
-    }
-  };
+  // handleSeleccionBono eliminado por no usarse
 
   // Función para registrar un pago con manejo de bonos
-  const registrarPago = async () => {
-    if (cargando) return;
-    setCargando(true);
-
-    try {
-      const totales = calcularTotales();
-
-      // Si hay faltante y no se están usando bonos disponibles
-      if (totales.faltante > 0 && !usarBonos) {
-        const usarBonosDisponibles = window.confirm(
-          `Falta cubrir $${totales.faltante.toLocaleString()}. ` +
-            `Tienes $${saldoBonosTotal.toLocaleString()} en bonos disponibles. ` +
-            `¿Deseas usarlos?`
-        );
-        if (usarBonosDisponibles) {
-          setUsarBonos(true);
-          return;
-        }
-      }
-
-      // Si el pago es insuficiente
-      if (totales.faltante > 0) {
-        alert(
-          `El monto total pagado ($${totales.totalCubierto.toLocaleString()}) ` +
-            `es menor al valor requerido ($${total.toLocaleString()})`
-        );
-        return;
-      }
-
-      // Preparar datos del pago
-      const formData = new FormData();
-
-      // Agregar archivos de comprobantes
-      pagosCargados.forEach((pago, index) => {
-        formData.append(`comprobantes`, pago.archivo);
-        formData.append(`datos_pago_${index}`, JSON.stringify(pago.datos));
-      });
-
-      // Agregar información de bonos si se están usando
-      if (usarBonos && bonoSeleccionado) {
-        formData.append("bono_usado", bonoSeleccionado);
-        const bonoAplicado = bonosDisponibles.find(
-          (b) => b.id === bonoSeleccionado
-        );
-        if (bonoAplicado) {
-          formData.append(
-            "valor_bono_usado",
-            bonoAplicado.saldo_disponible.toString()
-          );
-        }
-      }
-
-      // Agregar guías y totales
-      formData.append("guias", JSON.stringify(guias));
-      formData.append("total_efectivo", totales.totalPagosEfectivo.toString());
-      formData.append("total_bonos", totales.totalBonos.toString());
-      formData.append("sobrante", totales.sobrante.toString());
-
-      // Enviar al backend
-      const response = await fetch(
-        "http://127.0.0.1:8000/pagos/registrar-conductor",
-        {
-          method: "POST",
-          body: formData,
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Error registrando el pago");
-      }
-
-      const result = await response.json();
-
-      // Si se generó un nuevo bono por sobrante
-      if (result.bono_generado) {
-        alert(
-          `¡Pago registrado exitosamente!\n\n` +
-            `Se ha generado un bono por $${result.bono_generado.valor_bono.toLocaleString()} ` +
-            `que podrás usar en tus próximos pagos.`
-        );
-      } else {
-        alert("¡Pago registrado exitosamente!");
-      }
-
-      navigate("/conductor/pagos");
-    } catch (error: any) {
-      console.error("❌ Error registrando pago:", error);
-      alert(`Error: ${error.message}`);
-    } finally {
-      setCargando(false);
-    }
-  };
+  // registrarPago eliminado por no usarse
 
   // Cargar bonos disponibles al inicio
   useEffect(() => {
@@ -1071,7 +911,7 @@ export default function RegistrarPago() {
                 if (!pagoOriginal && bono.referencia_pago_origen) {
                   const pagosPrevios = JSON.parse(localStorage.getItem('pagos_previos') || '[]');
                   pagoOriginal = pagosPrevios.find(
-                    (p) => p.datos && p.datos.referencia === bono.referencia_pago_origen
+                    (p: { datos: DatosPago; archivo?: File }) => p.datos && p.datos.referencia === bono.referencia_pago_origen
                   );
                 }
                 const valorBono = bono.saldo_disponible.toLocaleString("es-CO");
