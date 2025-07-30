@@ -201,65 +201,57 @@ export default function RegistrarPago() {
         entidad: "",
         referencia: "",
       });
-    } else if (nuevoModo === "bono") {
-      setUsarBonos(true);
-      setPagosCargados([]);
-      setArchivo(null);
-      setDatosManuales({
-        valor: "",
-        fecha: "",
-        hora: "",
-        tipo: "",
-        entidad: "",
-        referencia: "",
-      });
-      // Si hay bono seleccionado y cubre el total, agregar comprobante automático
-      if (bonoSeleccionado) {
-        const bono = bonosDisponibles.find((b) => b.id === bonoSeleccionado);
-        if (bono) {
-          // Usar los datos disponibles del bono
-          const fechaBono = bono.fecha_generacion.split("T")[0] || "";
-          const horaBono =
-            bono.fecha_generacion.split("T")[1]?.slice(0, 5) || "00:00";
-          const datosBono: DatosPago = {
-            valor: bono.saldo_disponible.toString(),
-            fecha: fechaBono,
-            hora: horaBono,
-            tipo: "consignacion", // Por defecto
-            entidad: "Bono", // Por defecto
-            referencia: `${bono.referencia_pago_origen || bono.id}-Bono`,
-          };
-          // Archivo placeholder
-          const archivoBono = new File(
-            [`Bono generado: ${bono.id}`],
-            `bono_${bono.id}.txt`,
-            { type: "text/plain" }
-          );
-          setPagosCargados([{ datos: datosBono, archivo: archivoBono }]);
-        }
-      }
-    } else if (nuevoModo === "mixto") {
+      // El comprobante automático se generará en un useEffect
+  } else if (nuevoModo === "mixto") {
       setUsarBonos(true);
       // Mantener ambos formularios disponibles
     }
   };
 
+  // useEffect para comprobante automático de bono (debe ir antes del return)
+  useEffect(() => {
+    if (modoPago === 'bono' && bonoSeleccionado) {
+      const bono = bonosDisponibles.find(b => b.id === bonoSeleccionado);
+      if (bono) {
+        const fechaBono = bono.fecha_generacion.split("T")[0] || "";
+        const horaBono = bono.fecha_generacion.split("T")[1]?.slice(0,5) || "00:00";
+        const datosBono: DatosPago = {
+          valor: bono.saldo_disponible.toString(),
+          fecha: fechaBono,
+          hora: horaBono,
+          tipo: "consignacion",
+          entidad: "Bono",
+          referencia: `${bono.referencia_pago_origen || bono.id}-Bono`,
+        };
+        const archivoBono = new File([`Bono generado: ${bono.id}`], `bono_${bono.id}.txt`, { type: "text/plain" });
+        // Solo setear si no existe ya el comprobante de bono
+        if (
+          pagosCargados.length === 0 ||
+          pagosCargados[0]?.datos?.referencia !== datosBono.referencia
+        ) {
+          setPagosCargados([{ datos: datosBono, archivo: archivoBono }]);
+        }
+      }
+    } else if (modoPago !== 'bono') {
+      // Solo limpiar si NO estamos en bono
+      if (pagosCargados.length === 1 && pagosCargados[0]?.datos?.entidad === 'Bono') {
+        setPagosCargados([]);
+      }
+    }
+  }, [bonoSeleccionado, modoPago, bonosDisponibles]);
+
   // 🔥 NUEVA FUNCIÓN: Validar si se puede procesar el pago
   const puedeProcessarPago = () => {
     const totales = calcularTotales();
-    switch (modoPago) {
-      case "comprobante":
-        return pagosCargados.length > 0 && totales.totalPagosEfectivo >= total;
-      case "bono":
-        // Mostrar botón si hay bono seleccionado y cubre el total
-        return usarBonos && bonoSeleccionado && totales.totalBonos >= total;
-      case "mixto":
-        return (
-          (pagosCargados.length > 0 || (usarBonos && totales.totalBonos > 0)) &&
-          totales.totalCubierto >= total
-        );
-      default:
-        return false;
+    if (modoPago === 'bono') {
+      // Mostrar botón si hay bono seleccionado y saldo > 0
+      return bonoSeleccionado && usarBonos && montoBonosUsar > 0;
+    } else if (modoPago === 'mixto') {
+      // Mostrar botón si hay bono seleccionado o comprobante cargado
+      return (pagosCargados.length > 0) || (usarBonos && bonoSeleccionado && montoBonosUsar > 0);
+    } else {
+      // Solo comprobantes: solo si cubre el total
+      return pagosCargados.length > 0 && totales.totalPagosEfectivo >= total;
     }
   };
 
@@ -875,7 +867,7 @@ export default function RegistrarPago() {
       <h1 style={{ display: "flex", justifyContent: "space-between" }}>
         <span style={{ fontSize: "45px" }}> Registrar Pago </span>
         <span className="tabla-guias" style={{ fontSize: "25px" }}>
-          Saldo Disponible: ${saldoBonosTotal.toLocaleString()}
+          Saldo disponible: ${saldoBonosTotal.toLocaleString()}
         </span>
       </h1>
       <div className="tabla-guias">
@@ -911,60 +903,7 @@ export default function RegistrarPago() {
           </tfoot>
         </table>
       </div>{" "}
-      {/* Sección de Bonos Disponibles */}
-      {saldoBonosTotal > 0 && (
-        <div className="seccion-bonos">
-          <h3>💰 Bonos Disponibles</h3>
-          <div className="bonos-disponibles-pago">
-            <div className="bonos-header-pago">
-              <span>
-                Saldo total en bonos: ${saldoBonosTotal.toLocaleString()}
-              </span>
-            </div>
-
-            <div className="bonos-lista">
-              {bonosDisponibles.map((bono) => (
-                <div key={bono.id} className="bono-radio">
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                    <input
-                      type="radio"
-                      name="bonoSeleccionado"
-                      checked={bonoSeleccionado === bono.id}
-                      onChange={() => {
-                        setBonoSeleccionado(bono.id);
-                        setUsarBonos(true);
-                      }}
-                    />
-                    <div className="bono-info-seleccion">
-                      <div className="bono-tipo-sel">{bono.tipo_bono}</div>
-                      <div className="bono-valor-sel">${bono.saldo_disponible.toLocaleString()}</div>
-                      <div className="bono-desc-sel">
-                        Generado: {new Date(bono.fecha_generacion).toLocaleDateString()}
-                        {bono.descripcion && <span> - {bono.descripcion}</span>}
-                      </div>
-                    </div>
-                  </label>
-                </div>
-              ))}
-            </div>
-
-            {bonoSeleccionado && (
-              <div className="bonos-seleccionados-resumen">
-                <strong>Bono Seleccionado: ${montoBonosUsar.toLocaleString()}</strong>
-                {montoBonosUsar >= total ? (
-                  <div style={{ color: "#059669", marginTop: "0.5rem" }}>
-                    ✅ Cubre el total requerido
-                  </div>
-                ) : (
-                  <div style={{ color: "#dc2626", marginTop: "0.5rem" }}>
-                    ⚠️ Falta ${(total - montoBonosUsar).toLocaleString()}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}{" "}
+  {/* ...se eliminó la sección de Bonos Disponibles, el uso de bonos es automático... */}
       {/* Resumen de Pago */}
       <div className="resumen-total-con-bonos">
         <h3>💳 Resumen de Pago</h3>
@@ -980,19 +919,17 @@ export default function RegistrarPago() {
                   ${total.toLocaleString()}
                 </span>
               </div>
-              {totales.totalBonos != 0 && (
+              {/* Mostrar saldo disponible solo si hay saldoBonosTotal > 0 */}
+              {saldoBonosTotal > 0 && (
                 <div className="linea-resumen">
                   <span>
                     <strong style={{ fontSize: 20 }}>Saldo disponible:</strong>
                   </span>
-                  <span
-                    style={{ color: "green", fontWeight: "bold", fontSize: 20 }}
-                  >
-                    ${totales.totalBonos.toLocaleString()}
+                  <span style={{ color: "#059669", fontWeight: "bold", fontSize: 20 }}>
+                    -${saldoBonosTotal.toLocaleString()}
                   </span>
                 </div>
               )}
-
               {totales.totalBonos != totales.faltante && (
                 <div className="linea-resumen">
                   <span style={{ fontSize: 20 }}>
@@ -1005,9 +942,19 @@ export default function RegistrarPago() {
                   </span>
                 </div>
               )}
-
+              {/* Mostrar total a pagar debajo de comprobantes cargados, restando comprobantes cargados y saldo disponible */}
+              <div className="linea-resumen">
+                <span>
+                  <strong style={{ fontSize: 20 }}>Total a pagar:</strong>
+                </span>
+                <span style={{ color: "#3b82f6", fontWeight: "bold", fontSize: 20 }}>
+                  {(() => {
+                    const totalRestante = total - saldoBonosTotal - totales.totalPagosEfectivo;
+                    return (totalRestante > 0 ? totalRestante : 0).toLocaleString();
+                  })()}
+                </span>
+              </div>
               <hr className="divisor-resumen" />
-
               {totales.totalCubierto >= total && (
                 <div className="linea-resumen total-final">
                   <span style={{ fontSize: 20 }}>
@@ -1018,13 +965,6 @@ export default function RegistrarPago() {
                   </span>
                 </div>
               )}
-              {/*
-              { totales.totalCubierto < total && (
-                <div className="linea-resumen faltante" >
-                <span className="texto-faltante" style={{fontSize : 20}}><strong> ❌  Total No Cubierto:</strong></span>
-                <span className="texto-faltante" style={{fontSize : 20}}><strong>${totales.totalCubierto.toLocaleString()}</strong></span>
-              </div>)}
-              */}
               {totales.faltante > 0 && (
                 <div className="linea-resumen faltante">
                   <span className="texto-faltante" style={{ fontSize: 20 }}>
@@ -1073,210 +1013,13 @@ export default function RegistrarPago() {
           </p>
         </div>
       )}
-      {/* 🔥 NUEVO: Selector de modo de pago */}
-      {/*      
-      <div className="modo-pago-selector" style={{ 
-        margin: "2rem 0", 
-        padding: "1.5rem", 
-        backgroundColor: "#f8fafc", 
-        borderRadius: "12px",
-        border: "2px solid #e5e7eb"
-      }}>
-        <h3 style={{ margin: "0 0 1rem 0", color: "#1f2937" }}>💳 Selecciona el modo de pago</h3>
-        
-        <div className="opciones-pago" style={{ 
-          display: "flex", 
-          gap: "1rem", 
-          flexWrap: "wrap",
-          marginBottom: "1rem"
-        }}>
-          <label className="opcion-pago" style={{ 
-            display: "flex", 
-            alignItems: "center", 
-            gap: "0.5rem",
-            padding: "0.75rem 1rem",
-            backgroundColor: modoPago === 'comprobante' ? "#3b82f6" : "#ffffff",
-            color: modoPago === 'comprobante' ? "#ffffff" : "#374151",
-            border: "2px solid #d1d5db",
-            borderRadius: "8px",
-            cursor: "pointer",
-            transition: "all 0.2s ease",
-            minWidth: "180px",
-            justifyContent: "center"
-          }}>
-            <input
-              type="radio"
-              name="modoPago"
-              value="comprobante"
-              checked={modoPago === 'comprobante'}
-              onChange={() => handleModoPagoChange('comprobante')}
-              style={{ display: "none" }}
-            />
-            <span>📄 Solo Comprobante</span>
-          </label>
+  {/* 🔥 Selector de modo de pago oculto, lógica automática */}
+  {/* Se eliminó completamente la sección visual de Bonos Disponibles (caja amarilla) y cualquier renderizado de selección de bonos */}
 
-          {bonos && bonos.disponible >= 0 && (
-            <>
-              <label className="opcion-pago" style={{ 
-                display: "flex", 
-                alignItems: "center", 
-                gap: "0.5rem",
-                padding: "0.75rem 1rem",
-                backgroundColor: modoPago === 'bono' ? "#059669" : "#ffffff",
-                color: modoPago === 'bono' ? "#ffffff" : "#374151",
-                border: "2px solid #d1d5db",
-                borderRadius: "8px",
-                cursor: "pointer",
-                transition: "all 0.2s ease",
-                minWidth: "180px",
-                justifyContent: "center"
-              }}>
-                <input
-                  type="radio"
-                  name="modoPago"
-                  value="bono"
-                  checked={modoPago === 'bono'}
-                  onChange={() => handleModoPagoChange('bono')}
-                  style={{ display: "none" }}
-                />
-                <span>💰 Solo Bonos</span>
-              </label>
-
-              <label className="opcion-pago" style={{ 
-                display: "flex", 
-                alignItems: "center", 
-                gap: "0.5rem",
-                padding: "0.75rem 1rem",
-                backgroundColor: modoPago === 'mixto' ? "#7c3aed" : "#ffffff",
-                color: modoPago === 'mixto' ? "#ffffff" : "#374151",
-                border: "2px solid #d1d5db",
-                borderRadius: "8px",
-                cursor: "pointer",
-                transition: "all 0.2s ease",
-                minWidth: "180px",
-                justifyContent: "center"
-              }}>
-                <input
-                  type="radio"
-                  name="modoPago"
-                  value="mixto"
-                  checked={modoPago === 'mixto'}
-                  onChange={() => handleModoPagoChange('mixto')}
-                  style={{ display: "none" }}
-                />
-                <span>🔄 Mixto (Bono + Comprobante)</span>
-              </label>
-            </>
-          )}
-        </div>
-
-         //Descripción del modo seleccionado 
-        <div className="descripcion-modo" style={{ 
-          padding: "1rem", 
-          backgroundColor: "#ffffff", 
-          borderRadius: "8px",
-          fontSize: "0.9rem",
-          color: "#6b7280"
-        }}>
-          {modoPago === 'comprobante' && (
-            <p style={{ margin: 0 }}>
-              📄 <strong>Solo Comprobante:</strong> Registra el pago completo con comprobantes de transferencia, consignación o Nequi.
-            </p>
-          )}
-          {modoPago === 'bono' && (
-            <p style={{ margin: 0 }}>
-              💰 <strong>Solo Bonos:</strong> Utiliza únicamente tus bonos disponibles para cubrir el total de las guías.
-            </p>
-          )}
-          {modoPago === 'mixto' && (
-            <p style={{ margin: 0 }}>
-              🔄 <strong>Pago Mixto:</strong> Combina bonos con comprobantes para cubrir el total. Ideal cuando tus bonos no cubren todo el monto.
-            </p>
-          )}
-        </div>
-      </div>
-  
-      // 🔥 SECCIÓN DE BONOS - Solo mostrar según el modo
-      {(modoPago === 'bono' || modoPago === 'mixto') && bonos && bonos.disponible > 0 && (
-        <div className="seccion-bonos">
-          <h3>💰 Bonos Disponibles</h3>
-          <div className="bonos-disponibles-pago">
-            <div className="bonos-header-pago">
-              <span>Total bonos disponibles: ${bonos.disponible.toLocaleString()}</span>
-              {modoPago === 'bono' && (
-                <div style={{ fontSize: "0.9rem", color: "#059669", marginTop: "0.5rem" }}>
-                  ✅ Modo solo bonos activado
-                </div>
-              )}
-            </div>
-            
-            <div className="bonos-seleccion">
-              <h4>Selecciona los bonos a usar:</h4>
-              {bonos.detalles.map((bono: any) => (
-                <div key={bono.id} className="bono-seleccionable">
-                  <label className="bono-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={bonoSeleccionado ? bonoSeleccionado.includes(bono.id) : false}
-                      onChange={() => toggleBono(bono.id)}
-                    />
-                    <div className="bono-info-seleccion">
-                      <span className="bono-tipo-sel">{bono.tipo}</span>
-                      <span className="bono-valor-sel">${bono.saldo_disponible.toLocaleString()}</span>
-                      <small className="bono-desc-sel">{bono.descripcion}</small>
-                    </div>
-                  </label>
-                </div>
-              ))}
-              
-              {bonoSeleccionado && bonoSeleccionado.length > 0 && (
-                <div className="bonos-seleccionados-resumen">
-                  <strong>Bonos seleccionados: ${montoBonosUsar.toLocaleString()}</strong>
-                  {modoPago === 'bono' && montoBonosUsar < total && (
-                    <div style={{ color: "#dc2626", fontSize: "0.9rem", marginTop: "0.5rem" }}>
-                      ⚠️ Faltan ${(total - montoBonosUsar).toLocaleString()} para cubrir el total
-                    </div>
-                  )}
-                  {modoPago === 'bono' && montoBonosUsar >= total && (
-                    <div style={{ color: "#059669", fontSize: "0.9rem", marginTop: "0.5rem" }}>
-                      ✅ Total cubierto con bonos
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Lista de pagos cargados */}
-      {pagosCargados.length > 0 && (
+      {/* Lista de pagos cargados o comprobante de bono en modo bono */}
+      {(pagosCargados.length > 0 || saldoBonosTotal > 0) && (
         <div className="pagos-cargados">
-          <h3>📄 Comprobantes Cargados ({pagosCargados.length})</h3>
-
-          {/* Alerta si hay referencias repetidas */}
-          {(() => {
-            const referenciasRepetidas = pagosCargados
-              .map((p) => p.datos.referencia.trim())
-              .filter((ref, index, arr) => arr.indexOf(ref) !== index);
-
-            if (referenciasRepetidas.length > 0) {
-              const referenciasUnicas = [...new Set(referenciasRepetidas)];
-              return (
-                <div className="alerta-referencias-repetidas">
-                  <span>
-                    Se detectaron referencias repetidas:{" "}
-                    <strong>{referenciasUnicas.join(", ")}</strong>
-                    <br />
-                    Esto puede ser válido para pagos fraccionados o abonos
-                    parciales.
-                  </span>
-                </div>
-              );
-            }
-            return null;
-          })()}
-
+          <h3>📄 Comprobantes Cargados ({pagosCargados.length + (saldoBonosTotal > 0 ? 1 : 0)})</h3>
           <table>
             <thead>
               <tr>
@@ -1290,72 +1033,79 @@ export default function RegistrarPago() {
               </tr>
             </thead>
             <tbody>
-              {pagosCargados.map((p, idx) => {
-                // 🔥 NUEVO: Detectar si esta referencia se repite
-                const referenciasIguales = pagosCargados.filter(
-                  (pago) =>
-                    pago.datos.referencia.trim() === p.datos.referencia.trim()
-                ).length;
-                const esReferenciaRepetida = referenciasIguales > 1;
+              {/* Mostrar comprobantes cargados normalmente */}
+              {pagosCargados.map((p, idx) => (
+                <tr key={idx}>
+                  <td>${parseValorMonetario(p.datos.valor).toLocaleString("es-CO")}</td>
+                  <td>{p.datos.fecha}</td>
+                  <td>{p.datos.hora}</td>
+                  <td>{p.datos.entidad}</td>
+                  <td>{p.datos.referencia}</td>
+                  <td>
+                    <a
+                      href={URL.createObjectURL(p.archivo)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Ver
+                    </a>
+                  </td>
+                  <td></td>
+                </tr>
+              ))}
+              {/* Si hay saldoBonosTotal, mostrar el bono como comprobante */}
+              {saldoBonosTotal > 0 && bonosDisponibles.length > 0 && (() => {
+                const bono = bonosDisponibles[0];
+                if (!bono) return null;
+                // Buscar el comprobante original del que surgió el bono, pero solo entre los comprobantes que no sean el propio bono
+                let pagoOriginal = null;
+                if (bono.referencia_pago_origen && pagosCargados.length > 0) {
+                  pagoOriginal = pagosCargados.find(
+                    (p) =>
+                      p.datos.referencia === bono.referencia_pago_origen &&
+                      // No tomar el propio bono como origen
+                      (!p.datos.referencia.includes('(BONO)'))
+                  );
+                }
+                // Si no se encuentra en pagos cargados, buscar en localStorage (caso solo bono)
+                if (!pagoOriginal && bono.referencia_pago_origen) {
+                  const pagosPrevios = JSON.parse(localStorage.getItem('pagos_previos') || '[]');
+                  pagoOriginal = pagosPrevios.find(
+                    (p) => p.datos && p.datos.referencia === bono.referencia_pago_origen
+                  );
+                }
+                const valorBono = bono.saldo_disponible.toLocaleString("es-CO");
+                const fecha = pagoOriginal && pagoOriginal.datos ? pagoOriginal.datos.fecha : (bono.fecha_generacion.split("T")[0] || "");
+                const hora = pagoOriginal && pagoOriginal.datos ? pagoOriginal.datos.hora : (bono.fecha_generacion.split("T")[1]?.slice(0,5) || "00:00");
+                const entidad = pagoOriginal && pagoOriginal.datos ? pagoOriginal.datos.entidad : "Bono";
+                const referenciaBono = `${bono.referencia_pago_origen || bono.id} (BONO)`;
+                const archivoBono = pagoOriginal && pagoOriginal.archivo ? pagoOriginal.archivo : new File([`Bono generado: ${bono.id}`], `bono_${bono.id}.txt`, { type: "text/plain" });
                 return (
-                  <tr
-                    key={idx}
-                    className={
-                      esReferenciaRepetida ? "referencia-repetida" : ""
-                    }
-                  >
-                    <td>
-                      $
-                      {parseValorMonetario(p.datos.valor).toLocaleString(
-                        "es-CO"
-                      )}
-                    </td>
-                    <td>{p.datos.fecha}</td>
-                    <td>{p.datos.hora}</td>
-                    <td>{p.datos.entidad}</td>
-                    <td>
-                      {p.datos.referencia}
-                      {esReferenciaRepetida && (
-                        <span
-                          className="indicador-repetida"
-                          title={`Esta referencia se repite ${referenciasIguales} veces en la lista`}
-                          style={{
-                            marginLeft: "8px",
-                            backgroundColor: "#fbbf24",
-                            color: "#92400e",
-                            padding: "2px 6px",
-                            borderRadius: "4px",
-                            fontSize: "12px",
-                            fontWeight: "bold",
-                          }}
-                        >
-                          ⚠️ x{referenciasIguales}
-                        </span>
-                      )}
-                    </td>
+                  <tr key="bono-row">
+                    <td>${valorBono}</td>
+                    <td>{fecha}</td>
+                    <td>{hora}</td>
+                    <td>{entidad}</td>
+                    <td>{referenciaBono}</td>
                     <td>
                       <a
-                        href={URL.createObjectURL(p.archivo)}
+                        href={URL.createObjectURL(archivoBono)}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
                         Ver
                       </a>
                     </td>
-                    <td>
-                      <button onClick={() => eliminarPago(p.datos.referencia)}>
-                        🗑 Eliminar
-                      </button>
-                    </td>
+                    <td></td>
                   </tr>
                 );
-              })}
+              })()}
             </tbody>
           </table>
         </div>
       )}
-      {/* 🔥 BOTÓN DE REGISTRO - Mejorado con validaciones por modo */}
-      {puedeProcessarPago() && (
+      {/* 🔥 BOTÓN DE REGISTRO - Solo para comprobantes */}
+  {(totales.totalCubierto >= total) && (
         <div style={{ margin: "2rem 0", textAlign: "center" }}>
           <button
             className="boton-registrar"
@@ -1372,20 +1122,43 @@ export default function RegistrarPago() {
               opacity: cargando ? 0.6 : 1,
             }}
           >
+            {(() => {
+              if (cargando) return "Procesando...";
+              if (saldoBonosTotal > 0 && totales.totalPagosEfectivo > 0) {
+                return `✅ Registrar pago híbrido (incluye bono) (${(totales.totalPagosEfectivo + saldoBonosTotal).toLocaleString()})`;
+              } else if (saldoBonosTotal > 0 && totales.totalPagosEfectivo === 0) {
+                return `✅ Registrar pago solo bono (${saldoBonosTotal.toLocaleString()})`;
+              } else {
+                return `✅ Registrar pago solo comprobantes (${totales.totalPagosEfectivo.toLocaleString()})`;
+              }
+            })()}
+          </button>
+        </div>
+      )}
+
+      {/* 🔥 BOTÓN NUEVO - Solo para bono o mixto */}
+      {(modoPago === 'bono' || modoPago === 'mixto') && puedeProcessarPago() && (
+        <div style={{ margin: "2rem 0", textAlign: "center" }}>
+          <button
+            className="boton-registrar"
+            onClick={registrarTodosLosPagos}
+            disabled={cargando}
+            style={{
+              backgroundColor: modoPago === 'bono' ? "#059669" : "#7c3aed",
+              color: "white",
+              padding: "1rem 2rem",
+              fontSize: "1.1rem",
+              border: "none",
+              borderRadius: "8px",
+              cursor: cargando ? "not-allowed" : "pointer",
+              opacity: cargando ? 0.6 : 1,
+            }}
+          >
             {cargando
               ? "Procesando..."
-              : (() => {
-                  switch (modoPago) {
-                    case "comprobante":
-                      return `✅ Registrar pago con comprobante (${totales.totalPagosEfectivo.toLocaleString()})`;
-                    case "bono":
-                      return `✅ Registrar pago con bonos (${totales.totalBonos.toLocaleString()})`;
-                    case "mixto":
-                      return `✅ Registrar pago mixto (${totales.totalCubierto.toLocaleString()})`;
-                    default:
-                      return "✅ Registrar pago";
-                  }
-                })()}
+              : modoPago === 'bono'
+                ? `💰 Registrar pago solo con bonos (${totales.totalBonos.toLocaleString()})`
+                : `🔄 Registrar pago mixto (Bonos + Comprobante) (${totales.totalCubierto.toLocaleString()})`}
           </button>
         </div>
       )}
