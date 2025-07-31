@@ -486,7 +486,8 @@ export default function PagosContabilidad() {
       'pendiente_conciliacion': '⏳ Pendiente conciliación',
       'conciliado_manual': '🔎 Conciliado manual',
       'conciliado_automatico': '🤖 Conciliado automático',
-      'rechazado': '❌ Rechazado',
+      'rechazado': '❌ Rechazado'
+      
     };
     return textos[estado.toLowerCase()] || estado;
   };
@@ -832,6 +833,7 @@ function parseFechaLocal(fechaStr: string) {
                   <td>{p.tipo}</td>
                   <td style={{
                     color: p.estado_conciliacion === "rechazado" ? "crimson" :
+                           p.estado_conciliacion === "Rechazado" ? "crimson" :
                            p.estado_conciliacion === "conciliado_manual" ? "green" : undefined
                   }}>
                     
@@ -864,19 +866,22 @@ function parseFechaLocal(fechaStr: string) {
                     )}
                   </td>
                   <td>
-                    <button
-                     onClick={() => {
-                      console.log("🖱️ Click en botón rechazar para:", p.referencia_pago);
-                      setRefPagoSeleccionada(p.referencia_pago);
-                      setModalVisible(true);
-                    }}
-                      className="boton-rechazar"
-                      disabled={p.estado_conciliacion === "rechazado" || 
-                               p.estado_conciliacion?.startsWith("conciliado") ||
-                               procesando === p.referencia_pago}
-                    >
-                      {procesando === p.referencia_pago ? "⏳ Procesando..." : "Rechazar"}
-                    </button>
+                    {!(p.estado_conciliacion === "rechazado" ||
+                        p.estado_conciliacion === "Rechazado" ||
+                        p.estado_conciliacion === "conciliado_manual" ||
+                        p.estado_conciliacion === "conciliado_automatico") && (
+                      <button
+                        onClick={() => {
+                          console.log("🖱️ Click en botón rechazar para:", p.referencia_pago);
+                          setRefPagoSeleccionada(p.referencia_pago);
+                          setModalVisible(true);
+                        }}
+                        className="boton-rechazar"
+                        disabled={procesando === p.referencia_pago}
+                      >
+                        {procesando === p.referencia_pago ? "⏳ Procesando..." : "Rechazar"}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))
