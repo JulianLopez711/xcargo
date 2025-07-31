@@ -221,7 +221,7 @@ export default function RegistrarPagoSupervisor() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
+      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -342,61 +342,73 @@ export default function RegistrarPagoSupervisor() {
       return;
     }
 
+    // === LOG: Si hay sobrante (bono) ===
+    if (totales.sobrante > 0) {
+      console.log("[BONO] Sobrante detectado para bono:", {
+        valor_bono: totales.sobrante,
+        empleado: supervisor?.email || user?.email,
+        fecha: new Date().toISOString(),
+        descripcion: "bono a favor"
+      });
+    }
+
     setCargando(true);
 
     try {
       const token = user?.token || localStorage.getItem("token") || "";
-      
-      // 🔥 USAR ENDPOINT CORRECTO PARA PAGOS DE CONDUCTOR/SUPERVISOR
-      for (const p of pagosCargados) {
-        const formData = new FormData();
-
-        // Parámetros requeridos por el endpoint /pagos/registrar-conductor
-        formData.append("correo", supervisor?.email || user?.email || "");
-        formData.append("valor_pago_str", parseValorMonetario(p.datos.valor).toString());
-        formData.append("fecha_pago", p.datos.fecha);
-        formData.append("hora_pago", normalizarHoraParaEnvio(p.datos.hora));
-        formData.append("tipo", p.datos.tipo);
-        formData.append("entidad", p.datos.entidad);
-        formData.append("referencia", p.datos.referencia);
-        formData.append("comprobante", p.archivo);
-
-        // Guías en formato esperado por /pagos/registrar-conductor
-        const guiasParaPago = guias.map((g) => ({
-          referencia: String(g.referencia).trim(),
-          tracking: g.tracking || g.referencia,
-          valor: Number(g.valor),
-          // Campos adicionales para compatibilidad
-          conductor: g.conductor || "No especificado",
-          cliente: g.cliente || "No especificado",
-          ciudad: g.ciudad || "",
-          departamento: g.departamento || "",
-          carrier: g.carrier || "",
-          estado_actual: g.estado_actual || "pendiente",
-          liquidacion_id: g.liquidacion_id
-        }));
-
-        formData.append("guias", JSON.stringify(guiasParaPago));
-
-        // 🔥 USAR ENDPOINT CORRECTO PARA PAGOS DE CONDUCTOR/SUPERVISOR
-        const endpoint = "https://api.x-cargo.co/pagos/registrar-conductor";
-
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-          body: formData,
+      // Enviar todas las guías seleccionadas con todos los datos del pago (igual que conductor)
+      const formData = new FormData();
+      // Usar el primer comprobante y datos de pago (puedes adaptar si quieres uno por guía)
+      const p = pagosCargados[0];
+      formData.append("correo", supervisor?.email || user?.email || "");
+      formData.append("valor_pago_str", parseValorMonetario(p.datos.valor).toString());
+      formData.append("fecha_pago", p.datos.fecha);
+      formData.append("hora_pago", normalizarHoraParaEnvio(p.datos.hora));
+      formData.append("tipo", p.datos.tipo);
+      formData.append("entidad", p.datos.entidad);
+      formData.append("referencia", p.datos.referencia);
+      formData.append("comprobante", p.archivo);
+      // Adjuntar todas las guías seleccionadas, cada una con los datos del pago
+      let guiasConPagos: any[] = [];
+      guias.forEach((guia) => {
+        // Usar el valor original de la guía, no el valor del pago cargado
+        const datosSinValor = { ...p.datos };
+        delete datosSinValor.valor;
+        guiasConPagos.push({
+          ...guia,
+          ...datosSinValor
         });
+      });
+      formData.append("guias", JSON.stringify(guiasConPagos));
 
-        const result = await response.json();
-        if (!response.ok) {
-          console.error("❌ Error response:", result);
-          throw new Error(result.detail || result.message || `Error ${response.status}: ${response.statusText}`);
-        }
+        // ============================
+    // LOGS ANTES DEL FETCH AQUÍ 👇
+    // ============================
+    // LOG: Mostrar el array de guías que se va a enviar
+    console.log("[REGISTRO PAGO SUPERVISOR] Guías a enviar:", guiasConPagos);
+    // LOG: Mostrar el contenido del FormData antes de enviar
+    console.log("==== ENVÍO DE PAGO SUPERVISOR (FormData) ====");
+    for (let pair of formData.entries()) {
+      console.log(pair[0], pair[1]);
+    }
+    // ============================
 
-        console.log("✅ Pago registrado exitosamente:", result);
+
+      // Endpoint
+      const endpoint = "http://127.0.0.1:8000/pagos/registrar-conductor";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        console.error("❌ Error response:", result);
+        throw new Error(result.detail || result.message || `Error ${response.status}: ${response.statusText}`);
       }
+      console.log("✅ Pago registrado exitosamente:", result);
 
       const mensajeExito = `✅ Pago registrado exitosamente: ${pagosCargados.length} comprobante(s) por ${totales.totalPagosEfectivo.toLocaleString()}.`;
 

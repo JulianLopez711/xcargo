@@ -61,7 +61,7 @@ export default function FormCambiarRol() {
 
         console.log("🔍 Cargando roles - Usuario actual:", user);
         
-        const res = await fetch("https://api.x-cargo.co/admin/roles", {
+        const res = await fetch("http://127.0.0.1:8000/admin/roles", {
           headers: getHeaders(),
         });
         
@@ -92,7 +92,7 @@ export default function FormCambiarRol() {
         return;
       }
       try {
-        const res = await fetch(`https://api.x-cargo.co/admin/buscar-usuarios?q=${query}`, {
+        const res = await fetch(`http://127.0.0.1:8000/admin/buscar-usuarios?q=${query}`, {
           headers: getHeaders(),
         });
         if (!res.ok) throw new Error("Error al buscar usuarios");
@@ -112,7 +112,7 @@ export default function FormCambiarRol() {
       setCargando(true);
       //Decodificar el correo
       const correoDecodificado = decodeURIComponent(correoUsuario);
-      const res = await fetch(`https://api.x-cargo.co/admin/obtener-usuario/${correoDecodificado}`, {
+      const res = await fetch(`http://127.0.0.1:8000/admin/obtener-usuario/${correoDecodificado}`, {
         headers: getHeaders(),
       });
       if (!res.ok) throw new Error("Usuario no encontrado");
@@ -154,7 +154,7 @@ export default function FormCambiarRol() {
     setCargando(true);
 
     try {
-      const res = await fetch("https://api.x-cargo.co/admin/cambiar-rol", {
+      const res = await fetch("http://127.0.0.1:8000/admin/cambiar-rol", {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({
