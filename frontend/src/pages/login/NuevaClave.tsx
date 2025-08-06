@@ -71,7 +71,7 @@ export default function CambiarClave() {
       formData.append("nueva_clave", nueva);
       formData.append("codigo", codigoStorage);
 
-      const res = await fetch("http://127.0.0.1:8000/auth/cambiar-clave", {
+      const res = await fetch("https://api.x-cargo.co/auth/cambiar-clave", {
         method: "POST",
         body: formData
       });
