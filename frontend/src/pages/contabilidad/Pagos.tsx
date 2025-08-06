@@ -136,7 +136,7 @@ export default function PagosContabilidad() {
         fechaHasta: fechaHasta ? formatearFechaParaServidor(fechaHasta) : 'No especificada'
       });
 
-      const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`http://127.0.0.1:8000/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -343,7 +343,7 @@ export default function PagosContabilidad() {
         });
       }
 
-      const response = await fetch(`https://api.x-cargo.co/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`http://127.0.0.1:8000/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -397,7 +397,7 @@ export default function PagosContabilidad() {
 
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const response = await fetch(`https://api.x-cargo.co/pagos/detalles-pago/${referenciaPago}`);
+      const response = await fetch(`http://127.0.0.1:8000/pagos/detalles-pago/${referenciaPago}`);
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -436,7 +436,7 @@ export default function PagosContabilidad() {
         modificado_por: user.email,
       });
 
-      const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
+      const response = await fetch("http://127.0.0.1:8000/pagos/rechazar-pago", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",

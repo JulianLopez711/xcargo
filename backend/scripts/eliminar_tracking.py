@@ -56,7 +56,7 @@ def leer_trackings_excel(archivo_excel, columna='TRACKING/ GUIA', hoja=0):
     """
     try:
         # Leer el archivo Excel
-        df = pd.read_excel(archivo_excel, sheet_name=hoja)
+        df = pd.read_excel(archivo_excel, sheet_name=hoja, dtype={columna: str})
         
         print(f"📊 Archivo leído exitosamente: {archivo_excel}")
         print(f"📋 Columnas disponibles: {list(df.columns)}")
