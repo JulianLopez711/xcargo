@@ -417,7 +417,7 @@ const verDetallesPago = async ({
     if (valor !== undefined) params.append("valor", valor.toString());
 
     const response = await fetch(
-      `http://127.0.0.1:8000/pagos/detalles-pago/${referencia_pago}?${params.toString()}`
+      `https://api.x-cargo.co/pagos/detalles-pago/${referencia_pago}?${params.toString()}`
     );
 
     if (!response.ok) {
