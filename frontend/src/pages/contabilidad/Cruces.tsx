@@ -59,26 +59,16 @@ interface ResumenConciliacion {
   fecha_conciliacion: string;
 }
 
-interface EstadisticasGenerales {
-  resumen_general: {
-    total_movimientos: number;
-    conciliados: number;
-    pendientes: number;
-    valor_total: number;
-    conciliados_exactos?: number; // Nuevo campo para conciliados exactos
-    conciliados_aproximados?: number; // Nuevo campo para conciliados aproximados
-    conciliados_manuales?: number; // Nuevo campo para conciliados manuales
-    //fecha_inicial?: string;
-    //fecha_final?: string;
-  };
-  resumen_por_estado: Array<{
-    estado_conciliacion: string;
-    cantidad: number;
-    valor_total: number;
-    //fecha_min?: string;
-    //fecha_max?: string;
-  }>;
+interface EstadisticasGenerales { 
+  total_movimientos_banco: number;
+  conciliados_movimientos: number;
+  pendientes_movimientos: number;
   total_valor_banco: number;
+  total_pagosconductor:number;
+  conciliados_pc: number;
+  pendientes_pc: number;
+  rechazados_pc: number;
+
 }
 
 // Nueva interfaz para el modal de conciliación manual
@@ -136,7 +126,7 @@ interface LoadingProgress {
 
 const Cruces: React.FC = () => {
   // ✅ CONFIGURACIÓN DE API - Usar servidor local para desarrollo
-  const API_BASE_URL = 'https://api.x-cargo.co';
+  const API_BASE_URL = 'http://127.0.0.1:8000';
 
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
@@ -148,6 +138,7 @@ const Cruces: React.FC = () => {
     useState<EstadisticasGenerales | null>(null);
   const [filtroEstado, setFiltroEstado] = useState<string>("todos");
   const [busqueda, setBusqueda] = useState("");
+  const [detallePagoSeleccionado, setDetallePagoSeleccionado] = useState<any>(null);
   // Filtros de fecha y orden
   const [fechaInicio, setFechaInicio] = useState<string>("");
   const [fechaFin, setFechaFin] = useState<string>("");
@@ -170,9 +161,30 @@ const Cruces: React.FC = () => {
     return `$${Math.abs(valor).toLocaleString('es-CO')}`;
   };
 
+  const cargarDetallePago = async (referenciaPago: string) => {
+  try {
+    const response = await fetch(`http://127.0.0.1:8000/pagos/detalles-pago-cruces/${referenciaPago}`);
+    if (!response.ok) throw new Error(`Error ${response.status}: ${response.statusText}`);
+    const data = await response.json();
+    console.log("🔍 Detalles del pago recibidos del endpoint:", data);
+    setDetallePagoSeleccionado(data.pago || null);
+  } catch (err: any) {
+    setDetallePagoSeleccionado(null);
+  }
+   
+  };
+
+
+  useEffect(() => {
+  if (modalSeleccionTransaccion?.pago?.referencia) {
+    cargarDetallePago(modalSeleccionTransaccion.pago.referencia);
+  }
+  }, [modalSeleccionTransaccion]);
+
+
   const verDetallesPago = async (referenciaPago: string) => {
     try {
-      const response = await fetch(`https://api.x-cargo.co/pagos/detalles-pago/${referenciaPago}`);
+      const response = await fetch(`http://127.0.0.1:8000/pagos/detalles-pago-cruces/${referenciaPago}`);
       
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -180,7 +192,7 @@ const Cruces: React.FC = () => {
       
       const data = await response.json();
 
-      const comprobante = data.detalles[0]?.comprobante;
+      const comprobante = data.pago?.comprobante;
 
       console.log("🧾 URL del comprobante:", comprobante);
 
@@ -216,7 +228,7 @@ const Cruces: React.FC = () => {
     url: string;
     referencia: string;
   } | null>(null);
-  const [cargandoComprobante, setCargandoComprobante] = useState(false);
+  
   const [conciliandoTransaccion, setConciliandoTransaccion] = useState(false);
 
   // ✅ FUNCIÓN HELPER PARA CLASIFICAR SIMILITUD
@@ -278,21 +290,20 @@ const Cruces: React.FC = () => {
 
       const data = await response.json();
 
-      // Validar que data tenga la estructura esperada
-      if (!data || !data.resumen_por_estado) {
-        throw new Error("Respuesta inválida del servidor");
-      }
+
 
       // Procesar los datos con validación
       const estadisticas = {
-        resumen_general: data.resumen_general || {
-          total_movimientos: 0,
-          conciliados: 0,
-          pendientes: 0,
-          valor_total: 0,
-        },
-        resumen_por_estado: data.resumen_por_estado || [],
-        total_valor_banco: data.total_valor_banco || 0,
+        
+        total_movimientos_banco: data.total_movimientos_banco,
+        conciliados_movimientos: data.conciliados_movimientos,
+        pendientes_movimientos: data.pendientes_movimientos,
+        total_valor_banco: data.total_valor_banco,
+        total_pagosconductor: data.total_pagosconductor,
+        conciliados_pc: data.conciliados_pc,
+        pendientes_pc: data.pendientes_pc,
+        rechazados_pc: data.rechazados_pc
+
       };
 
       setEstadisticasGenerales(estadisticas);
@@ -301,12 +312,7 @@ const Cruces: React.FC = () => {
       setMensaje(`❌ Error: ${err.message}`);
     }
   };
-
-
-
-
-
-  // ✅ NUEVA FUNCIÓN PARA CARGAR PAGOS PENDIENTES DE CONCILIAR
+// ✅ NUEVA FUNCIÓN PARA CARGAR PAGOS PENDIENTES DE CONCILIAR
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -451,12 +457,8 @@ const Cruces: React.FC = () => {
       }, 2000);
     }
   };
-
-
-
   // Función de conciliación con progreso usando EventSource
   const ejecutarConciliacionConProgreso = async () => {
-    
     
     return new Promise<void>((resolve, reject) => {
       let eventSource: EventSource | null = null;
@@ -703,6 +705,7 @@ const Cruces: React.FC = () => {
   };
 
   // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIÓN
+  /*
   const mostrarModalSeleccionTransaccion = async (pago: {
     referencia: string;
     valor: number;
@@ -725,13 +728,10 @@ const Cruces: React.FC = () => {
       transacciones_disponibles: transacciones,
     });
   };
-
-
-  
+  */
 
   // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIONES BANCARIAS
   const mostrarModalSeleccionTransaccionBanco = async (resultado: ResultadoConciliacion) => {
-    
     try {
       // Intentar usar el endpoint optimizado primero
       let transacciones = [];
@@ -743,22 +743,16 @@ const Cruces: React.FC = () => {
       // Si no hay referencia o no se encontraron transacciones, usar búsqueda por criterios
       if (transacciones.length === 0) {
         
-        const fechaInicio = new Date(resultado.fecha_banco);
-        fechaInicio.setDate(fechaInicio.getDate() - 7); // 7 días antes
-        
-        const fechaFin = new Date(resultado.fecha_banco);
-        fechaFin.setDate(fechaFin.getDate() + 7); // 7 días después
+       const fechaExacta = resultado.fecha_banco.split('T')[0]; 
 
         const params = new URLSearchParams({
-          valor_min: (resultado.valor_banco * 0.9).toString(), // 10% de tolerancia
-          valor_max: (resultado.valor_banco * 1.1).toString(),
-          fecha_inicio: fechaInicio.toISOString().split('T')[0],
-          fecha_fin: fechaFin.toISOString().split('T')[0],
+          valor_min: resultado.valor_banco.toString(),
+          valor_max: resultado.valor_banco.toString(),
+          fecha_inicio: fechaExacta,
+          fecha_fin: fechaExacta,
           estado: 'pendiente' // Solo transacciones no conciliadas
         });
 
-  
-        
         const res = await fetch(
           `${API_BASE_URL}/conciliacion/obtener-movimientos-banco-disponibles?${params.toString()}`
         );
@@ -774,7 +768,7 @@ const Cruces: React.FC = () => {
 
       // Si aún no hay transacciones, intentar fallback
       if (transacciones.length === 0) {
-        
+        /*
         
         const fallbackRes = await fetch(
           `${API_BASE_URL}/conciliacion/pagos-pendientes-conciliar`
@@ -799,6 +793,8 @@ const Cruces: React.FC = () => {
             nivel_match: "⚫ Sin calcular"
           })).filter((t: any) => t.estado_conciliacion === 'pendiente') || [];
         }
+
+      */
       }
 
       
@@ -873,8 +869,6 @@ const Cruces: React.FC = () => {
         usuario,
         fecha_conciliacion: new Date().toISOString(),
       };
-
-
 
       const res = await fetch(
         `${API_BASE_URL}/conciliacion/marcar-conciliado-manual`,
@@ -988,7 +982,7 @@ const Cruces: React.FC = () => {
       multiple_match: "#f59e0b",
       diferencia_valor: "#ef4444",
       diferencia_fecha: "#f97316",
-      sin_match: "#6b7280",
+      sin_match: "#ffffffff",
     };
     return colores[estado as keyof typeof colores] || "#6b7280";
   };
@@ -1061,115 +1055,47 @@ const Cruces: React.FC = () => {
           <div className="stat-card primary">
             <div className="stat-icon">📊</div>
              <span className="stat-label">TOTAL MOVIMIENTOS BANCARIOS  </span>
-             <span className="stat-number">{estadisticasGenerales?.resumen_general?.total_movimientos?.toLocaleString() ?? 0}</span>
+             <span className="stat-number">{estadisticasGenerales?.total_movimientos_banco?.toLocaleString() ?? 0}</span>
+          </div>
+          <div className="stat-card primary">
+            <div className="stat-icon">🔸</div>
+             <span className="stat-label">MOVIMIENTOS BANCARIOS CONCILIADOS</span>
+             <span className="stat-number">{estadisticasGenerales?.conciliados_movimientos?.toLocaleString() ?? 0}</span>
+          </div>
+           <div className="stat-card primary">
+            <div className="stat-icon">⏳</div>
+             <span className="stat-label">MOVIMIENTOS BANCARIOS PENDIENTES </span>
+             <span className="stat-number">{estadisticasGenerales?.pendientes_movimientos?.toLocaleString() ?? 0}</span>
+          </div>
+          <div className="stat-card primary">
+            <div className="stat-icon">📊</div>
+             <span className="stat-label">TOTAL DE PAGOS CONDUCTOR </span>
+             <span className="stat-number">{estadisticasGenerales?.total_pagosconductor?.toLocaleString() ?? 0}</span>
+          </div>
+          
+          <div className="stat-card primary">
+            <div className="stat-icon">🔸</div>
+             <span className="stat-label">SOPORTES CONCILIADOS </span>
+             <span className="stat-number">{estadisticasGenerales?.conciliados_pc?.toLocaleString() ?? 0}</span>
+          </div>
+          <div className="stat-card primary">
+            <div className="stat-icon">⏳</div>
+             <span className="stat-label">SOPORTES PENDIENTES POR CONCILIAR </span>
+             <span className="stat-number">{estadisticasGenerales?.pendientes_pc ?? 0}</span>
+          </div>
+          <div className="stat-card primary">
+            <div className="stat-icon">❌</div>
+             <span className="stat-label">SOPORTES RECHAZADOS</span>
+             <span className="stat-number">{estadisticasGenerales?.rechazados_pc?.toLocaleString() ?? 0}</span>
           </div>
           <div className="stat-card primary">
             <div className="stat-icon">💰</div>
              <span className="stat-label">VALOR TOTAL MOVIMIENTOS BANCARIOS </span>
              <span className="stat-number">{formatearMoneda(estadisticasGenerales?.total_valor_banco ?? 0)}</span>
           </div>
-          <div className="stat-card primary">
-            <div className="stat-icon">⏳</div>
-             <span className="stat-label">MOVIMIENTOS PENDIENTES POR CONCILIAR </span>
-             <span className="stat-number">{estadisticasGenerales?.resumen_general?.pendientes?.toLocaleString() ?? 0}</span>
-          </div>
-          <div className="stat-card primary">
-            <div className="stat-icon">✅</div>
-             <span className="stat-label">MOVIMIENTOS CONCILIADOS EXACTOS </span>
-             <span className="stat-number">{estadisticasGenerales?.resumen_general?.conciliados_exactos?.toLocaleString() ?? 0}</span>
-          </div>
-          <div className="stat-card primary">
-            <div className="stat-icon">🔸</div>
-             <span className="stat-label">MOVIMIENTOS CONCILIADOS APROXIMADOS </span>
-             <span className="stat-number">{estadisticasGenerales?.resumen_general?.conciliados_aproximados?.toLocaleString() ?? 0}</span>
-          </div>
-          <div className="stat-card primary">
-            <div className="stat-icon">📄</div>
-             <span className="stat-label">MOVIMIENTOS CONCILIADOS MANUALES </span>
-             <span className="stat-number">{estadisticasGenerales?.resumen_general?.conciliados_manuales?.toLocaleString() ?? 0}</span>
-          </div>
-
-
-
         </div>
       </div>
 
-
-
-
-
-
-      {/* Estadísticas generales 
-      {estadisticasGenerales && (
-        <div className="estadisticas-panel">
-         
-            <div className="stat-card primary">
-              <div className="stat-icon">📊</div>
-              <div className="stat-content">
-                <span className="stat-label">TOTAL MOVIMIENTOS </span>
-                <span className="stat-number">
-                  {estadisticasGenerales?.resumen_general?.total_movimientos?.toLocaleString() ?? 0}
-                </span>
-              </div>
-            </div>
-            
-            <div className="stat-card success">
-              <div className="stat-icon">💰</div>
-              <div className="stat-content">
-                <span className="stat-label">VALOR TOTAL</span>
-                <span className="stat-number">
-                  $
-                  {estadisticasGenerales?.resumen_general?.valor_total?.toLocaleString("es-CO") ?? 0}
-                </span>
-              </div>
-            </div>
-
-            {estadisticasGenerales?.resumen_por_estado?.map((estado) => {
-              const getEstadoIcon = (estado: string) => {
-                switch (estado) {
-                  case 'pendiente': return '⏳';
-                  case 'conciliado_exacto': return '✅';
-                  case 'conciliado_aproximado': return '🔸';
-                  case 'sin_match': return '❌';
-                  default: return '📄';
-                }
-              };
-
-              const getEstadoClass = (estado: string) => {
-                switch (estado) {
-                  case 'pendiente': return 'warning';
-                  case 'conciliado_exacto': return 'success';
-                  case 'conciliado_aproximado': return 'info';
-                  case 'sin_match': return 'danger';
-                  default: return 'secondary';
-                }
-              };
-
-              const getEstadoLabel = (estado: string) => {
-                switch (estado) {
-                  case 'pendiente': return 'PENDIENTE';
-                  case 'conciliado_exacto': return 'CONCILIADO EXACTO';
-                  case 'conciliado_aproximado': return 'CONCILIADO APROXIMADO';
-                  case 'sin_match': return 'SIN MATCH';
-                  default: return estado.replace('_', ' ').toUpperCase();
-                }
-              };
-
-              return (
-                <div key={estado.estado_conciliacion} className={`stat-card ${getEstadoClass(estado.estado_conciliacion)}`}>
-                  <div className="stat-icon">{getEstadoIcon(estado.estado_conciliacion)}</div>
-                  <div className="stat-content">
-                    <span className="stat-label">{getEstadoLabel(estado.estado_conciliacion)}</span>
-                    <span className="stat-number">{estado.cantidad}</span>
-                    <span className="stat-sublabel">mov.</span>
-                    <span className="stat-value">${estado.valor_total.toLocaleString("es-CO")}</span>
-                  </div>
-                </div>
-              );
-            })}
-          
-        </div>
-      )} */}
       {/* Carga de archivo */}
       <div className="carga-csv">
         <h3>📁 Cargar Archivo del Banco</h3>
@@ -1383,7 +1309,7 @@ const Cruces: React.FC = () => {
               <thead>
                 <tr>
                   <th>Fecha Banco</th>
-                  <th>Valor consignacion</th>
+                  <th>Valor Total de los Tracking</th>
                   <th>Estado</th>
                   <th>Confianza</th>
                   <th>Ref. Pago</th>
@@ -1536,37 +1462,34 @@ const Cruces: React.FC = () => {
               <div className="detalle-seccion">
                 <h4> 🟢 Movimiento a Conciliar</h4>
                 <div className="detalle-item">
-                  <strong>ID Banco:</strong> {modalSeleccionTransaccion.pago.referencia}
+                  <strong>Referencia de Pago:</strong> {modalSeleccionTransaccion.pago.referencia}
                 </div>
                 <div className="detalle-item">
                   <strong>Fecha:</strong>{" "}
-                  {formatearFecha(modalSeleccionTransaccion.pago.fecha)}
+                  {detallePagoSeleccionado?.fecha_pago && formatearFecha(detallePagoSeleccionado.fecha_pago)}
                 </div>
                 <div className="detalle-item">
-                  <strong>Valor:</strong> $
-                  {modalSeleccionTransaccion.pago.valor.toLocaleString("es-CO")}
+                  <strong>Valor del pago:</strong> 
+                  ${detallePagoSeleccionado?.valor_total_consignacion.toLocaleString("es-CO")}
                 </div>
                 <div className="detalle-item">
-                  <strong>Tipo:</strong> {modalSeleccionTransaccion.pago.tipo}
+                  <strong>Valor total de tracking:</strong> 
+                  ${modalSeleccionTransaccion.pago.valor.toLocaleString("es-CO")}
                 </div>
-                {modalSeleccionTransaccion.pago.correo !== "No disponible" && (
-                  <div className="detalle-item">
-                    <strong>Conductor:</strong> {modalSeleccionTransaccion.pago.correo}
-                  </div>
-                )}
-                {modalSeleccionTransaccion.pago.correo !== "No disponible" && (
+                <div className="detalle-item">
+                  <strong>Tipo de Movimiento:</strong> 
+                  {detallePagoSeleccionado?.tipo?.toLocaleString("es-CO")}
+                </div>
+                <div className="detalle-item">
+                  <strong>Correo Conductor:</strong> 
+                  {detallePagoSeleccionado?.correo?.toLocaleString("es-CO")}
+                </div>
                   <div className="detalle-item" >
                     <button onClick={() => verDetallesPago(modalSeleccionTransaccion.pago.referencia)}>
                       <strong>Comprobante:</strong>   
                       👁 Ver
                     </button>
                   </div>
-                )}
-
-                
-                
-
-
               </div>
 
               <div className="detalle-seccion">
