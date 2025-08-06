@@ -264,7 +264,7 @@ def analizar_archivo_detallado(decoded: str, filename: str) -> Dict:
     print(f"  ❌ Errores de parsing: {len(analisis['errores_parsing'])}")
     print(f"  📝 Líneas vacías: {analisis['lineas_vacias']}")
     print(f"  📏 Líneas muy cortas: {analisis['lineas_muy_cortas']}")
-    print(f"  🔗 Separadores detectados: {dict(analisis['separadores_detectados'])}")
+    print(f"  🔗 Separadores detectados: {dict(analisis['separadores_detectadas'])}")
     print(f"  💰 Tipos de transacción: {dict(analisis['tipos_transaccion'])}")
     
     return analisis
@@ -1072,9 +1072,6 @@ async def conciliacion_automatica_fallback():
             "total_procesados": 0,
             "conciliado_exacto": 0,
             "conciliado_aproximado": 0,
-            "multiple_match": 0,
-            "diferencia_valor": 0,
-            "diferencia_fecha": 0,
             "sin_match": 0,
         }
 
@@ -1685,87 +1682,39 @@ def obtener_resumen_conciliacion():
     import os
     import csv
     try:
-        # 1. Resumen general
-        query_general = """
+        # 1. Total de movimientos bancarios|
+        query_mov_banco = """
         SELECT 
-            COUNT(DISTINCT id) as total_movimientos,
-            COUNTIF(estado_conciliacion IN ('conciliado_automatico','conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')) as conciliados,
-            COUNTIF(estado_conciliacion = 'conciliado_exacto') as conciliados_exactos,
-            COUNTIF(estado_conciliacion = 'conciliado_aproximado') as conciliados_aproximados,
-            COUNTIF(estado_conciliacion = 'conciliado_manual') as conciliados_manuales,
-            COUNTIF(estado_conciliacion IN ('pendiente')) as pendientes,
-            SUM(SAFE_CAST(valor_banco AS FLOAT64)) as valor_total
+            COUNT(*) as total_movimientos_banco,
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-    
         """
-        
-        resultado_general = list(client.query(query_general).result())[0]
-        
-        # 2. Resumen por estado
-        query_estados = """
+
+        # 2. Total de movimientos bancarios conciliados
+
+        query_conciliados_banco = """
+        SELECT
+            COUNT(*) as conciliados_movimientos
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        WHERE estado_conciliacion IN ('conciliado_exacto','conciliado_automatico','conciliado_manual')
+        """        
+
+        # 3. Total de movientos bancarios pendientes
+        query_pendientes_banco = """
         SELECT 
-            estado_conciliacion,
-            COUNT(*) as cantidad,
-            SUM(SAFE_CAST(valor_banco AS FLOAT64)) as valor_total,
-            MIN(fecha) as fecha_min,
-            MAX(fecha) as fecha_max
+            COUNT(*) as pendientes_movimientos
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-        GROUP BY estado_conciliacion
-        ORDER BY cantidad DESC
+        WHERE estado_conciliacion IN ('pendiente','pendiente_conciliacion','PENDIENTE')
         """
-        # 3. Total absoluto valor_banco
+
+        
+        # 4. Total absoluto valor_banco
         query_total_valor = """
         SELECT
-            SUM(SAFE_CAST(valor_banco AS FLOAT64)) AS total_valor_banco
+           ROUND(SUM(valor_banco), 2) AS total_valor_banco
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
         """
 
-        query_movimientos = """
-        SELECT
-            COUNTIF(estado_conciliacion = 'pendiente_conciliacion') AS pendientes_reales,
-            COUNTIF(estado_conciliacion = 'conciliado_manual') AS manuales_reales,
-            COUNT(DISTINCT referencia_pago) AS total_pc,
-            COUNTIF(estado_conciliacion = 'conciliado_exacto') AS exactos_reales,
-            COUNTIF(estado_conciliacion IN ('conciliado_automatico', 'conciliado_manual')) AS aprox_reales
-            
-        FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-        """
-
-        pendientes_pc = """
-        SELECT COUNT(*) AS pendientes_pc
-        FROM (
-            SELECT referencia_pago, correo
-            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-            WHERE estado_conciliacion = 'pendiente_conciliacion' 
-                AND (novedades IS NULL OR novedades = '')
-            GROUP BY referencia_pago, correo
-        )
-        """
-
-        conciliados_pc = """
-        SELECT COUNT(*) AS conciliados_pc
-        FROM (
-            SELECT referencia_pago, correo
-            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-            WHERE estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
-                AND referencia_pago IS NOT NULL
-                AND correo IS NOT NULL
-                AND (novedades IS NULL OR novedades = '')
-            GROUP BY referencia_pago, correo
-        )
-        """
-
-        rechazados_pc = """
-        SELECT 
-            COUNT(*) AS rechazados_pc
-        FROM (
-            SELECT referencia_pago, correo
-            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-            WHERE estado_conciliacion = "rechazado"
-            GROUP BY referencia_pago, correo
-        )
-
-        """
+        # 5. Total de pagos conductor
 
         total_pagosconductor = """
         SELECT 
@@ -1777,82 +1726,102 @@ def obtener_resumen_conciliacion():
             GROUP BY referencia_pago, correo
         )
         """
+        # 6. Total pagos conciliados conductor
 
+        conciliados_pc = """
+        SELECT 
+            COUNT(*) AS conciliados_pc
+        FROM ( 
+            SELECT referencia_pago, correo
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
+            GROUP BY referencia_pago, correo
+        )
+        """
+
+        # 7. Total pagos pendientes conductor
+
+        pendientes_pc = """
+        SELECT COUNT(*) AS pendientes_pc
+        FROM (
+            SELECT referencia_pago, correo
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE estado_conciliacion = 'pendiente_conciliacion' 
+            GROUP BY referencia_pago, correo
+        )
+        """
+
+
+        # 8. Total pagos rechazados conductor
+        rechazados_pc = """
+        SELECT 
+            COUNT(*) AS rechazados_pc
+        FROM (
+            SELECT referencia_pago, correo
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE estado_conciliacion IN ('rechazado')
+            GROUP BY referencia_pago, correo
+        )
+        """
+
+        # Exportación de movimientos bancarios a CSV para pruebas
+        ''''
+        query_export_csv = """
+        SELECT *
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        """
+        rows = list(client.query(query_export_csv).result())
+        if rows:
+            # Obtener nombres de columnas
+            fieldnames = rows[0].keys()
+            output = io.StringIO()
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({k: str(v) if v is not None else "" for k, v in row.items()})
+            csv_content = output.getvalue()
+
+            # Guardar archivo CSV en la carpeta del proyecto
+            ruta_csv = os.path.join(os.path.dirname(__file__), "..", "..", "..", "movimientos_banco_export.csv")
+            ruta_csv = os.path.abspath(ruta_csv)
+            with open(ruta_csv, "w", encoding="utf-8") as f:
+                f.write(csv_content)
+        else:
+            csv_content = ""
+
+        # ...existing code...
+        '''
+
+        #1
+        res_mov_banco = list(client.query(query_mov_banco).result())[0]
+        #2
+        res_conciliados_banco = list(client.query(query_conciliados_banco).result())[0]
+        #3
+        res_pendientes_banco = list(client.query(query_pendientes_banco).result())[0]
+        #4
+        res_total_valor = list(client.query(query_total_valor).result())[0]
+        #5
+        res_total_pagosconductor = list(client.query(total_pagosconductor).result())[0]
+        #6
+        res_conciliados_pc = list(client.query(conciliados_pc).result())[0]
+        #7
         pendientes_pc = list(client.query(pendientes_pc).result())[0]
-        resultado_total = list(client.query(query_total_valor).result())[0]
-        res_conciliados_pc_rows = list(client.query(conciliados_pc).result())[0]
-        result_query_movimientos = list(client.query(query_movimientos).result())[0]
-        res_total_pagosconductor_rows = list(client.query(total_pagosconductor).result())[0]
+        #8
         res_rechazados_pc = list(client.query(rechazados_pc).result())[0]
 
-        '''
-        # Exportar resultado de conciliados_pc a CSV
-        export_path_conciliados_pc = os.path.join(os.path.dirname(__file__), "conciliados_pc_export.csv")
-        try:
-            with open(export_path_conciliados_pc, mode="w", newline='', encoding="utf-8") as csvfile:
-                writer = csv.writer(csvfile)
-                if res_conciliados_pc_rows:
-                    writer.writerow(list(res_conciliados_pc_rows[0].keys()))
-                    for row in res_conciliados_pc_rows:
-                        writer.writerow([row[k] for k in row.keys()])
-            logger.info(f"✅ Exportación CSV de conciliados_pc completada: {export_path_conciliados_pc}")
-        except Exception as e:
-            logger.warning(f"Error exportando CSV de conciliados_pc: {e}")
-      
-
-        # Exportar resultado de total_pagosconductor a CSV
-        import csv
-        import os
-        export_path_total_pc = os.path.join(os.path.dirname(__file__), "total_pagosconductor_export.csv")
-        try:
-            with open(export_path_total_pc, mode="w", newline='', encoding="utf-8") as csvfile:
-                writer = csv.writer(csvfile)
-                if res_total_pagosconductor_rows:
-                    writer.writerow(list(res_total_pagosconductor_rows[0].keys()))
-                    for row in res_total_pagosconductor_rows:
-                        writer.writerow([row[k] for k in row.keys()])
-            logger.info(f"✅ Exportación CSV de total_pagosconductor completada: {export_path_total_pc}")
-        except Exception as e:
-            logger.warning(f"Error exportando CSV de total_pagosconductor: {e}")
-        '''
-
-        estados = []
-        for row in client.query(query_estados).result():
-            estados.append({
-                "estado_conciliacion": row["estado_conciliacion"],
-                "cantidad": int(row["cantidad"]),
-                "valor_total": float(row["valor_total"]) if row["valor_total"] else 0
-                #"fecha_min": row["fecha_min"].isoformat() if row["fecha_min"] else None,
-                #"fecha_max": row["fecha_max"].isoformat() if row["fecha_max"] else None
-            })
 
         return {
-            "resumen_general": {
-                "total_movimientos": int(resultado_general["total_movimientos"]),
-                "conciliados": int(resultado_general["conciliados"]),
-                "conciliados_exactos": int(resultado_general["conciliados_exactos"]),
-                "conciliados_aproximados": int(resultado_general["conciliados_aproximados"]),
-                "conciliados_manuales": int(resultado_general["conciliados_manuales"]),
-                "pendientes": int(resultado_general["pendientes"]),
-                "valor_total": float(resultado_general["valor_total"]) if resultado_general["valor_total"] else 0
-                #"fecha_inicial": resultado_general["fecha_inicial"].isoformat() if resultado_general["fecha_inicial"] else None,
-                #"fecha_final": resultado_general["fecha_final"].isoformat() if resultado_general["fecha_final"] else None
-            },
-            #"pendientes_reales": len(pendientes_pc),
-            "total_pagosconductor": int(res_total_pagosconductor_rows["total_pagosconductor"]) if res_total_pagosconductor_rows["total_pagosconductor"] else 0,
-            "rechazados_pc": int(res_rechazados_pc["rechazados_pc"]) if res_rechazados_pc["rechazados_pc"] else 0,
-            "conciliados_pc": int(res_conciliados_pc_rows["conciliados_pc"]) if res_conciliados_pc_rows["conciliados_pc"] else 0,
-            "pendientes_pc": int(pendientes_pc["pendientes_pc"]) if pendientes_pc["pendientes_pc"] else 0,
             
-            "total_pc": int(result_query_movimientos["total_pc"]) if result_query_movimientos["total_pc"] else 0,
-            "aprox_reales": int(result_query_movimientos["aprox_reales"]) if result_query_movimientos["aprox_reales"] else 0,
-            "exactos_reales": int(result_query_movimientos["exactos_reales"]) if result_query_movimientos["exactos_reales"] else 0,
-            "manuales_reales": int(result_query_movimientos["manuales_reales"]) if result_query_movimientos["manuales_reales"] else 0,
-            "total_valor_banco": int(resultado_total["total_valor_banco"]) if resultado_total["total_valor_banco"] else 0,
-            "resumen_por_estado": estados,
-            "timestamp": datetime.utcnow().isoformat()
-        }
+            "total_movimientos_banco": int(res_mov_banco["total_movimientos_banco"]) if res_mov_banco["total_movimientos_banco"] else 0,
+            "conciliados_movimientos": int(res_conciliados_banco["conciliados_movimientos"]) if res_conciliados_banco["conciliados_movimientos"] else 0,
+            "pendientes_movimientos": int(res_pendientes_banco["pendientes_movimientos"]) if res_pendientes_banco["pendientes_movimientos"] else 0,
+            "total_valor_banco": int(res_total_valor["total_valor_banco"]) if res_total_valor["total_valor_banco"] else 0.0,
+            "total_pagosconductor": int(res_total_pagosconductor["total_pagosconductor"]) if res_total_pagosconductor["total_pagosconductor"] else 0,
+            "conciliados_pc": int(res_conciliados_pc["conciliados_pc"]) if res_conciliados_pc["conciliados_pc"] else 0,
+            "pendientes_pc": int(pendientes_pc["pendientes_pc"]) if pendientes_pc["pendientes_pc"] else 0,
+            "rechazados_pc": int(res_rechazados_pc["rechazados_pc"]) if res_rechazados_pc["rechazados_pc"] else 0,
         
+        }
     except Exception as e:
         logger.error(f"Error obteniendo resumen de conciliación: {str(e)}")
         raise HTTPException(
@@ -2161,11 +2130,10 @@ async def obtener_movimientos_banco_disponibles(
             tipo,
             estado_conciliacion
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-        WHERE fecha BETWEEN @fecha_inicio AND @fecha_fin
+        WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
         AND valor_banco BETWEEN @valor_min AND @valor_max
         AND estado_conciliacion = @estado
         ORDER BY ABS(valor_banco - (@valor_min + @valor_max) / 2), fecha DESC
-        LIMIT 50
         """
         
         job_config = bigquery.QueryJobConfig(
@@ -2268,46 +2236,43 @@ async def obtener_pagos_pendientes_conciliar():
             detail=f"Error obteniendo pagos pendientes: {str(e)}"
         )
 
+
 @router.get("/transacciones-bancarias-disponibles")
 async def obtener_transacciones_bancarias_disponibles(referencia: str):
     """
     Endpoint para obtener transacciones bancarias disponibles para una referencia específica
-    con porcentaje de similitud basado en fecha, valor y tipo
+    SOLO de la fecha exacta registrada en el pago (query_pago)
     """
     client = bigquery.Client()
-    
     try:
-        # Primero obtener info del pago para buscar transacciones similares
+        # Obtener info del pago
         query_pago = """
         SELECT 
             COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64)) as valor_pago,
             fecha_pago,
             entidad,
             tipo
-
         FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
         WHERE referencia_pago = @referencia
         LIMIT 1
         """
-        
         job_config_pago = bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("referencia", "STRING", referencia)
             ]
         )
-        
         pago_result = list(client.query(query_pago, job_config=job_config_pago).result())
-        
         if not pago_result:
             return {"transacciones": [], "mensaje": "Pago no encontrado"}
-        
         pago = pago_result[0]
         valor_pago = float(pago["valor_pago"]) if pago["valor_pago"] else 0
         fecha_pago = pago["fecha_pago"]
         entidad_pago = (pago["entidad"] or "").lower()
         tipo_pago = (pago["tipo"] or "").lower()
-        
-        # Buscar SOLO transacciones bancarias pendientes con filtros más estrictos
+        if not fecha_pago:
+            return {"transacciones": [], "mensaje": "El pago no tiene fecha registrada"}
+
+        # Buscar SOLO transacciones bancarias pendientes de la fecha exacta del pago
         query_transacciones = """
         SELECT 
             id,
@@ -2320,86 +2285,49 @@ async def obtener_transacciones_bancarias_disponibles(referencia: str):
             tipo,
             estado_conciliacion
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-        WHERE fecha BETWEEN DATE_SUB(@fecha_pago, INTERVAL 15 DAY) AND DATE_ADD(@fecha_pago, INTERVAL 15 DAY)
-        AND CASE 
-            WHEN @valor_pago <= 50000 THEN 
-                valor_banco BETWEEN (@valor_pago * 0.8) AND (@valor_pago * 1.2)
-            WHEN @valor_pago <= 200000 THEN 
-                valor_banco BETWEEN (@valor_pago * 0.9) AND (@valor_pago * 1.1)
-            ELSE 
-                valor_banco BETWEEN (@valor_pago * 0.95) AND (@valor_pago * 1.05)
-        END
-        AND (estado_conciliacion = 'pendiente' OR estado_conciliacion IS NULL)
+        WHERE fecha = @fecha_pago
+        AND (
+            (estado_conciliacion = 'pendiente' OR estado_conciliacion IS NULL)
+        )
         AND (referencia_pago_asociada IS NULL OR referencia_pago_asociada = '')
+        AND (
+            CASE 
+                WHEN @valor_pago <= 50000 THEN 
+                    valor_banco BETWEEN (@valor_pago * 0.8) AND (@valor_pago * 1.2)
+                WHEN @valor_pago <= 200000 THEN 
+                    valor_banco BETWEEN (@valor_pago * 0.9) AND (@valor_pago * 1.1)
+                ELSE 
+                    valor_banco BETWEEN (@valor_pago * 0.95) AND (@valor_pago * 1.05)
+            END
+        )
         ORDER BY ABS(valor_banco - @valor_pago), fecha DESC
         """
-        
         job_config_transacciones = bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("fecha_pago", "DATE", fecha_pago),
                 bigquery.ScalarQueryParameter("valor_pago", "FLOAT", valor_pago)
             ]
         )
-        
         transacciones = list(client.query(query_transacciones, job_config=job_config_transacciones).result())
-        
-        # 🔍 DEBUG: Log de filtrado
-        logger.info(f"🔍 Filtrado para referencia {referencia}:")
-        logger.info(f"   💰 Valor pago: ${valor_pago:,.0f}")
-        logger.info(f"   📅 Fecha pago: {fecha_pago}")
-        logger.info(f"   🏦 Transacciones encontradas: {len(transacciones)}")
-        
-        if valor_pago > 200000:
-            rango_min = valor_pago * 0.95
-            rango_max = valor_pago * 1.05
-            logger.info(f"   📊 Rango estricto (5%): ${rango_min:,.0f} - ${rango_max:,.0f}")
-        elif valor_pago > 50000:
-            rango_min = valor_pago * 0.9
-            rango_max = valor_pago * 1.1
-            logger.info(f"   📊 Rango medio (10%): ${rango_min:,.0f} - ${rango_max:,.0f}")
-        else:
-            rango_min = valor_pago * 0.8
-            rango_max = valor_pago * 1.2
-            logger.info(f"   📊 Rango amplio (20%): ${rango_min:,.0f} - ${rango_max:,.0f}")
-        
+
         resultados = []
         for transaccion in transacciones:
             valor_transaccion = float(transaccion["valor_banco"])
-            logger.info(f"   🔄 Procesando transacción: ${valor_transaccion:,.0f} (ID: {transaccion['id']})")
-            if abs(valor_transaccion - valor_pago) / max(valor_pago, valor_transaccion) > 0.3:
-                logger.info(f"❌ Ignorado por diferencia extrema de valor: Banco ${valor_transaccion:,.0f} vs Pago ${valor_pago:,.0f}")
-                continue
-            # ✅ CALCULAR PORCENTAJE DE SIMILITUD
             porcentaje_similitud = calcular_porcentaje_similitud(
                 pago_fecha=fecha_pago,
                 pago_valor=valor_pago,
                 pago_entidad=entidad_pago,
                 pago_tipo=tipo_pago,
                 banco_fecha=transaccion["fecha"],
-                banco_valor=float(transaccion["valor_banco"]),
+                banco_valor=valor_transaccion,
                 banco_cuenta=transaccion["cuenta"] or "",
                 banco_tipo=transaccion["tipo"] or "",
                 banco_descripcion=transaccion["descripcion"] or ""
             )
-            
-            # 🛡️ VALIDACIÓN ADICIONAL: No incluir transacciones con diferencias extremas de valor
-            diferencia_porcentual = abs(valor_transaccion - valor_pago) / max(valor_pago, valor_transaccion)
-
-            # Filtro de seguridad adicional basado en el monto
-            if valor_pago > 200000 and diferencia_porcentual > 0.05:  # 5% para pagos grandes
-                logger.warning(f"   ⚠️ Transacción rechazada por diferencia extrema: {diferencia_porcentual:.2%}")
-                continue
-            elif valor_pago > 50000 and diferencia_porcentual > 0.1:   # 10% para pagos medianos  
-                logger.warning(f"   ⚠️ Transacción rechazada por diferencia extrema: {diferencia_porcentual:.2%}")
-                continue
-            elif diferencia_porcentual > 0.2:                           # 20% para pagos pequeños
-                logger.warning(f"   ⚠️ Transacción rechazada por diferencia extrema: {diferencia_porcentual:.2%}")
-                continue
-            
             resultados.append({
                 "id": transaccion["id"],
                 "fecha": transaccion["fecha"].isoformat(),
-                "valor_banco": float(transaccion["valor_banco"]),
+                "valor_banco": valor_transaccion,
                 "cuenta": transaccion["cuenta"],
                 "codigo": transaccion["codigo"],
                 "cod_transaccion": transaccion["cod_transaccion"],
@@ -2409,22 +2337,18 @@ async def obtener_transacciones_bancarias_disponibles(referencia: str):
                 "porcentaje_similitud": porcentaje_similitud,
                 "nivel_match": get_nivel_match(porcentaje_similitud)
             })
-        
-        # Ordenar por porcentaje de similitud descendente
         resultados.sort(key=lambda x: x["porcentaje_similitud"], reverse=True)
-        
         return {
             "transacciones": resultados,
             "total": len(resultados),
             "pago_referencia": referencia,
             "criterios_busqueda": {
                 "valor_pago": valor_pago,
-                "fecha_pago": fecha_pago.isoformat(),
+                "fecha_pago": fecha_pago.isoformat() if hasattr(fecha_pago, 'isoformat') else str(fecha_pago),
                 "entidad_pago": entidad_pago,
                 "tipo_pago": tipo_pago
             }
         }
-        
     except Exception as e:
         logger.error(f"Error obteniendo transacciones bancarias disponibles: {str(e)}")
         raise HTTPException(

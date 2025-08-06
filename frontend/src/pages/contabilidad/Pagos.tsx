@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { saveAs } from "file-saver";
 import "../../styles/contabilidad/Pagos.css";
-import { concat } from "lodash";
+
 
 // Utilidad para obtener el token desde localStorage
 function getToken(): string {
@@ -39,6 +39,7 @@ interface DetalleTracking {
   estado: string;
   novedades: string;
   comprobante: string;
+  valor_guia: number;
 }
 
 interface PaginacionInfo {
@@ -395,22 +396,43 @@ export default function PagosContabilidad() {
     setImagenSeleccionada(src);
   };
 
-  const verDetallesPago = async (referenciaPago: string) => {
-    try {
-      const response = await fetch(`https://api.x-cargo.co/pagos/detalles-pago/${referenciaPago}`);
-      
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      setDetalleTracking(data.detalles || []);
-      setModalDetallesVisible(true);
-    } catch (err: any) {
-      console.error("Error cargando detalles:", err);
-      alert(`Error al cargar detalles del pago: ${err.message}`);
+const verDetallesPago = async ({
+  referencia_pago,
+  correo,
+  fecha_pago,
+  hora_pago,
+  valor
+}: {
+  referencia_pago: string;
+  correo?: string;
+  fecha_pago?: string;
+  hora_pago?: string;
+  valor?: number;
+}) => {
+  try {
+    const params = new URLSearchParams();
+    if (correo) params.append("correo", correo);
+    if (fecha_pago) params.append("fecha_pago", fecha_pago);
+    if (hora_pago) params.append("hora_pago", hora_pago);
+    if (valor !== undefined) params.append("valor", valor.toString());
+
+    const response = await fetch(
+      `http://127.0.0.1:8000/pagos/detalles-pago/${referencia_pago}?${params.toString()}`
+    );
+
+    if (!response.ok) {
+      throw new Error(`Error ${response.status}: ${response.statusText}`);
     }
-  };
+
+    const data = await response.json();
+    console.log("🟢 Datos recibidos en verDetallesPago:", data);
+    setDetalleTracking(data.detalles || []);
+    setModalDetallesVisible(true);
+  } catch (err: any) {
+    console.error("Error cargando detalles:", err);
+    alert(`Error al cargar detalles del pago: ${err.message}`);
+  }
+};
 
   const confirmarRechazo = async () => {
     console.log("🔄 Iniciando proceso de rechazo...", {
@@ -486,7 +508,8 @@ export default function PagosContabilidad() {
       'pendiente_conciliacion': '⏳ Pendiente conciliación',
       'conciliado_manual': '🔎 Conciliado manual',
       'conciliado_automatico': '🤖 Conciliado automático',
-      'rechazado': '❌ Rechazado',
+      'rechazado': '❌ Rechazado'
+      
     };
     return textos[estado.toLowerCase()] || estado;
   };
@@ -832,6 +855,7 @@ function parseFechaLocal(fechaStr: string) {
                   <td>{p.tipo}</td>
                   <td style={{
                     color: p.estado_conciliacion === "rechazado" ? "crimson" :
+                           p.estado_conciliacion === "Rechazado" ? "crimson" :
                            p.estado_conciliacion === "conciliado_manual" ? "green" : undefined
                   }}>
                     
@@ -847,7 +871,13 @@ function parseFechaLocal(fechaStr: string) {
                   </td>
                   <td>
                     <button
-                      onClick={() => verDetallesPago(p.referencia_pago)}
+                      onClick={() => verDetallesPago({
+                        referencia_pago: p.referencia_pago,
+                        correo: p.correo_conductor,
+                        fecha_pago: p.fecha,
+                        hora_pago: p.hora_pago,
+                        valor: p.valor
+                      })}
                       className="btn-ver"
                       title={p.trackings_preview}
                     >
@@ -864,19 +894,22 @@ function parseFechaLocal(fechaStr: string) {
                     )}
                   </td>
                   <td>
-                    <button
-                     onClick={() => {
-                      console.log("🖱️ Click en botón rechazar para:", p.referencia_pago);
-                      setRefPagoSeleccionada(p.referencia_pago);
-                      setModalVisible(true);
-                    }}
-                      className="boton-rechazar"
-                      disabled={p.estado_conciliacion === "rechazado" || 
-                               p.estado_conciliacion?.startsWith("conciliado") ||
-                               procesando === p.referencia_pago}
-                    >
-                      {procesando === p.referencia_pago ? "⏳ Procesando..." : "Rechazar"}
-                    </button>
+                    {!(p.estado_conciliacion === "rechazado" ||
+                        p.estado_conciliacion === "Rechazado" ||
+                        p.estado_conciliacion === "conciliado_manual" ||
+                        p.estado_conciliacion === "conciliado_automatico") && (
+                      <button
+                        onClick={() => {
+                          console.log("🖱️ Click en botón rechazar para:", p.referencia_pago);
+                          setRefPagoSeleccionada(p.referencia_pago);
+                          setModalVisible(true);
+                        }}
+                        className="boton-rechazar"
+                        disabled={procesando === p.referencia_pago}
+                      >
+                        {procesando === p.referencia_pago ? "⏳ Procesando..." : "Rechazar"}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))
@@ -992,7 +1025,9 @@ function parseFechaLocal(fechaStr: string) {
                   <div className="pago-info-item">
                     <span className="pago-info-label">Total</span>
                     <span className="pago-info-value">
-                      ${detalleTracking.reduce((sum, item) => sum + item.valor, 0).toLocaleString('es-ES')}
+                      {detalleTracking[0]?.estado === "pendiente_conciliacion"
+                        ? `$${detalleTracking.reduce((sum, item) => sum + (item.valor_guia ?? 0), 0).toLocaleString('es-ES')}`
+                        : `$${detalleTracking.reduce((sum, item) => sum + (item.valor ?? 0), 0).toLocaleString('es-ES')}`}
                     </span>
                   </div>
                   
@@ -1022,7 +1057,9 @@ function parseFechaLocal(fechaStr: string) {
                             #{item.tracking}
                           </div>
                           <div className="tracking-valor">
-                            ${item.valor.toLocaleString('es-ES')}
+                                {detalleTracking[0]?.estado === "pendiente_conciliacion"
+                                  ? `$${item.valor_guia.toLocaleString('es-ES')}`
+                                  : `$${item.valor.toLocaleString('es-ES')}`}
                           </div>
                         </div>
                         
@@ -1038,9 +1075,15 @@ function parseFechaLocal(fechaStr: string) {
                           </div>
                           
                           <div className="tracking-detail-item">
-                            <span className="tracking-detail-label">Valor Individual</span>
-                            <span className="tracking-detail-value">${item.valor.toLocaleString('es-ES')}</span>
+                              <span className="pago-info-label">Total</span>
+                              <span className="pago-info-value">
+                                {detalleTracking[0]?.estado === "pendiente_conciliacion"
+                                  ? `$${item.valor_guia.toLocaleString('es-ES')}`
+                                  : `$${item.valor.toLocaleString('es-ES')}`}
+                              </span>
                           </div>
+
+                          
                         </div>
                         
                       </div>

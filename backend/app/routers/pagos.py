@@ -824,20 +824,29 @@ async def aplicar_bonos_conductor(
             detail=f"Error aplicando bono: {str(e)}"        )
 
 @router.get("/detalles-pago/{referencia_pago}")
-def obtener_detalles_pago(referencia_pago: str):
+def obtener_detalles_pago(
+    referencia_pago: str,
+    correo: str = Query(None, description="Filtrar por correo del conductor (opcional)"),
+    fecha_pago: str = Query(None, description="Filtrar por fecha de pago (YYYY-MM-DD, opcional)"),
+    hora_pago: str = Query(None, description="Filtrar por hora de pago (opcional)"),
+    valor: float = Query(None, description="Filtrar por valor del pago (opcional)"),
+    estado_conciliacion: str = Query(None, description="Filtrar por estado de conciliación (opcional)")
+):
     """
-    Obtiene los detalles de un pago específico incluyendo todas las guías asociadas
+    Obtiene los detalles de un pago específico incluyendo todas las guías asociadas.
+    Permite filtrar por estado de conciliación, fecha y valor si se especifica.
     """
     try:
         client = get_bigquery_client()
         
-        # Consultar detalles del pago con JOIN para obtener el carrier real
         query = """
         SELECT 
             pc.referencia_pago,
             pc.referencia,
             pc.tracking,
             pc.valor,
+            pc.correo,
+            pc.valor_total_consignacion,
             pc.cliente,
             COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier,
             pc.tipo,
@@ -845,22 +854,38 @@ def obtener_detalles_pago(referencia_pago: str):
             pc.hora_pago,
             pc.estado_conciliacion as estado,
             pc.novedades,
-            pc.comprobante
+            pc.Id_Transaccion,
+            pc.comprobante,
+            cod.Valor as valor_guia,
+            pc.correo as correo 
         FROM `{project}.{dataset}.pagosconductor` pc
         LEFT JOIN `{project}.{dataset}.COD_pendientes_v1` cod 
             ON pc.tracking = cod.tracking_number
         LEFT JOIN `{project}.{dataset}.guias_liquidacion` gl 
             ON pc.tracking = gl.tracking_number
         WHERE pc.referencia_pago = @referencia_pago
-        ORDER BY pc.creado_en ASC
         """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
+
+        query_params = [
+            bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago)
+        ]
+
+        if correo:
+            query += " AND pc.correo = @correo"
+            query_params.append(bigquery.ScalarQueryParameter("correo", "STRING", correo))
+        if fecha_pago:
+            query += " AND pc.fecha_pago = @fecha_pago"
+            query_params.append(bigquery.ScalarQueryParameter("fecha_pago", "DATE", fecha_pago))
+        if hora_pago:
+            query += " AND pc.hora_pago = @hora_pago"
+            query_params.append(bigquery.ScalarQueryParameter("hora_pago", "TIME", hora_pago))
+        if valor is not None:
+            query += " AND pc.valor_total_consignacion = @valor"
+            query_params.append(bigquery.ScalarQueryParameter("valor", "FLOAT64", valor))
+
+        query += " ORDER BY pc.creado_en ASC"
         
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago)
-            ]
-        )
-        
+        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
         results = client.query(query, job_config=job_config).result()
         
         detalles = []
@@ -869,6 +894,8 @@ def obtener_detalles_pago(referencia_pago: str):
                 "tracking": row.tracking or "N/A",
                 "referencia": row.referencia_pago,
                 "valor": float(row.valor) if row.valor else 0.0,
+                "valor_guia": float(row.valor_guia) if row.valor_guia else 0.0,
+                "correo": row.correo or "N/A",
                 "cliente": row.cliente or "N/A",
                 "carrier": row.carrier or "N/A",
                 "tipo": row.tipo or "N/A",
@@ -876,7 +903,9 @@ def obtener_detalles_pago(referencia_pago: str):
                 "hora_pago": row.hora_pago or "N/A",
                 "estado": row.estado or "N/A",
                 "novedades": row.novedades or "",
-                "comprobante": row.comprobante or ""
+                "comprobante": row.comprobante or "",
+                "id_transaccion": row.Id_Transaccion or "N/A",
+                "valor_total_consignacion": float(row.valor) if row.valor else 0.0
             }
             detalles.append(detalle)
         
@@ -885,8 +914,6 @@ def obtener_detalles_pago(referencia_pago: str):
                 status_code=404,
                 detail=f"No se encontraron detalles para la referencia de pago: {referencia_pago}"
             )
-        
-    
         
         return {
             "detalles": detalles,
@@ -899,7 +926,113 @@ def obtener_detalles_pago(referencia_pago: str):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+
+@router.get("/detalles-pago-cruces/{referencia_pago}")
+def obtener_detalles_pago_cruces(
+    referencia_pago: str,
+    estado_conciliacion: str = Query(None, description="Filtrar por estado de conciliación (opcional)"),
+    fecha_pago: str = Query(None, description="Filtrar por fecha de pago (YYYY-MM-DD, opcional)"),
+    valor: float = Query(None, description="Filtrar por valor del pago (opcional)")
+):
+    """
+    Obtiene los datos generales de un pago y los trackings asociados.
+    """
+    try:
+        client = get_bigquery_client()
         
+        # Consulta para obtener los datos generales del pago (solo una fila)
+        query_pago = """
+        SELECT 
+            referencia_pago,
+            correo,
+            valor_total_consignacion,
+            cliente,
+            tipo,
+            fecha_pago,
+            hora_pago,
+            estado_conciliacion as estado,
+            novedades,
+            comprobante,
+            entidad
+        FROM `{project}.{dataset}.pagosconductor`
+        WHERE referencia_pago = @referencia_pago
+        AND estado_conciliacion = 'pendiente_conciliacion'
+        LIMIT 1
+        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
+
+        job_config_pago = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago)
+            ]
+        )
+        pago_result = client.query(query_pago, job_config=job_config_pago).result()
+        pago_row = next(pago_result, None)
+        if not pago_row:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No se encontró el pago con referencia: {referencia_pago}"
+            )
+
+        # Consulta para obtener los trackings asociados
+        query_trackings = """
+        SELECT 
+            tracking,
+            referencia,
+            valor,
+            cliente,
+            tipo,
+            estado_conciliacion as estado
+        FROM `{project}.{dataset}.pagosconductor`
+        WHERE referencia_pago = @referencia_pago
+        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
+
+        job_config_trackings = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago)
+            ]
+        )
+        trackings_result = client.query(query_trackings, job_config=job_config_trackings).result()
+        trackings = []
+        for row in trackings_result:
+            trackings.append({
+                "tracking": row.tracking,
+                "referencia": row.referencia,
+                "valor": float(row.valor) if row.valor else 0.0,
+                "cliente": row.cliente,
+                "tipo": row.tipo,
+                "estado": row.estado
+            })
+
+        # Estructura de respuesta: pago + lista de trackings
+        pago = {
+            "referencia_pago": pago_row.referencia_pago,
+            "correo": pago_row.correo,
+            "valor_total_consignacion": float(pago_row.valor_total_consignacion) if pago_row.valor_total_consignacion else 0.0,
+            "cliente": pago_row.cliente,
+            "tipo": pago_row.tipo,
+            "fecha_pago": pago_row.fecha_pago.isoformat() if pago_row.fecha_pago else None,
+            "hora_pago": pago_row.hora_pago,
+            "estado": pago_row.estado,
+            "novedades": pago_row.novedades,
+            "comprobante": pago_row.comprobante,
+            "entidad": pago_row.entidad,
+            "trackings": trackings
+        }
+
+        return {
+            "pago": pago,
+            "total_trackings": len(trackings),
+            "referencia_pago": referencia_pago,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Error interno del servidor: {str(e)}"
@@ -1036,7 +1169,8 @@ def obtener_pagos_pendientes_contabilidad(
             MAX(pc.novedades) as novedades,
             MAX(pc.creado_en) as fecha_creacion,
             MAX(pc.modificado_en) as fecha_modificacion,
-            MAX(COALESCE(cod.Carrier, gl.carrier, 'N/A')) as carrier
+            MAX(COALESCE(cod.Carrier, gl.carrier, 'N/A')) as carrier,
+            MAX(pc.Id_Transaccion) AS id_transaccion
         FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
         LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
             ON pc.tracking = cod.tracking_number
@@ -1086,7 +1220,9 @@ def obtener_pagos_pendientes_contabilidad(
                 "correo_conductor": str(row.get("correo_conductor", "")),
                 "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
                 "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
-                "carrier": str(row.get("carrier", "N/A"))
+                "carrier": str(row.get("carrier", "N/A")),
+                "id_transaccion": row.get("id_transaccion", None)
+
             })
 
         paginacion_info = {
