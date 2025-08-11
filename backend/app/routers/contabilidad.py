@@ -544,191 +544,296 @@ def test_datos_muestra(limite: int = Query(5, ge=1, le=20)) -> Dict[str, Any]:
 @router.get("/conciliacion-mensual")
 async def conciliacion_mensual(
     mes: str = Query(..., description="Mes en formato YYYY-MM")
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
     Devuelve el resumen diario de conciliación bancaria para un mes dado.
     SOLO usa datos reales de BigQuery - SIN simulaciones.
     """
     client = get_bigquery_client()
-    
     try:
-        # Parsear año y mes
+        # Validar mes
         try:
             year, month = map(int, mes.split("-"))
         except Exception:
             raise HTTPException(status_code=400, detail="Formato de mes inválido. Usa YYYY-MM")
 
-        # Verificar tablas disponibles
-        tablas_disponibles = await verificar_tablas_disponibles(client)
-        
-        # Determinar rango de fechas del mes
         from calendar import monthrange
-        
         dias_mes = monthrange(year, month)[1]
         fecha_inicio = f"{year}-{str(month).zfill(2)}-01"
         fecha_fin = f"{year}-{str(month).zfill(2)}-{str(dias_mes).zfill(2)}"
 
-        logger.info(f"Consultando conciliación para {mes}: {fecha_inicio} a {fecha_fin}")
+        fechas = [f"{year}-{str(month).zfill(2)}-{str(d).zfill(2)}" for d in range(1, dias_mes+1)]
+        dias_conciliacion = {fecha: {"fecha": fecha} for fecha in fechas}
 
-        # Intentar usar tabla de conciliación real primero
-        dias_conciliacion = []
-        
-        # OPCIÓN 1: Construir conciliación usando banco_movimientos y pagosconductor (SOLO DATOS REALES)
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio),
+                bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin),
+            ]
+        )
+
+        # SOPORTES MENSUALES
+        soportes_aprobados = 0
         try:
-            # Usar banco_movimientos para obtener los valores reales del banco - SIN ESTIMACIONES
-            query_conciliacion = f"""
-            WITH datos_soportes AS (
-                SELECT
-                    DATE(fecha_pago) as fecha,
-                    SUM(SAFE_CAST(valor AS FLOAT64)) as valor_soportes,
-                    COUNT(DISTINCT tracking) as guias_soportes,
-                    COUNT(*) as movimientos_soportes
+            query_soportes_aprobados = f"""
+                SELECT 
+                    COUNT(*) AS total
+                FROM ( 
+                SELECT referencia_pago, correo
                 FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
                 WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
                     AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
-                    AND valor IS NOT NULL
+                    AND correo IS NOT NULL AND referencia_pago IS NOT NULL
                     AND SAFE_CAST(valor AS FLOAT64) > 0
-                GROUP BY DATE(fecha_pago)
-            ),
-            datos_banco AS (
+                    AND (novedades IS NULL OR novedades = '')
+                GROUP BY referencia_pago, correo
+                )
+            """
+            row = next(client.query(query_soportes_aprobados, job_config=job_config).result())
+            soportes_aprobados = int(row["total"] or 0)
+        except Exception as exc:
+            logger.error(f"Error obteniendo soportes_aprobados: {exc}")
+            soportes_aprobados = 0
+
+
+        # VALOR TOTAL DE SOPORTES APROBADOS
+
+        valor_soportes_aprobados = 0
+        try:
+            query_valor_soportes_aprobados = f"""
+            SELECT
+                SUM(SAFE_CAST(valor_unico AS FLOAT64)) AS plata_soportes_aprobados
+            FROM ( 
                 SELECT
-                    DATE(fecha) as fecha,
-                    SUM(valor_banco) as valor_banco_real,
-                    COUNT(*) as movimientos_banco
-                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
-                WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
-                    AND valor_banco IS NOT NULL
-                    AND SAFE_CAST(valor_banco AS FLOAT64) > 0
-                GROUP BY DATE(fecha)
-            ),
-            guias_totales AS (
-                SELECT
-                    DATE(fecha) as fecha,
-                    COUNT(DISTINCT tracking) AS total_guias
-                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-                WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
-                GROUP BY DATE(fecha)
-            ),
-            comprobantes_conciliados AS (
-                SELECT
-                    DATE(fecha_pago) as fecha,
-                    COUNT(DISTINCT referencia_pago) as cantidad_soportes,
-                    SUM(SAFE_CAST(valor AS FLOAT64)) plata_comprobantes
-                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-                WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin 
-                    AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
-                GROUP BY DATE(fecha_pago)
-            ),
-            guias_pagadas AS (
-                SELECT
-                    DATE(fecha_pago) as fecha,
-                    COUNT(DISTINCT tracking) as guias_pagadas
+                   COALESCE(MAX(valor_total_consignacion), SUM(valor)) AS valor_unico
+                FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+                WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
+                    AND estado_conciliacion IN ('conciliado_automatico', 'conciliado_manual')
+                    AND referencia_pago IS NOT NULL AND correo IS NOT NULL
+                    AND SAFE_CAST(valor AS FLOAT64) > 0
+                GROUP BY referencia_pago, correo
+            )
+            """
+            row = next(client.query(query_valor_soportes_aprobados, job_config=job_config).result())
+            valor_soportes_aprobados = float(row["plata_soportes_aprobados"] or 0)
+        except Exception as exc:
+            logger.error(f"Error obteniendo soportes_aprobados: {exc}")
+            valor_soportes_aprobados = 0
+
+
+
+        
+        # Utilidad para ejecutar una consulta y llenar resultados por fecha
+        def ejecutar_y_cargar(query, campo_nombre, cast_func=int):
+            try:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(lambda: list(client.query(query, job_config=job_config).result()))
+                    rows = future.result(timeout=180)  # 180 segundos de timeout
+                for row in rows:
+                    fecha = str(row["fecha"])
+                    valor = row.get("valor") if "valor" in row else row.get(campo_nombre)
+                    if valor is None:
+                        valor = 0
+                    dias_conciliacion[fecha][campo_nombre] = cast_func(valor)
+            except Exception as exc:
+                logger.error(f"Error en ejecutar_y_cargar para campo {campo_nombre}: {exc}")
+                # No lanzar, solo loguear
+
+# ------------------------------------Resumenes Diarios  ------------------------------------------------------
+
+        # 1. Plata del banco y total consignaciones
+        ejecutar_y_cargar(
+            f"""
+            SELECT 
+                DATE(fecha) AS fecha, 
+                SUM(valor_banco) AS plata_banco
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
+            WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
+              AND valor_banco IS NOT NULL 
+              AND SAFE_CAST(valor_banco AS FLOAT64) > 0
+            GROUP BY fecha
+            """, "plata_banco", int)
+        ejecutar_y_cargar(
+            f"""
+            SELECT
+                DATE(fecha) AS fecha, 
+                COUNT(*) AS total_consignaciones_banco
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
+            WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
+              AND valor_banco IS NOT NULL 
+              AND SAFE_CAST(valor_banco AS FLOAT64) > 0
+            GROUP BY fecha
+            """, "total_consignaciones_banco")
+          
+        # 2. Plata soportes
+        ejecutar_y_cargar(
+            f"""
+            SELECT 
+                fecha,
+                SUM(valor_unico) AS plata_soportes
+            FROM (
+                SELECT 
+                    DATE(fecha_pago) AS fecha,
+                    referencia_pago,
+                    correo,
+                    COALESCE(MAX(valor_total_consignacion), SUM(SAFE_CAST(valor AS FLOAT64))) AS valor_unico
                 FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
                 WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
-                    AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
-                GROUP BY DATE(fecha_pago)
-            ),
-            plata_banco AS (
-                SELECT
-                    DATE(fecha) as fecha,
-                    SUM(valor_banco) as plata_mov_banco
-                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
-                WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
-                    AND valor_banco IS NOT NULL
-                    AND SAFE_CAST(valor_banco AS FLOAT64) > 0
-                GROUP BY DATE(fecha)
+                AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
+                AND valor IS NOT NULL AND SAFE_CAST(valor AS FLOAT64) > 0
+                AND referencia_pago IS NOT NULL AND correo IS NOT NULL
+                AND (novedades IS NULL OR novedades = '')
+                GROUP BY fecha, referencia_pago, correo
             )
-            SELECT
-                COALESCE(ds.fecha, db.fecha) as fecha,
-                COALESCE(ds.valor_soportes, 0) as soportes,
-                COALESCE(db.valor_banco_real, 0) as banco,  -- SOLO datos reales, no estimaciones
-                COALESCE(ds.valor_soportes, 0) - COALESCE(db.valor_banco_real, 0) as diferencia,
-                COALESCE(ds.guias_soportes, 0) as guias,
-                COALESCE(plata_banco.plata_mov_banco, 0) as plata_banco,
-                COALESCE(gt.total_guias, 0) as guias_totales,
-                COALESCE(cc.cantidad_soportes, 0)  as cantidad_soportes,
-                COALESCE(cc.plata_comprobantes, 0) as plata_comprobantes,
-                COALESCE(guias_pagadas.guias_pagadas, 0) as guias_pagadas,
-                COALESCE(db.movimientos_banco, 0) as movimientos,
-                COALESCE(ds.movimientos_soportes, 0) as movimientos_soportes,
-                
-                CASE
-                    WHEN COALESCE(ds.valor_soportes, 0) = 0 AND COALESCE(db.valor_banco_real, 0) = 0 THEN 0
-                    WHEN COALESCE(ds.valor_soportes, 0) = 0 THEN 0
-                    ELSE ROUND(100 * (1 - ABS(COALESCE(ds.valor_soportes, 0) - COALESCE(db.valor_banco_real, 0)) / GREATEST(COALESCE(ds.valor_soportes, 0), 1)), 1)
-                END as avance
-            FROM datos_soportes ds
-            FULL OUTER JOIN datos_banco db ON ds.fecha = db.fecha
-            FULL OUTER JOIN guias_totales gt ON COALESCE(ds.fecha, db.fecha) = gt.fecha
-            FULL OUTER JOIN plata_banco ON COALESCE(ds.fecha, db.fecha) = plata_banco.fecha
-            FULL OUTER JOIN guias_pagadas ON COALESCE(ds.fecha, db.fecha) = guias_pagadas.fecha
-            FULL OUTER JOIN comprobantes_conciliados cc ON COALESCE(ds.fecha, db.fecha) = cc.fecha
-            WHERE COALESCE(ds.fecha, db.fecha) IS NOT NULL
-            ORDER BY COALESCE(ds.fecha, db.fecha)
-            """
-            
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio),
-                    bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin),
-                ]
-            )
+            GROUP BY fecha
+            """, "plata_soportes", float)
 
-            result = client.query(query_conciliacion, job_config=job_config)
-            
-            # Timeout manual
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(lambda: list(result.result()))
-                rows = future.result(timeout=30)
-                
-            for row in rows:
-                dias_conciliacion.append({
-                    "fecha": str(row.fecha),
-                    "plata_banco": float(row.plata_banco) if row.plata_banco is not None else 0.0,
-                    "soportes": int(row.soportes) if row.soportes else 0,
-                    "banco": int(row.banco) if row.banco else 0,
-                    "diferencia": int(row.diferencia) if row.diferencia else 0,
-                    "guias": int(row.guias) if row.guias else 0,
-                    "plata_comprobantes": float(row.plata_comprobantes) if row.plata_comprobantes is not None else 0.0,
-                    "guias_totales": int(row.guias_totales) if row.guias_totales else 0,
-                    "movimientos": int(row.movimientos) if row.movimientos else 0,
-                    "guias_pagadas": int(row.guias_pagadas) if row.guias_pagadas else 0,
-                    "cantidad_soportes": int(row.cantidad_soportes) if row.cantidad_soportes else 0,
-                    "movimientos_soportes": int(row.movimientos_soportes) if row.movimientos_soportes else 0,
-                    "avance": float(row.avance) if row.avance is not None else 0.0,
-                    
+        # 3. Soportes conciliados
+        ejecutar_y_cargar(
+            f"""
+            SELECT DATE(fecha_pago) AS fecha, COUNT(DISTINCT referencia_pago) AS soportes_conciliados
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
+                AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
+                AND referencia_pago IS NOT NULL
+                AND correo IS NOT NULL
+                AND SAFE_CAST(valor AS FLOAT64) > 0
+                AND (novedades IS NULL OR novedades = '')
+            GROUP BY fecha
+            """, "soportes_conciliados"
+        )
+
+        # 4. Guías pagadas
+        ejecutar_y_cargar(
+            f"""
+            SELECT DATE(fecha) AS fecha, COUNT(*) AS guias_pagadas
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
+              AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
+              AND estado_conciliacion IS NOT NULL
+              AND referencia_pago IS NOT NULL 
+              AND correo IS NOT NULL
+              AND valor IS NOT NULL
+              AND valor IS NOT NULL AND SAFE_CAST(valor AS FLOAT64) > 0
+              
+            GROUP BY fecha
+            """, "guias_pagadas")
+
+        # 5. Guías totales
+        ejecutar_y_cargar(
+            f"""
+            SELECT DATE(fecha) AS fecha, COUNT(*) AS guias_totales
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            WHERE DATE(fecha) BETWEEN @fecha_inicio AND @fecha_fin
+              AND valor IS NOT NULL AND SAFE_CAST(valor AS FLOAT64) > 0
+            GROUP BY fecha
+            """, "guias_totales")
+
+        # Calcular campos derivados: diferencia y avance
+        # Las variables ya están inicializadas antes del bucle, no duplicar
+
+        resultado_dias = []
+        # Totales mensuales
+        total_plata_banco = 0.0
+        total_soportes_conciliados = 0
+        total_consignaciones_banco = 0
+        total_diferencia = 0.0
+        total_guias_totales = 0
+        total_plata_soportes = 0.0
+        total_guias_pagadas = 0
+
+        # Calcular totales mensuales independientes
+        total_plata_banco = 0.0
+        total_soportes_conciliados = 0
+        total_consignaciones_banco = 0
+        total_diferencia = 0.0
+        total_guias_totales = 0
+        total_plata_soportes = 0.0
+        total_guias_pagadas = 0
+        resultado_dias = []
+
+        for dia in fechas:
+            try:
+                d = dias_conciliacion[dia]
+                pb = d.get("plata_banco", 0.0)
+                ps = d.get("plata_soportes", 0.0)
+                soportes_conciliados = d.get("soportes_conciliados", 0)
+                total_consignaciones = d.get("total_consignaciones_banco", 0)
+                guias_totales = d.get("guias_totales", 0)
+                guias_pagadas = d.get("guias_pagadas", 0)
+                diferencia = ps - pb
+                if ps == 0 and pb == 0:
+                    avance = 0.0
+                elif ps == 0:
+                    avance = 0.0
+                else:
+                    avance = round(100 * (1 - abs(ps - pb) / max(ps, 1)), 1)
+
+                resultado_dias.append({
+                    "fecha": dia,
+                    "plata_banco": pb,
+                    "soportes_conciliados": soportes_conciliados,
+                    "total_consignaciones_banco": total_consignaciones,
+                    "diferencia": int(diferencia),
+                    "guias_totales": guias_totales,
+                    "plata_soportes": ps,
+                    "guias_pagadas": guias_pagadas,
+                    "avance": avance,
                 })
-                
-            if dias_conciliacion:
-                logger.info(f"✅ Datos de conciliación obtenidos usando banco_movimientos: {len(dias_conciliacion)} días")
-                return dias_conciliacion
-            else:
-                logger.info("⚠️ No se encontraron datos en banco_movimientos para el período solicitado")
-                return []  # Retornar array vacío si no hay datos reales
-                
-        except Exception as e:
-            logger.warning(f"Error consultando con banco_movimientos: {e}")
-            logger.info("⚠️ No se pudieron obtener datos de banco_movimientos")
-            return []  # Retornar array vacío en caso de error
 
-        # NOTA: Se han deshabilitado las opciones de fallback con estimaciones
-        # para garantizar que solo se muestren datos reales de banco_movimientos
-        logger.info("📊 No hay datos disponibles en banco_movimientos para este período")
-        return []
+                # Acumular totales mensuales independientes
+                total_plata_banco += pb
+                total_soportes_conciliados += soportes_conciliados
+                total_consignaciones_banco += total_consignaciones
+                total_diferencia += diferencia
+                total_guias_totales += guias_totales
+                total_plata_soportes += ps
+                total_guias_pagadas += guias_pagadas
+            except Exception as exc:
+                logger.error(f"Error procesando día {dia}: {exc}")
+                resultado_dias.append({
+                    "fecha": dia,
+                    "plata_banco": 0.0,
+                    "soportes_conciliados": 0,
+                    "total_consignaciones_banco": 0,
+                    "diferencia": 0,
+                    "guias_totales": 0,
+                    "plata_soportes": 0.0,
+                    "guias_pagadas": 0,
+                    "avance": 0.0,
+                })
+
+        # Calcular avance mensual
+        avance_mensual = 0.0
+        if total_plata_soportes > 0:
+            avance_mensual = round(100 * (1 - abs(total_plata_soportes - total_plata_banco) / max(total_plata_soportes, 1)), 1)
+
+        # Estructura de respuesta
+        respuesta = {
+            "totales_mensuales": {
+                "plata_banco": total_plata_banco,
+                "soportes_conciliados": total_soportes_conciliados,
+                "total_consignaciones_banco": total_consignaciones_banco,
+                "diferencia": int(total_diferencia),
+                "guias_totales": total_guias_totales,
+                "plata_soportes": total_plata_soportes,
+                "guias_pagadas": total_guias_pagadas,
+                "avance": avance_mensual,
+                "valor_soportes_mensuales": valor_soportes_aprobados,  # <-- Nuevo campo independiente
+                "soportes_mensuales": soportes_aprobados  # <-- Nuevo campo independiente
+            },
+            "dias": resultado_dias
+        }
+
+        logger.info(f"✅ Conciliación mensual obtenida con totales y días: {len(resultado_dias)} días")
+        return respuesta
+
     except HTTPException:
         raise
-    except concurrent.futures.TimeoutError:
-        logger.error("Timeout en consulta de conciliación mensual")
-        raise HTTPException(
-            status_code=504, 
-            detail="La consulta de conciliación tardó demasiado tiempo. Intente nuevamente."
-        )
     except Exception as e:
         logger.error(f"Error en conciliacion_mensual: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Error interno al consultar conciliación mensual: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
+
 
 @router.get("/estructura-tablas")
 async def obtener_estructura_tablas() -> Dict[str, Any]:
