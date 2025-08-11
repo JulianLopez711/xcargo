@@ -166,26 +166,6 @@ def main():
         print("Datos encontrados:")
         print(resultado.to_string())
     
-    # Ejemplo 2: Lista de IDs para consultar
-    print("\n=== EJEMPLO 2: Consultar múltiples IDs ===")
-    ids_para_consultar = [
-        "BANCO_20250701_99_179649",
-        "BANCO_20250702_99_179650",  # Ejemplo - puede que no exista
-        "BANCO_20250703_99_179651"   # Ejemplo - puede que no exista
-    ]
-    
-    df_resultados = procesar_lista_ids(ids_para_consultar, accion="consultar")
-    
-    # Ejemplo 3: Eliminar IDs (modo simulación)
-    print("\n=== EJEMPLO 3: Eliminar IDs (SIMULACIÓN) ===")
-    ids_para_eliminar = [
-        "BANCO_20250701_99_179649"
-    ]
-    
-    procesar_lista_ids(ids_para_eliminar, accion="eliminar", confirmar_eliminacion=False)
-    
-    # Descomenta la siguiente línea para realizar eliminación real (¡CUIDADO!)
-    # procesar_lista_ids(ids_para_eliminar, accion="eliminar", confirmar_eliminacion=True)
 
 def examinar_tabla():
     """
@@ -334,7 +314,12 @@ def procesar_archivo_eliminacion(archivo_txt, confirmar=False):
     
     if not confirmar:
         print("⚠️  MODO SIMULACIÓN - No se eliminarán registros realmente")
-        print("💡 Para eliminación real, usar confirmar=True")
+        print("💡 Para eliminación real, usar uno de estos formatos:")
+        print("   python eliminaridbanco.py archivo.txt confirmar")
+        print("   python eliminaridbanco.py archivo.txt confirmar=true")
+        print("   python eliminaridbanco.py archivo.txt true")
+        print("   python eliminaridbanco.py archivo.txt yes")
+        print("   python eliminaridbanco.py archivo.txt si")
     else:
         print("🚨 MODO ELIMINACIÓN REAL - Los registros serán eliminados permanentemente")
         
@@ -355,11 +340,22 @@ if __name__ == "__main__":
     # Verificar si se pasó un archivo como argumento
     if len(sys.argv) > 1:
         archivo_txt = sys.argv[1]
-        confirmar_real = len(sys.argv) > 2 and sys.argv[2].lower() == "confirmar"
+        
+        # Verificar confirmación de manera más flexible
+        confirmar_real = False
+        if len(sys.argv) > 2:
+            segundo_arg = sys.argv[2].lower()
+            # Aceptar varios formatos: confirmar, confirmar=true, true, yes, si
+            confirmar_real = segundo_arg in ["confirmar", "confirmar=true", "true", "yes", "si"]
         
         print("🚀 MODO PROCESAMIENTO DE ARCHIVO")
         print("=" * 50)
-        procesar_archivo_eliminacion(archivo_txt, confirmar=confirmar_real)
+        if confirmar_real:
+            print("🚨 MODO ELIMINACIÓN REAL DETECTADO")
+        else:
+            print("⚠️  MODO SIMULACIÓN DETECTADO")
+        print("=" * 50)
+        procesar_archivo_eliminacion(archivo_txt, confirmar_real)
     else:
         try:
             # Ejemplos normales
@@ -378,8 +374,12 @@ if __name__ == "__main__":
             print("💡 INSTRUCCIONES DE USO:")
             print("Para procesar un archivo .txt con IDs:")
             print("   python eliminaridbanco.py mi_archivo.txt")
-            print("Para eliminación real:")
+            print("Para eliminación real (formatos aceptados):")
             print("   python eliminaridbanco.py mi_archivo.txt confirmar")
+            print("   python eliminaridbanco.py mi_archivo.txt confirmar=true")
+            print("   python eliminaridbanco.py mi_archivo.txt true")
+            print("   python eliminaridbanco.py mi_archivo.txt yes")
+            print("   python eliminaridbanco.py mi_archivo.txt si")
             print("\nFormato del archivo .txt:")
             print("   'BANCO_20250701_896_177777',")
             print("   'BANCO_20250701_89_176430',")
