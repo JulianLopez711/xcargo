@@ -264,7 +264,7 @@ def analizar_archivo_detallado(decoded: str, filename: str) -> Dict:
     print(f"  ❌ Errores de parsing: {len(analisis['errores_parsing'])}")
     print(f"  📝 Líneas vacías: {analisis['lineas_vacias']}")
     print(f"  📏 Líneas muy cortas: {analisis['lineas_muy_cortas']}")
-    print(f"  🔗 Separadores detectados: {dict(analisis['separadores_detectadas'])}")
+    print(f"  🔗 Separadores detectados: {dict(analisis['separadores_detectados'])}")
     print(f"  💰 Tipos de transacción: {dict(analisis['tipos_transaccion'])}")
     
     return analisis
