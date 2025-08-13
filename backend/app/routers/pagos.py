@@ -923,7 +923,7 @@ def obtener_detalles_pago(
         if isinstance(id_transaccion_final, str) and id_transaccion_final.lower() == "null":
             id_transaccion_final = None
 
-        # Si id_transaccion es None, traer solo las guías de esa referencia que no tienen Id_Transaccion (faltantes)
+        # Si id_transaccion es None, traer TODAS las guías de esa referencia (con y sin Id_Transaccion)
         if id_transaccion_final is None:
             query = f"""
             SELECT 
@@ -946,7 +946,6 @@ def obtener_detalles_pago(
             LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
                 ON pc.tracking = gl.tracking_number
             WHERE pc.referencia_pago = @referencia_pago
-              AND pc.Id_Transaccion IS NULL
             """
             query_params = [
                 bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago)
@@ -1058,6 +1057,11 @@ def obtener_pagos_pendientes_contabilidad(
     limit: int = Query(20, ge=1, le=100, description="Número de registros por página"),
     offset: int = Query(0, ge=0, description="Número de registros a omitir"),
     referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
+    tracking: Optional[str] = Query(None, description="Filtrar por tracking number"),
+    carrier: Optional[str] = Query(None, description="Filtrar por carrier"),
+    cliente: Optional[str] = Query(None, description="Filtrar por cliente"),
+    tipo: Optional[str] = Query(None, description="Filtrar por tipo de pago"),
+    id_transaccion: Optional[str] = Query(None, description="Filtrar por ID de transacción"),
     estado: Optional[List[str]] = Query(None, description="Filtrar por uno o varios estados de conciliación"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
@@ -1087,9 +1091,9 @@ def obtener_pagos_pendientes_contabilidad(
             )
 
         if estado:
-            estados_limpios = [e.strip() for e in estado if e and e.strip()]
+            estados_limpios = [e.strip().lower() for e in estado if e and e.strip()]
             if len(estados_limpios) == 1:
-                condiciones.append("estado_conciliacion = @estado_filtro")
+                condiciones.append("LOWER(estado_conciliacion) = @estado_filtro")
                 parametros.append(
                     bigquery.ScalarQueryParameter("estado_filtro", "STRING", estados_limpios[0])
                 )
@@ -1101,7 +1105,7 @@ def obtener_pagos_pendientes_contabilidad(
                     parametros.append(
                         bigquery.ScalarQueryParameter(param_name, "STRING", est)
                     )
-                condiciones.append(f"estado_conciliacion IN ({', '.join(in_params)})")
+                condiciones.append(f"LOWER(estado_conciliacion) IN ({', '.join(in_params)})")
         elif not (referencia and referencia.strip()):
             condiciones.append("estado_conciliacion = 'pendiente_conciliacion'")
 
@@ -1124,6 +1128,41 @@ def obtener_pagos_pendientes_contabilidad(
                 )
             except ValueError:
                 raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido (YYYY-MM-DD)")
+
+        # Filtros adicionales
+        if tracking and tracking.strip():
+            condiciones.append("pc.tracking LIKE @tracking_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("tracking_filtro", "STRING", f"%{tracking.strip()}%")
+            )
+
+        if carrier and carrier.strip():
+            condiciones.append("(COALESCE(cod.Carrier, gl.carrier, '') LIKE @carrier_filtro)")
+            parametros.append(
+                bigquery.ScalarQueryParameter("carrier_filtro", "STRING", f"%{carrier.strip()}%")
+            )
+
+        if cliente and cliente.strip():
+            condiciones.append("(COALESCE(cod.Cliente, gl.cliente, '') LIKE @cliente_filtro)")
+            parametros.append(
+                bigquery.ScalarQueryParameter("cliente_filtro", "STRING", f"%{cliente.strip()}%")
+            )
+
+        if tipo and tipo.strip():
+            condiciones.append("pc.tipo LIKE @tipo_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("tipo_filtro", "STRING", f"%{tipo.strip()}%")
+            )
+
+        if id_transaccion and id_transaccion.strip():
+            try:
+                id_trans_int = int(id_transaccion.strip())
+                condiciones.append("pc.Id_Transaccion = @id_transaccion_filtro")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("id_transaccion_filtro", "INTEGER", id_trans_int)
+                )
+            except ValueError:
+                raise HTTPException(status_code=400, detail="ID de transacción debe ser un número válido")
 
         where_clause = "WHERE " + " AND ".join(condiciones)
 
@@ -1260,6 +1299,157 @@ def obtener_pagos_pendientes_contabilidad(
                 "status": "error",
                 "timestamp": datetime.now().isoformat()
             }
+        )
+
+@router.get("/estadisticas-pendientes-contabilidad")
+def obtener_estadisticas_pendientes_contabilidad(
+    referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
+    estado: Optional[List[str]] = Query(None, description="Filtrar por uno o varios estados de conciliación"),
+    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    tracking: Optional[str] = Query(None, description="Filtrar por tracking"),
+    carrier: Optional[str] = Query(None, description="Filtrar por carrier"),
+    cliente: Optional[str] = Query(None, description="Filtrar por cliente"),
+    tipo: Optional[str] = Query(None, description="Filtrar por tipo"),
+    id_transaccion: Optional[str] = Query(None, description="Filtrar por ID de transacción")
+):
+    """
+    Obtiene estadísticas globales de pagos pendientes de contabilidad sin paginación
+    """
+    try:
+        client = get_bigquery_client()
+
+        FECHA_MINIMA = "2025-06-09"
+        logger.info(f"🗓️ [ESTADÍSTICAS] Filtro automático aplicado: >= {FECHA_MINIMA}")
+
+        condiciones = ["1=1"]
+        parametros = []
+
+        condiciones.append("pc.fecha_pago >= @fecha_minima_auto")
+        parametros.append(
+            bigquery.ScalarQueryParameter("fecha_minima_auto", "DATE", FECHA_MINIMA)
+        )
+
+        if referencia and referencia.strip():
+            condiciones.append("referencia_pago LIKE @referencia_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
+            )
+
+        if tracking and tracking.strip():
+            condiciones.append("pc.tracking LIKE @tracking_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("tracking_filtro", "STRING", f"%{tracking.strip()}%")
+            )
+
+        if carrier and carrier.strip():
+            condiciones.append("(COALESCE(cp.Carrier, gl.carrier, 'N/A') LIKE @carrier_filtro)")
+            parametros.append(
+                bigquery.ScalarQueryParameter("carrier_filtro", "STRING", f"%{carrier.strip()}%")
+            )
+
+        if cliente and cliente.strip():
+            condiciones.append("(COALESCE(cp.Cliente, gl.client, pc.correo) LIKE @cliente_filtro)")
+            parametros.append(
+                bigquery.ScalarQueryParameter("cliente_filtro", "STRING", f"%{cliente.strip()}%")
+            )
+
+        if tipo and tipo.strip():
+            condiciones.append("pc.tipo LIKE @tipo_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("tipo_filtro", "STRING", f"%{tipo.strip()}%")
+            )
+
+        if fecha_desde:
+            try:
+                datetime.strptime(fecha_desde, "%Y-%m-%d")
+                condiciones.append("pc.fecha_pago >= @fecha_desde")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("fecha_desde", "DATE", fecha_desde)
+                )
+            except ValueError:
+                pass
+
+        if fecha_hasta:
+            try:
+                datetime.strptime(fecha_hasta, "%Y-%m-%d")
+                condiciones.append("pc.fecha_pago <= @fecha_hasta")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("fecha_hasta", "DATE", fecha_hasta)
+                )
+            except ValueError:
+                pass
+
+        if id_transaccion and id_transaccion.strip():
+            try:
+                id_trans_int = int(id_transaccion.strip())
+                condiciones.append("pc.Id_Transaccion = @id_transaccion_filtro")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("id_transaccion_filtro", "INTEGER", id_trans_int)
+                )
+            except ValueError:
+                pass  # En estadísticas, ignoramos el error silenciosamente
+
+        if estado and len(estado) > 0:
+            placeholders = []
+            for i, e in enumerate(estado):
+                param_name = f"estado_{i}"
+                placeholders.append(f"@{param_name}")
+                parametros.append(
+                    bigquery.ScalarQueryParameter(param_name, "STRING", e.strip().lower())
+                )
+            condiciones.append(f"LOWER(pc.estado_conciliacion) IN ({', '.join(placeholders)})")
+
+        condiciones_sql = " AND ".join(condiciones)
+
+        # Query para estadísticas (COUNT, SUM)
+        estadisticas_query = f"""
+        SELECT 
+            COUNT(DISTINCT pc.referencia_pago) as total_registros,
+            ROUND(SUM(CAST(pc.valor AS FLOAT64)), 2) as total_valor,
+            ROUND(SUM(CASE 
+                WHEN pc.estado_conciliacion IN ('pendiente_conciliacion', 'conciliado_automatico') 
+                THEN COALESCE(CAST(cp.Valor AS FLOAT64), 0.0)
+                ELSE COALESCE(CAST(gl.valor_guia AS FLOAT64), 0.0)
+            END), 2) as total_valor_tn,
+            ROUND(SUM(CAST(pc.valor AS FLOAT64)) - SUM(CASE 
+                WHEN pc.estado_conciliacion IN ('pendiente_conciliacion', 'conciliado_automatico') 
+                THEN COALESCE(CAST(cp.Valor AS FLOAT64), 0.0)
+                ELSE COALESCE(CAST(gl.valor_guia AS FLOAT64), 0.0)
+            END), 2) as total_saldo
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cp 
+            ON pc.tracking = cp.tracking_number
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+            ON pc.tracking = gl.tracking_number
+        WHERE {condiciones_sql}
+        """
+
+        job_config = bigquery.QueryJobConfig(query_parameters=parametros)
+        query_job = client.query(estadisticas_query, job_config=job_config)
+        resultados = list(query_job.result())
+
+        if resultados:
+            estadisticas = resultados[0]
+            return {
+                "total_registros": estadisticas.total_registros or 0,
+                "total_valor": estadisticas.total_valor or 0.0,
+                "total_valor_tn": estadisticas.total_valor_tn or 0.0,
+                "total_saldo": estadisticas.total_saldo or 0.0
+            }
+        else:
+            return {
+                "total_registros": 0,
+                "total_valor": 0.0,
+                "total_valor_tn": 0.0,
+                "total_saldo": 0.0
+            }
+
+    except Exception as e:
+        logger.error("❌ Error en /estadisticas-pendientes-contabilidad:\n%s", traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor: {str(e)}"
         )
 
 @router.post("/aprobar-pago")
@@ -1676,9 +1866,14 @@ async def obtener_historial_pagos(
 @router.get("/exportar-pendientes-contabilidad")
 def exportar_todos_pagos_pendientes_contabilidad(
     referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
-    estado: Optional[str] = Query(None, description="Filtrar por estado de conciliación"),
+    estado: Optional[List[str]] = Query(None, description="Filtrar por uno o varios estados de conciliación"),
     fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
-    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)")
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    tracking: Optional[str] = Query(None, description="Filtrar por tracking"),
+    carrier: Optional[str] = Query(None, description="Filtrar por carrier"),
+    cliente: Optional[str] = Query(None, description="Filtrar por cliente"),
+    tipo: Optional[str] = Query(None, description="Filtrar por tipo"),
+    id_transaccion: Optional[str] = Query(None, description="Filtrar por ID de transacción")
 ):
     """
     Exporta TODOS los pagos pendientes de contabilidad que coincidan con los filtros (sin paginación)
@@ -1707,22 +1902,31 @@ def exportar_todos_pagos_pendientes_contabilidad(
             parametros.append(
                 bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
             )
-        
-        # Filtro por estado
-        if estado and estado.strip():
-            condiciones.append("pc.estado_conciliacion = @estado_filtro")
+
+        if tracking and tracking.strip():
+            condiciones.append("pc.tracking LIKE @tracking_filtro")
             parametros.append(
-                bigquery.ScalarQueryParameter("estado_filtro", "STRING", estado.strip())
+                bigquery.ScalarQueryParameter("tracking_filtro", "STRING", f"%{tracking.strip()}%")
             )
-        else:
-            # Solo filtrar por pendiente_conciliacion si NO se está buscando por referencia específica
-            # Si se busca por referencia, mostrar todos los estados para esa referencia
-            if not (referencia and referencia.strip()):
-                condiciones.append("pc.estado_conciliacion = 'pendiente_conciliacion'")
-            # Si hay referencia pero no estado, mostrar esa referencia en cualquier estado
-            # Si hay referencia pero no estado, mostrar esa referencia en cualquier estado
-        
-        # Filtro por fecha desde
+
+        if carrier and carrier.strip():
+            condiciones.append("(COALESCE(cp.Carrier, gl.carrier, 'N/A') LIKE @carrier_filtro)")
+            parametros.append(
+                bigquery.ScalarQueryParameter("carrier_filtro", "STRING", f"%{carrier.strip()}%")
+            )
+
+        if cliente and cliente.strip():
+            condiciones.append("(COALESCE(cp.Cliente, gl.client, pc.correo) LIKE @cliente_filtro)")
+            parametros.append(
+                bigquery.ScalarQueryParameter("cliente_filtro", "STRING", f"%{cliente.strip()}%")
+            )
+
+        if tipo and tipo.strip():
+            condiciones.append("pc.tipo LIKE @tipo_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("tipo_filtro", "STRING", f"%{tipo.strip()}%")
+            )
+
         if fecha_desde:
             try:
                 datetime.strptime(fecha_desde, "%Y-%m-%d")
@@ -1732,8 +1936,7 @@ def exportar_todos_pagos_pendientes_contabilidad(
                 )
             except ValueError:
                 raise HTTPException(status_code=400, detail="Formato de fecha_desde inválido (YYYY-MM-DD)")
-        
-        # Filtro por fecha hasta
+
         if fecha_hasta:
             try:
                 datetime.strptime(fecha_hasta, "%Y-%m-%d")
@@ -1743,6 +1946,37 @@ def exportar_todos_pagos_pendientes_contabilidad(
                 )
             except ValueError:
                 raise HTTPException(status_code=400, detail="Formato de fecha_hasta inválido (YYYY-MM-DD)")
+
+        if id_transaccion and id_transaccion.strip():
+            try:
+                id_trans_int = int(id_transaccion.strip())
+                condiciones.append("pc.Id_Transaccion = @id_transaccion_filtro")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("id_transaccion_filtro", "INTEGER", id_trans_int)
+                )
+            except ValueError:
+                raise HTTPException(status_code=400, detail="ID de transacción debe ser un número válido")
+
+        if estado and len(estado) > 0:
+            placeholders = []
+            for i, e in enumerate(estado):
+                param_name = f"estado_{i}"
+                placeholders.append(f"@{param_name}")
+                parametros.append(
+                    bigquery.ScalarQueryParameter(param_name, "STRING", e.strip().lower())
+                )
+            condiciones.append(f"LOWER(pc.estado_conciliacion) IN ({', '.join(placeholders)})")
+        else:
+            # Si no se especifican estados, usar todos los estados disponibles por defecto
+            estados_default = ['pendiente_conciliacion', 'conciliado_manual', 'conciliado_automatico', 'rechazado']
+            placeholders = []
+            for i, e in enumerate(estados_default):
+                param_name = f"estado_default_{i}"
+                placeholders.append(f"@{param_name}")
+                parametros.append(
+                    bigquery.ScalarQueryParameter(param_name, "STRING", e.lower())
+                )
+            condiciones.append(f"LOWER(pc.estado_conciliacion) IN ({', '.join(placeholders)})")
         
         where_clause = "WHERE " + " AND ".join(condiciones)
         
@@ -1762,8 +1996,13 @@ def exportar_todos_pagos_pendientes_contabilidad(
             MAX(pc.novedades) as novedades,
             MAX(pc.creado_en) as fecha_creacion,
             MAX(pc.modificado_en) as fecha_modificacion,
-            MAX(pc.hora_pago) as hora_pago
+            MAX(pc.hora_pago) as hora_pago,
+            MAX(pc.Id_Transaccion) as Id_Transaccion
         FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cp 
+            ON pc.tracking = cp.tracking_number
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+            ON pc.tracking = gl.tracking_number
         {where_clause}
         GROUP BY pc.referencia_pago, pc.correo
         ORDER BY MAX(pc.fecha_pago) DESC, MAX(pc.creado_en) DESC
@@ -1885,4 +2124,138 @@ def debug_verificar_referencia(referencia: str):
         raise HTTPException(
             status_code=500,
             detail=f"Error verificando referencia: {str(e)}"
+        )
+
+@router.get("/valores-tn-reales")
+def obtener_valores_tn_reales(
+    trackings: str = Query(..., description="Lista de trackings separados por coma"),
+    estado_conciliacion: str = Query(..., description="Estado de conciliación del pago")
+):
+    """
+    Obtiene los valores reales de TN desde COD_pendientes o guias_liquidacion según el estado
+    """
+    try:
+        client = get_bigquery_client()
+        
+        # Convertir string de trackings a lista
+        lista_trackings = [t.strip() for t in trackings.split(',') if t.strip()]
+        
+        if not lista_trackings:
+            raise HTTPException(status_code=400, detail="No se proporcionaron trackings válidos")
+        
+        # Crear placeholder para IN clause
+        trackings_placeholder = "', '".join(lista_trackings)
+        
+        valores_tn = {}
+        
+        if estado_conciliacion == 'pendiente_conciliacion':
+            # Buscar en COD_pendientes_v1
+            query = f"""
+            SELECT 
+                tracking_number as tracking,
+                Valor as valor_tn,
+                Cliente as cliente,
+                Carrier as carrier
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
+            WHERE tracking_number IN ('{trackings_placeholder}')
+            """
+            
+            logger.info(f"🔍 Buscando valores TN en COD_pendientes_v1 para trackings: {lista_trackings}")
+            
+        else:
+            # Buscar en guias_liquidacion para estados procesados
+            query = f"""
+            SELECT 
+                tracking_number as tracking,
+                valor_guia as valor_tn,
+                cliente,
+                carrier
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion`
+            WHERE tracking_number IN ('{trackings_placeholder}')
+            """
+            
+            logger.info(f"🔍 Buscando valores TN en guias_liquidacion para trackings: {lista_trackings}")
+        
+        results = client.query(query).result()
+        
+        # Procesar resultados
+        for row in results:
+            valores_tn[row.tracking] = {
+                "valor_tn": float(row.valor_tn) if row.valor_tn else 0.0,
+                "cliente": row.cliente if hasattr(row, 'cliente') and row.cliente else "Cliente General",
+                "carrier": row.carrier if hasattr(row, 'carrier') and row.carrier else "N/A",
+                "fuente": "COD_pendientes_v1" if estado_conciliacion == 'pendiente_conciliacion' else "guias_liquidacion"
+            }
+        
+        # Para trackings no encontrados, buscar en la otra tabla como fallback
+        trackings_no_encontrados = [t for t in lista_trackings if t not in valores_tn]
+        
+        if trackings_no_encontrados:
+            logger.info(f"🔄 Buscando trackings faltantes en tabla alternativa: {trackings_no_encontrados}")
+            
+            trackings_fallback_placeholder = "', '".join(trackings_no_encontrados)
+            
+            if estado_conciliacion == 'pendiente_conciliacion':
+                # Buscar en guias_liquidacion como fallback
+                query_fallback = f"""
+                SELECT 
+                    tracking_number as tracking,
+                    valor_guia as valor_tn,
+                    cliente,
+                    carrier
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion`
+                WHERE tracking_number IN ('{trackings_fallback_placeholder}')
+                """
+                fuente_fallback = "guias_liquidacion"
+            else:
+                # Buscar en COD_pendientes_v1 como fallback
+                query_fallback = f"""
+                SELECT 
+                    tracking_number as tracking,
+                    Valor as valor_tn,
+                    Cliente as cliente,
+                    Carrier as carrier
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
+                WHERE tracking_number IN ('{trackings_fallback_placeholder}')
+                """
+                fuente_fallback = "COD_pendientes_v1"
+            
+            results_fallback = client.query(query_fallback).result()
+            
+            for row in results_fallback:
+                if row.tracking not in valores_tn:  # Solo agregar si no existe
+                    valores_tn[row.tracking] = {
+                        "valor_tn": float(row.valor_tn) if row.valor_tn else 0.0,
+                        "cliente": row.cliente if hasattr(row, 'cliente') and row.cliente else "Cliente General",
+                        "carrier": row.carrier if hasattr(row, 'carrier') and row.carrier else "N/A",
+                        "fuente": fuente_fallback + "_fallback"
+                    }
+        
+        # Para trackings aún no encontrados, asignar valor 0
+        for tracking in lista_trackings:
+            if tracking not in valores_tn:
+                valores_tn[tracking] = {
+                    "valor_tn": 0.0,
+                    "cliente": "Cliente General",
+                    "carrier": "N/A",
+                    "fuente": "no_encontrado"
+                }
+        
+        logger.info(f"✅ Valores TN obtenidos: {len(valores_tn)} de {len(lista_trackings)} trackings")
+        
+        return {
+            "valores_tn": valores_tn,
+            "total_trackings": len(lista_trackings),
+            "encontrados": len([v for v in valores_tn.values() if v["fuente"] != "no_encontrado"]),
+            "estado_consultado": estado_conciliacion,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo valores TN reales: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo valores TN: {str(e)}"
         )
