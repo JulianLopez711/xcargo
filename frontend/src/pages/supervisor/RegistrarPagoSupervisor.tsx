@@ -221,7 +221,7 @@ export default function RegistrarPagoSupervisor() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
+      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -284,10 +284,16 @@ export default function RegistrarPagoSupervisor() {
   };
 
   // Agregar pago individual
+  // Agregar pago individual
   const agregarPago = () => {
     const campos = Object.entries(datosManuales);
     for (const [key, val] of campos) {
       if (typeof val !== "string" || val.trim() === "") {
+        // Mensaje específico para tipo de pago
+        if (key === "tipo") {
+          alert("Debes seleccionar un tipo de pago");
+          return;
+        }
         alert(`El campo "${key}" es obligatorio`);
         return;
       }
@@ -368,7 +374,7 @@ export default function RegistrarPagoSupervisor() {
       });
       formData.append("guias", JSON.stringify(guiasConPagos));
       // Endpoint
-      const endpoint = "https://api.x-cargo.co/pagos/registrar-conductor";
+      const endpoint = "http://127.0.0.1:8000/pagos/registrar-conductor";
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -653,6 +659,12 @@ export default function RegistrarPagoSupervisor() {
                     }
                     placeholder={placeholder}
                     required
+                    readOnly={key === "valor" && datosManuales.valor.trim() !== ""}
+                    style={key === "valor" && datosManuales.valor.trim() !== "" ? {
+                      backgroundColor: "#f3f4f6",
+                      cursor: "not-allowed",
+                      opacity: 0.7
+                    } : {}}
                   />
                 )}
               </div>
@@ -669,18 +681,21 @@ export default function RegistrarPagoSupervisor() {
           )}
 
           {/* Botón para agregar pago individual */}
+          {/* Botón para agregar pago individual */}
           <button
             type="button"
             className="boton-registrar"
             onClick={agregarPago}
-            disabled={!validacionPago?.valido || analizando}
+            disabled={!validacionPago?.valido || analizando || !datosManuales.tipo.trim()}
             style={{
-              backgroundColor: validacionPago?.valido ? "#3b82f6" : "#6b7280",
-              opacity: validacionPago?.valido && !analizando ? 1 : 0.6,
+              backgroundColor: (validacionPago?.valido && datosManuales.tipo.trim()) ? "#3b82f6" : "#6b7280",
+              opacity: (validacionPago?.valido && !analizando && datosManuales.tipo.trim()) ? 1 : 0.6,
               margin: "1rem 0"
             }}
           >
-            {validacionPago?.valido ? '✅ Agregar comprobante' : '❌ Comprobante inválido'}
+            {!datosManuales.tipo.trim() ? '❌ Selecciona tipo de pago' : 
+             !validacionPago?.valido ? '❌ Comprobante inválido' : 
+             '✅ Agregar comprobante'}
           </button>
         </form>
       </div>

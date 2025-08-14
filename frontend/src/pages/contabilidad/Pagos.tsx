@@ -10,6 +10,9 @@ function getToken(): string {
 
 interface Pago {
   referencia_pago: string;
+  referencia_pago_principal?: string;  // 🔥 NUEVO
+  num_referencias?: number;            // 🔥 NUEVO
+  es_grupo_transaccion?: boolean;      // 🔥 NUEVO  
   valor: number;
   fecha: string;
   entidad: string;
@@ -25,6 +28,11 @@ interface Pago {
   creado_en?: string;
   fecha_modificacion?: string;
   carrier?: string; // Agregado para mostrar el carrier
+  Id_Transaccion?: number;
+  id_banco_asociado?: string | null;
+  valor_banco_asociado?: number | null;
+  fecha_movimiento_banco?: string | null;
+  descripcion_banco?: string | null;
 }
 
 interface DetalleTracking {
@@ -40,6 +48,10 @@ interface DetalleTracking {
   novedades: string;
   comprobante: string;
   valor_guia: number;
+  valor_guia_cod?: number;
+  valor_guia_gl?: number; 
+  valor_total_consignacion_pc: number;
+
 }
 
 interface PaginacionInfo {
@@ -63,6 +75,7 @@ export default function PagosContabilidad() {
   const [filtroValor, setFiltroValor] = useState("");
   // Estado para el valor formateado visualmente
   const [filtroValorFormateado, setFiltroValorFormateado] = useState("");
+  const [filtroIdTransaccion, setFiltroIdTransaccion] = useState("");  // 🔥 NUEVO
   const [filtroCarrier, setFiltroCarrier] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -76,7 +89,13 @@ export default function PagosContabilidad() {
   const [modalVisible, setModalVisible] = useState(false);
   const [novedad, setNovedad] = useState("");
   const [refPagoSeleccionada, setRefPagoSeleccionada] = useState("");
+  
   const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
+  const [imagenesCarrusel, setImagenesCarrusel] = useState<string[]>([]);
+  const [indiceImagenActual, setIndiceImagenActual] = useState(0);
+  const [modalCarruselVisible, setModalCarruselVisible] = useState(false);
+
+
   const [detalleTracking, setDetalleTracking] = useState<DetalleTracking[] | null>(null);
   const [modalDetallesVisible, setModalDetallesVisible] = useState(false);
   const [procesando, setProcesando] = useState<string | null>(null);
@@ -88,6 +107,29 @@ export default function PagosContabilidad() {
     tiene_siguiente: false,
     tiene_anterior: false
   });
+
+    // Funciones para el carrusel
+  const siguienteImagen = () => {
+    setIndiceImagenActual((prevIndice) => 
+      (prevIndice + 1) % imagenesCarrusel.length
+    );
+  };
+
+  const anteriorImagen = () => {
+    setIndiceImagenActual((prevIndice) => 
+      prevIndice === 0 ? imagenesCarrusel.length - 1 : prevIndice - 1
+    );
+  };
+
+  const irAImagen = (indice: number) => {
+    setIndiceImagenActual(indice);
+  };
+
+  const cerrarCarrusel = () => {
+    setModalCarruselVisible(false);
+    setImagenesCarrusel([]);
+    setIndiceImagenActual(0);
+  };
 
   // Función para obtener pagos con paginación y filtros
   const obtenerPagos = async (pagina: number = paginaActual, aplicarFiltros: boolean = false) => {
@@ -108,6 +150,13 @@ export default function PagosContabilidad() {
           }
         if (filtroValor.trim()) {
           params.append('valor', filtroValor.trim());
+        }
+         // 🔥 NUEVO FILTRO: ID TRANSACCIÓN
+        if (filtroIdTransaccion.trim()) {
+          const idNumerico = parseInt(filtroIdTransaccion.trim());
+          if (!isNaN(idNumerico) && idNumerico > 0) {
+            params.append('id_transaccion', idNumerico.toString());
+          }
         }
         if (filtroReferencia.trim()) {
           params.append('referencia', filtroReferencia.trim());
@@ -137,7 +186,7 @@ export default function PagosContabilidad() {
         fechaHasta: fechaHasta ? formatearFechaParaServidor(fechaHasta) : 'No especificada'
       });
 
-      const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`http://127.0.0.1:8000/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -221,7 +270,8 @@ export default function PagosContabilidad() {
        fechaDesde !== "" || 
        fechaHasta !== "" || 
        filtroEstados.length > 0 ||
-       filtroValor.trim() !== "";
+       filtroValor.trim() !== "" ||
+       filtroIdTransaccion.trim() !== "";
   };
 
   // Estado para controlar si se aplicaron filtros
@@ -304,121 +354,228 @@ export default function PagosContabilidad() {
     saveAs(blob, `pagos-consolidados-pagina-${paginaActual}-${fechaHoy}.csv`);
   };
 
-  const descargarInformeCompleto = async () => {
-    if (procesando) {
-      alert("Ya hay una operación en curso, por favor espere");
+const descargarInformeCompleto = async () => {
+  if (procesando) {
+    alert("Ya hay una operación en curso, por favor espere");
+    return;
+  }
+
+  const confirmacion = confirm(
+    "¿Deseas descargar el informe completo con todos los registros que coincidan con los filtros actuales? Esto puede tomar varios minutos dependiendo de la cantidad de datos."
+  );
+
+  if (!confirmacion) return;
+
+  setProcesando("descarga_completa");
+
+  try {
+    // 🔥 CONSTRUIR PARÁMETROS CON TODOS LOS FILTROS APLICADOS
+    const params = new URLSearchParams();
+
+    // Aplicar TODOS los filtros activos
+    if (filtroReferencia.trim()) {
+      params.append('referencia', filtroReferencia.trim());
+    }
+    
+    // 🔥 AGREGAR FILTRO DE CARRIER
+    if (filtroCarrier.trim()) {
+      params.append('carrier', filtroCarrier.trim());
+    }
+    
+    // 🔥 AGREGAR FILTRO DE VALOR
+    if (filtroValor.trim()) {
+      params.append('valor', filtroValor.trim());
+    }
+    
+    // 🔥 AGREGAR FILTRO DE ID_TRANSACCION
+    if (filtroIdTransaccion.trim()) {
+      const idNumerico = parseInt(filtroIdTransaccion.trim());
+      if (!isNaN(idNumerico) && idNumerico > 0) {
+        params.append('id_transaccion', idNumerico.toString());
+      }
+    }
+    
+    if (fechaDesde) {
+      const fechaFormateada = formatearFechaParaServidor(fechaDesde);
+      if (fechaFormateada) {
+        params.append('fecha_desde', fechaFormateada);
+      }
+    }
+    
+    if (fechaHasta) {
+      const fechaFormateada = formatearFechaParaServidor(fechaHasta);
+      if (fechaFormateada) {
+        params.append('fecha_hasta', fechaFormateada);
+      }
+    }
+    
+    // 🔥 AGREGAR FILTROS DE ESTADO CORRECTAMENTE
+    if (filtroEstados.length > 0) {
+      filtroEstados.forEach(estado => {
+        params.append('estado', estado);
+      });
+    }
+
+    // 🔥 LOG PARA DEBUGGING
+    console.log('🔍 Filtros aplicados para descarga completa:', {
+      referencia: filtroReferencia,
+      carrier: filtroCarrier,
+      valor: filtroValor,
+      id_transaccion: filtroIdTransaccion,
+      fecha_desde: fechaDesde,
+      fecha_hasta: fechaHasta,
+      estados: filtroEstados,
+      params_string: params.toString()
+    });
+
+    const response = await fetch(`http://127.0.0.1:8000/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${getToken()}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Error ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.pagos || data.pagos.length === 0) {
+      alert("No se encontraron registros para exportar con los filtros aplicados");
       return;
     }
 
-    const confirmacion = confirm(
-      "¿Deseas descargar el informe completo con todos los registros que coincidan con los filtros actuales? Esto puede tomar varios minutos dependiendo de la cantidad de datos."
-    );
+    // Crear CSV con todos los datos incluyendo las nuevas columnas
+    const encabezado = "ID,Referencia_Pago,Num_Referencias,Es_Grupo,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Trackings_Completos,Hora_Pago,Novedades,Fecha_Creacion,Fecha_Modificacion,Carrier,Id_Transaccion\n";
+    const filas = data.pagos
+      .map((p: Pago, idx: number) =>
+        `${idx + 1},"${p.referencia_pago}",${p.num_referencias || 1},"${p.es_grupo_transaccion ? 'Sí' : 'No'}",${p.valor},"${p.fecha}","${p.entidad}","${getEstadoTexto(p.estado_conciliacion)}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${(p.trackings_completos || '').replace(/"/g, '""')}","${p.hora_pago || ''}","${(p.novedades || '').replace(/"/g, '""')}","${p.creado_en || ''}","${p.fecha_modificacion || ''}","${p.carrier || 'N/A'}","${p.Id_Transaccion || ''}"`
+      )
+      .join("\n");
 
-    if (!confirmacion) return;
+    const blob = new Blob([encabezado + filas], {
+      type: "text/csv;charset=utf-8;",
+    });
+    
+    const fechaHoy = new Date().toISOString().split("T")[0];
+    const nombreArchivo = `informe-completo-pagos-${data.info_exportacion.total_registros_exportados}-registros-${fechaHoy}.csv`;
+    saveAs(blob, nombreArchivo);
 
-    setProcesando("descarga_completa");
+    // 🔥 MENSAJE MEJORADO CON INFORMACIÓN DE FILTROS
+    const filtrosAplicadosTexto = [];
+    if (filtroReferencia.trim()) filtrosAplicadosTexto.push(`Referencia: ${filtroReferencia}`);
+    if (filtroCarrier.trim()) filtrosAplicadosTexto.push(`Carrier: ${filtroCarrier}`);
+    if (filtroValor.trim()) filtrosAplicadosTexto.push(`Valor: $${filtroValor}`);
+    if (filtroIdTransaccion.trim()) filtrosAplicadosTexto.push(`ID Transacción: ${filtroIdTransaccion}`);
+    if (fechaDesde) filtrosAplicadosTexto.push(`Desde: ${fechaDesde}`);
+    if (fechaHasta) filtrosAplicadosTexto.push(`Hasta: ${fechaHasta}`);
+    if (filtroEstados.length > 0 && filtroEstados.length < estadosDisponibles.length) {
+      filtrosAplicadosTexto.push(`Estados: ${filtroEstados.join(', ')}`);
+    }
 
+    const mensajeFiltros = filtrosAplicadosTexto.length > 0 
+      ? `\n🔍 Filtros aplicados:\n${filtrosAplicadosTexto.join('\n')}`
+      : '\n🔍 Sin filtros específicos (todos los registros)';
+
+    alert(`✅ Informe completo descargado exitosamente!\n\n📊 Total de registros: ${data.info_exportacion.total_registros_exportados}\n📅 Fecha de exportación: ${new Date(data.info_exportacion.fecha_exportacion).toLocaleString()}\n📁 Archivo: ${nombreArchivo}${mensajeFiltros}`);
+
+  } catch (error) {
+    console.error("❌ Error descargando informe completo:", error);
+    const errorMessage = error instanceof Error ? error.message : "Error desconocido";
+    alert(`❌ Error al descargar el informe completo: ${errorMessage}`);
+  } finally {
+    setProcesando(null);
+  }
+};
+
+const verImagen = async (src: string, referenciaPago?: string, correo?: string, valor?: number, fecha?: string, idTransaccion?: number) => {
+  if (!src) {
+    alert("No hay comprobante disponible");
+    return;
+  }
+
+  // 🔥 LÓGICA MEJORADA: Priorizar Id_Transaccion para búsqueda agrupada
+  if (referenciaPago && (idTransaccion || correo || valor || fecha)) {
     try {
-      // Construir parámetros de query con los mismos filtros actuales
+      // Construir URL con parámetros de filtro
       const params = new URLSearchParams();
-
-      // Aplicar filtros si están definidos
-      if (filtroReferencia.trim()) {
-        params.append('referencia', filtroReferencia.trim());
+      if (correo) params.append('correo', correo);
+      if (valor !== undefined) params.append('valor', valor.toString());
+      if (fecha) params.append('fecha_pago', fecha);
+      
+      // 🔥 CLAVE: Agregar Id_Transaccion si existe
+      if (idTransaccion) {
+        params.append('id_transaccion', idTransaccion.toString());
+        console.log(`🔍 Buscando imágenes por Id_Transaccion: ${idTransaccion}`);
       }
-      if (fechaDesde) {
-        const fechaFormateada = formatearFechaParaServidor(fechaDesde);
-        if (fechaFormateada) {
-          params.append('fecha_desde', fechaFormateada);
-        }
-      }
-      if (fechaHasta) {
-        const fechaFormateada = formatearFechaParaServidor(fechaHasta);
-        if (fechaFormateada) {
-          params.append('fecha_hasta', fechaFormateada);
-        }
-      }
-      if (filtroEstados.length > 0) {
-        filtroEstados.forEach(estado => {
-          params.append('estado', estado);
-        });
-      }
-
-      const response = await fetch(`https://api.x-cargo.co/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
+      
+      const url = `http://127.0.0.1:8000/pagos/imagenes-pago/${referenciaPago}${params.toString() ? '?' + params.toString() : ''}`;
+      console.log(`📡 URL de búsqueda: ${url}`);
+      
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
       });
 
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`📸 Respuesta del servidor:`, data);
+        
+        if (data.imagenes && data.imagenes.length > 1) {
+          // Múltiples imágenes - usar carrusel
+          console.log(`🎠 Mostrando carrusel con ${data.imagenes.length} imágenes`);
+          setImagenesCarrusel(data.imagenes);
+          setIndiceImagenActual(0);
+          setModalCarruselVisible(true);
+          return;
+        } else if (data.imagenes && data.imagenes.length === 1) {
+          // Una sola imagen
+          console.log(`🖼️ Mostrando imagen individual`);
+          setImagenSeleccionada(data.imagenes[0]);
+          return;
+        }
+      } else {
+        console.warn(`⚠️ Error en respuesta: ${response.status} - ${response.statusText}`);
       }
-
-      const data = await response.json();
-
-      if (!data.pagos || data.pagos.length === 0) {
-        alert("No se encontraron registros para exportar con los filtros aplicados");
-        return;
-      }
-
-      // Crear CSV con todos los datos
-      const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Trackings_Completos,Hora_Pago,Novedades,Fecha_Creacion,Fecha_Modificacion\n";
-      const filas = data.pagos
-        .map((p: Pago, idx: number) =>
-          `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${getEstadoTexto(p.estado_conciliacion)}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${(p.trackings_completos || '').replace(/"/g, '""')}","${p.hora_pago || ''}","${(p.novedades || '').replace(/"/g, '""')}","${p.creado_en || ''}","${p.fecha_modificacion || ''}"`
-        )
-        .join("\n");
-
-      const blob = new Blob([encabezado + filas], {
-        type: "text/csv;charset=utf-8;",
-      });
-      
-      const fechaHoy = new Date().toISOString().split("T")[0];
-      const nombreArchivo = `informe-completo-pagos-${data.info_exportacion.total_registros_exportados}-registros-${fechaHoy}.csv`;
-      saveAs(blob, nombreArchivo);
-
-      alert(`✅ Informe completo descargado exitosamente!\n\n📊 Total de registros: ${data.info_exportacion.total_registros_exportados}\n📅 Fecha de exportación: ${new Date(data.info_exportacion.fecha_exportacion).toLocaleString()}\n📁 Archivo: ${nombreArchivo}`);
-
     } catch (error) {
-      console.error("❌ Error descargando informe completo:", error);
-      const errorMessage = error instanceof Error ? error.message : "Error desconocido";
-      alert(`❌ Error al descargar el informe completo: ${errorMessage}`);
-    } finally {
-      setProcesando(null);
+      console.warn("No se pudieron cargar múltiples imágenes, mostrando imagen individual:", error);
     }
-  };
+  }
 
-  const verImagen = (src: string) => {
-    if (!src) {
-      alert("No hay comprobante disponible");
-      return;
-    }
-    setImagenSeleccionada(src);
-  };
+  // Imagen individual (comportamiento original)
+  console.log(`🖼️ Fallback: Mostrando imagen individual`);
+  setImagenSeleccionada(src);
+};
+
 
 const verDetallesPago = async ({
   referencia_pago,
   correo,
   fecha_pago,
-  hora_pago,
-  valor
+  valor,
+  id_transaccion
 }: {
   referencia_pago: string;
   correo?: string;
   fecha_pago?: string;
-  hora_pago?: string;
   valor?: number;
+  id_transaccion?: number;
 }) => {
   try {
-    const params = new URLSearchParams();
-    if (correo) params.append("correo", correo);
-    if (fecha_pago) params.append("fecha_pago", fecha_pago);
-    if (hora_pago) params.append("hora_pago", hora_pago);
-    if (valor !== undefined) params.append("valor", valor.toString());
+    let url = "";
+    // Si el pago tiene id_transaccion, solo enviar ese parámetro
+    if (id_transaccion !== undefined && id_transaccion !== null) {
+      url = `http://127.0.0.1:8000/pagos/detalles-pago?id_transaccion=${id_transaccion}`;
+    } else {
+      const params = new URLSearchParams();
+      if (correo) params.append("correo", correo);
+      if (fecha_pago) params.append("fecha_pago", fecha_pago);
+      if (valor !== undefined) params.append("valor", valor.toString());
+      url = `http://127.0.0.1:8000/pagos/detalles-pago/${referencia_pago}?${params.toString()}`;
+    }
 
-    const response = await fetch(
-      `https://api.x-cargo.co/pagos/detalles-pago/${referencia_pago}?${params.toString()}`
-    );
+    const response = await fetch(url);
 
     if (!response.ok) {
       throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -428,9 +585,70 @@ const verDetallesPago = async ({
     console.log("🟢 Datos recibidos en verDetallesPago:", data);
     setDetalleTracking(data.detalles || []);
     setModalDetallesVisible(true);
+
   } catch (err: any) {
     console.error("Error cargando detalles:", err);
     alert(`Error al cargar detalles del pago: ${err.message}`);
+  }
+};
+
+const verDetallesGuias = async ({
+  referencia_pago,
+  id_transaccion,
+  fecha_pago,
+  valor_pagado
+}: {
+  referencia_pago?: string;
+  id_transaccion?: number;
+  fecha_pago?: string;
+  valor_pagado?: number;
+}) => {
+  try {
+    const params = new URLSearchParams();
+    if (referencia_pago) params.append("referencia_pago", referencia_pago);
+    if (id_transaccion) params.append("id_transaccion", id_transaccion.toString());
+    if (fecha_pago) params.append("fecha_pago", fecha_pago);           // ← Añade esto
+    if (valor_pagado !== undefined) params.append("valor_pagado", valor_pagado.toString()); // ← Añade esto
+
+    const response = await fetch(
+      `http://127.0.0.1:8000/pagos/detalles-guias?${params.toString()}`,
+      {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Error ${response.status}: ${response.statusText}`);
+    }
+
+
+    const data = await response.json();
+    // Mapea los datos recibidos al formato esperado por el modal
+    const detalles = (data.guias || []).map((g: any) => ({
+      tracking: g.tracking,
+      referencia: g.pago_referencia,
+      valor: g.valor_pagado ?? g.valor_guia,
+      cliente: g.cliente,
+      carrier: g.carrier,
+      tipo: g.metodo_pago,
+      fecha_pago: g.fecha_pago,
+      hora_pago: "",
+      estado: g.estado_liquidacion,
+      novedades: "",
+      comprobante: "",
+      valor_guia: g.valor_guia,
+      valor_cod: g.valor_cod,
+      valor_total_consignacion_pc: g.valor_total_consignacion_pc,
+      valor_guia_gl: g.valor_guia_gl,      // <-- Nuevo
+      valor_guia_cod: g.valor_guia_cod     // <-- Nuevo
+
+    }));
+    setDetalleTracking(detalles);
+    setModalDetallesVisible(true);
+
+  } catch (err: any) {
+    console.error("Error cargando detalles de guías:", err);
+    alert(`Error al cargar detalles de guías: ${err.message}`);
   }
 };
 
@@ -458,7 +676,7 @@ const verDetallesPago = async ({
         modificado_por: user.email,
       });
 
-      const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
+      const response = await fetch("http://127.0.0.1:8000/pagos/rechazar-pago", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -523,6 +741,7 @@ function parseFechaLocal(fechaStr: string) {
   const limpiarFiltros = () => {
     setFiltroReferencia("");
     setFiltroCarrier("");
+    setFiltroIdTransaccion("");
     setFechaDesde("");
     setFechaHasta("");
     setFiltroEstados([...estadosDisponibles]);
@@ -650,6 +869,34 @@ function parseFechaLocal(fechaStr: string) {
             autoComplete="off"
           />
         </label>
+        {/* 🔥 NUEVO FILTRO: ID TRANSACCIÓN */}
+        <label>
+          ID Transacción:
+          <input
+            type="number"
+            placeholder="Ej: 2693"
+            value={filtroIdTransaccion}
+            onChange={(e) => {
+              const valor = e.target.value;
+              // Solo permitir números positivos
+              if (valor === "" || (parseInt(valor) > 0 && !isNaN(parseInt(valor)))) {
+                setFiltroIdTransaccion(valor);
+              }
+            }}
+            onKeyDown={manejarEnterFiltros}
+            min="1"
+            style={{
+              backgroundColor: filtroIdTransaccion.trim() ? "#e3f2fd" : undefined,
+              borderColor: filtroIdTransaccion.trim() ? "#2196f3" : undefined
+            }}
+          />
+          {filtroIdTransaccion.trim() && (
+            <small style={{ color: "#2196f3", fontSize: "0.8rem", display: "block" }}>
+              🔍 Buscando ID: {filtroIdTransaccion}
+            </small>
+          )}
+        </label>
+
         <label>
           Buscar Carrier:
           <input
@@ -834,65 +1081,178 @@ function parseFechaLocal(fechaStr: string) {
               <th>Estado</th>
               <th>Comprobante</th>
               <th>Trackings</th>
+              <th>ID Banco Asociado</th>
               <th>Novedades</th>
               <th>Acción</th>
             </tr>
           </thead>
 
+
           <tbody>
             {pagosFiltrados.length > 0 ? (
               pagosFiltrados.map((p, idx) => (
-                //console.log("📦 Pago:", p),
                 <tr key={`${p.referencia_pago}-${p.fecha}-${idx}`}>
-               
                   <td>{((paginaActual - 1) * pagosPorPagina) + idx + 1}</td>
-                  <td>{p.referencia_pago}</td>
+                  
+                   {/* 🔥 COLUMNA DE REFERENCIA SIMPLIFICADA */}
+                  <td style={{ 
+                    fontSize: p.es_grupo_transaccion ? '0.9rem' : '1rem',
+                    fontWeight: p.es_grupo_transaccion ? 'bold' : 'normal'
+                  }}>
+                    {p.es_grupo_transaccion && (
+                      <div style={{ 
+                        fontSize: '0.7rem', 
+                        color: '#007bff', 
+                        marginBottom: '2px',
+                        fontWeight: 'normal'
+                      }}>
+                        
+                      </div>
+                    )}
+                    <div title={p.es_grupo_transaccion ? p.referencia_pago : undefined}>
+                      {p.es_grupo_transaccion && p.referencia_pago && p.referencia_pago.length > 40 
+                        ? `${p.referencia_pago.substring(0, 40)}...` 
+                        : p.referencia_pago}
+                    </div>
+                    {p.Id_Transaccion && (
+                      <div style={{ 
+                        fontSize: '0.7rem', 
+                        color: '#6c757d', 
+                        marginTop: '2px' 
+                      }}>
+                        ID: {p.Id_Transaccion}
+                      </div>
+                    )}
+                  </td>
+                  
                   <td>${p.valor.toLocaleString()}</td>
-                  <td>{p.num_guias}</td>
+                  
+                  {/* 🔥 MEJORAR COLUMNA DE GUÍAS */}
+                  <td>
+                    {p.num_guias}
+                    {p.es_grupo_transaccion && (
+                      <div style={{ fontSize: '0.7rem', color: '#28a745' }}>
+                        (agrupadas)
+                      </div>
+                    )}
+                  </td>
+                  
                   <td>{p.fecha}</td>
                   <td>{p.creado_en}</td>
                   <td>{p.carrier || "N/A"}</td>
                   <td>{p.tipo}</td>
                   <td style={{
                     color: p.estado_conciliacion === "rechazado" ? "crimson" :
-                           p.estado_conciliacion === "Rechazado" ? "crimson" :
-                           p.estado_conciliacion === "conciliado_manual" ? "green" : undefined
+                          p.estado_conciliacion === "Rechazado" ? "crimson" :
+                          p.estado_conciliacion === "conciliado_manual" ? "green" : undefined
                   }}>
-                    
                     {getEstadoTexto(p.estado_conciliacion)}
                   </td>
+                  
+                  {/* 🔥 MEJORAR BOTÓN DE COMPROBANTE */}
+                  {/* 🔥 MEJORAR BOTÓN DE COMPROBANTE */}
                   <td>
                     <button
-                      onClick={() => verImagen(p.imagen)}
+                      onClick={() => verImagen(
+                        p.imagen, 
+                        p.referencia_pago_principal || p.referencia_pago, // Usar principal para búsqueda
+                        p.correo_conductor, 
+                        p.valor, 
+                        p.fecha,
+                        p.Id_Transaccion  // 🔥 AGREGAR ID_TRANSACCION
+                      )}
                       className="btn-ver"
+                      title={p.es_grupo_transaccion 
+                        ? `Ver comprobantes del grupo (${p.num_referencias} referencias)` 
+                        : "Ver comprobante"}
                     >
                       👁 Ver
+                      {p.es_grupo_transaccion && (
+                        <span style={{fontSize: '0.8em', color: '#ffffffff', marginLeft: '4px'}}>
+                          ({p.num_referencias})
+                        </span>
+                      )}
                     </button>
                   </td>
+                  
                   <td>
-                    <button
-                      onClick={() => verDetallesPago({
-                        referencia_pago: p.referencia_pago,
-                        correo: p.correo_conductor,
-                        fecha_pago: p.fecha,
-                        hora_pago: p.hora_pago,
-                        valor: p.valor
-                      })}
-                      className="btn-ver"
-                      title={p.trackings_preview}
-                    >
-                      Detalles ({p.num_guias})
-                    </button>
-                  </td>
-                  <td>
-                    {p.novedades ? (
-                      <span style={{ fontStyle: "italic", color: "#6b7280" }}>
-                        {p.novedades}
+
+                  <button
+                    onClick={() => verDetallesPago({
+                      referencia_pago: p.referencia_pago_principal || p.referencia_pago,
+                      correo: p.correo_conductor,
+                      fecha_pago: p.fecha,
+                      valor: p.valor,
+                      id_transaccion: p.Id_Transaccion
+                    })}
+                    className="btn-ver"
+                    title={p.trackings_preview}
+                  >
+                    Detalles ({p.num_guias})
+                    {p.es_grupo_transaccion && (
+                      <span style={{fontSize: '0.7em', color: '#ffffffff', display: 'block'}}>
+                        Grupo
                       </span>
+                    )}
+                  </button>
+                  </td>
+                  {/* 🔥 CELDA MEJORADA PARA ID BANCO CON VALOR DENTRO DEL RECUADRO */}
+                  <td style={{ padding: "6px", fontSize: "0.85rem" }}>
+                    {p.id_banco_asociado ? (
+                      <div style={{
+                        display: "inline-flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        padding: "8px 12px",
+                        borderRadius: "12px",
+                        fontSize: "0.75rem",
+                        fontWeight: "500",
+                        backgroundColor: "#d4edda",
+                        color: "#155724",
+                        border: "1px solid #c3e6cb",
+                        minWidth: "120px",
+                        gap: "2px"
+                      }}>
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          fontSize: "0.75rem"
+                        }}>
+                          🏦 {p.id_banco_asociado}
+                        </div>
+                        
+                        {p.valor_banco_asociado && (
+                          <div style={{
+                            fontSize: "0.7rem",
+                            color: "#155724",
+                            fontWeight: "600",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "2px"
+                          }}>
+                            💰 ${p.valor_banco_asociado.toLocaleString()}
+                          </div>
+                        )}
+                      </div>
                     ) : (
-                      "-"
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "6px 12px",
+                        borderRadius: "12px",
+                        fontSize: "0.75rem",
+                        fontWeight: "500",
+                        backgroundColor: "#f8f9fa",
+                        color: "#6c757d",
+                        border: "1px solid #e9ecef"
+                      }}>
+                        - Sin ID -
+                      </span>
                     )}
                   </td>
+                  
+                  {/* 🔥 MEJORAR BOTÓN DE RECHAZO */}
                   <td>
                     {!(p.estado_conciliacion === "rechazado" ||
                         p.estado_conciliacion === "Rechazado" ||
@@ -900,14 +1260,21 @@ function parseFechaLocal(fechaStr: string) {
                         p.estado_conciliacion === "conciliado_automatico") && (
                       <button
                         onClick={() => {
-                          console.log("🖱️ Click en botón rechazar para:", p.referencia_pago);
-                          setRefPagoSeleccionada(p.referencia_pago);
+                          // Usar referencia principal para operaciones
+                          const refParaRechazo = p.referencia_pago_principal || p.referencia_pago;
+                          console.log("🖱️ Click en botón rechazar para:", refParaRechazo);
+                          setRefPagoSeleccionada(refParaRechazo);
                           setModalVisible(true);
                         }}
                         className="boton-rechazar"
-                        disabled={procesando === p.referencia_pago}
+                        disabled={procesando === (p.referencia_pago_principal || p.referencia_pago)}
+                        title={p.es_grupo_transaccion 
+                          ? `Rechazar grupo de ${p.num_referencias} referencias` 
+                          : "Rechazar pago"}
                       >
-                        {procesando === p.referencia_pago ? "⏳ Procesando..." : "Rechazar"}
+                        {procesando === (p.referencia_pago_principal || p.referencia_pago) 
+                          ? "⏳ Procesando..." 
+                          : p.es_grupo_transaccion ? "Rechazar Grupo" : "Rechazar"}
                       </button>
                     )}
                   </td>
@@ -915,10 +1282,7 @@ function parseFechaLocal(fechaStr: string) {
               ))
             ) : (
               <tr>
-                <td
-                  colSpan={12}
-                  style={{ textAlign: "center", padding: "1rem" }}
-                >
+                <td colSpan={13} style={{ textAlign: "center", padding: "1rem" }}>
                   {cargando ? "Cargando..." : "No hay pagos registrados."}
                 </td>
               </tr>
@@ -989,126 +1353,155 @@ function parseFechaLocal(fechaStr: string) {
         </div>
       )}
 
-      {/* Resto de modales sin cambios */}
-      {modalDetallesVisible && detalleTracking && (
-        <div className="modal-detalles-overlay" onClick={() => setModalDetallesVisible(false)}>
-          <div className="modal-detalles-content" onClick={(e) => e.stopPropagation()}>
-            
-            {/* Header del Modal */}
-            <div className="modal-detalles-header">
-              <h2 className="modal-detalles-title">
-                Detalles del Pago
-              </h2>
-              <p className="modal-detalles-subtitle">
-                Referencia: {detalleTracking[0]?.referencia || 'N/A'}
-              </p>
-              <button 
-                className="modal-cerrar-btn"
-                onClick={() => setModalDetallesVisible(false)}
-                title="Cerrar"
-              >
-                ×
-              </button>
+      
+
+{modalDetallesVisible && detalleTracking && (
+  <div className="modal-detalles-overlay" onClick={() => setModalDetallesVisible(false)}>
+    <div className="modal-detalles-content" onClick={(e) => e.stopPropagation()}>
+
+      {/* Header del Modal */}
+      <div className="modal-detalles-header">
+        <h2 className="modal-detalles-title">
+          Detalles del Pago
+        </h2>
+        <p className="modal-detalles-subtitle">
+          Referencia: {detalleTracking[0]?.referencia || 'N/A'}
+        </p>
+        <button 
+          className="modal-cerrar-btn"
+          onClick={() => setModalDetallesVisible(false)}
+          title="Cerrar"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Cuerpo del Modal */}
+      <div className="modal-detalles-body">
+        {/* Información del Pago */}
+        <div className="pago-info-card">
+          <div className="pago-info-grid">
+            <div className="pago-info-item">
+              <span className="pago-info-label">Referencia</span>
+              <span className="pago-info-value">{detalleTracking[0]?.referencia || 'N/A'}</span>
             </div>
-
-            {/* Cuerpo del Modal */}
-            <div className="modal-detalles-body">
-              
-              {/* Información del Pago */}
-              <div className="pago-info-card">
-                <div className="pago-info-grid">
-                  <div className="pago-info-item">
-                    <span className="pago-info-label">Referencia</span>
-                    <span className="pago-info-value">{detalleTracking[0]?.referencia || 'N/A'}</span>
-                  </div>
-                  
-                  <div className="pago-info-item">
-                    <span className="pago-info-label">Total</span>
-                    <span className="pago-info-value">
-                      {detalleTracking[0]?.estado === "pendiente_conciliacion"
-                        ? `$${detalleTracking.reduce((sum, item) => sum + (item.valor_guia ?? 0), 0).toLocaleString('es-ES')}`
-                        : `$${detalleTracking.reduce((sum, item) => sum + (item.valor ?? 0), 0).toLocaleString('es-ES')}`}
-                    </span>
-                  </div>
-                  
-                  <div className="pago-info-item">
-                    <span className="pago-info-label">Cantidad de Guías</span>
-                    <span className="pago-info-value">{detalleTracking.length}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Lista de Trackings */}
-              {detalleTracking && detalleTracking.length > 0 && (
-                <div>
-                  <h3 className="trackings-section-title">
-                    Guías Incluidas
-                    <span className="trackings-count">
-                      {detalleTracking.length}
-                    </span>
-                  </h3>
-                  
-                  <div className="trackings-lista">
-                    {detalleTracking.map((item: DetalleTracking, index: number) => (
-                      <div key={index} className="tracking-item">
-                        
-                        <div className="tracking-header">
-                          <div className="tracking-numero">
-                            #{item.tracking}
-                          </div>
-                          <div className="tracking-valor">
-                                {detalleTracking[0]?.estado === "pendiente_conciliacion"
-                                  ? `$${item.valor_guia.toLocaleString('es-ES')}`
-                                  : `$${item.valor.toLocaleString('es-ES')}`}
-                          </div>
-                        </div>
-                        
-                        <div className="tracking-detalles">
-                          <div className="tracking-detail-item">
-                            <span className="tracking-detail-label">Referencia</span>
-                            <span className="tracking-detail-value">{item.referencia}</span>
-                          </div>
-                          
-                          <div className="tracking-detail-item">
-                            <span className="tracking-detail-label">Número de Guía</span>
-                            <span className="tracking-detail-value">{item.tracking}</span>
-                          </div>
-                          
-                          <div className="tracking-detail-item">
-                              <span className="pago-info-label">Total</span>
-                              <span className="pago-info-value">
-                                {detalleTracking[0]?.estado === "pendiente_conciliacion"
-                                  ? `$${item.valor_guia.toLocaleString('es-ES')}`
-                                  : `$${item.valor.toLocaleString('es-ES')}`}
-                              </span>
-                          </div>
-
-                          
-                        </div>
-                        
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              {/* Mensaje si no hay trackings */}
-              {(!detalleTracking || detalleTracking.length === 0) && (
-                <div style={{ 
-                  textAlign: 'center', 
-                  padding: '2rem', 
-                  color: '#64748b',
-                  fontStyle: 'italic'
-                }}>
-                  No se encontraron guías asociadas a este pago.
-                </div>
-              )}
-              
+            <div className="pago-info-item">
+              <span className="pago-info-label">Total</span>
+              <span className="pago-info-value">
+                {
+                  (() => {
+                    // Sumar el menor valor distinto de cero de cada guía
+                    const total = detalleTracking.reduce((sum, item) => {
+                      const valores = [
+                        item.valor_guia ?? 0,
+                        item.valor_guia_cod ?? 0,
+                        item.valor_total_consignacion_pc ?? 0,
+                        item.valor ?? 0,
+                        item.valor_guia_gl ?? 0,
+                        item.valor_guia_cod ?? 0
+                      ].filter(v => v > 0);
+                      const menor = valores.length > 0 ? Math.min(...valores) : 0;
+                      return sum + menor;
+                    }, 0);
+                    return `$${total.toLocaleString('es-ES')}`;
+                  })()
+                }
+              </span>
+            </div>
+            <div className="pago-info-item">
+              <span className="pago-info-label">Cantidad de Guías</span>
+              <span className="pago-info-value">{detalleTracking.length}</span>
             </div>
           </div>
         </div>
-      )}
 
+        {/* Lista de Trackings */}
+        {detalleTracking && detalleTracking.length > 0 && (
+          <div>
+            <h3 className="trackings-section-title">
+              Guías Incluidas
+              <span className="trackings-count">
+                {detalleTracking.length}
+              </span>
+            </h3>
+            <div className="trackings-lista">
+              {detalleTracking.map((item: DetalleTracking, index: number) => (
+                <div key={index} className="tracking-item">
+                  <div className="tracking-header">
+                    <div className="tracking-numero">
+                      #{item.tracking}
+                    </div>
+                    <div className="tracking-valor">
+                      {
+                        (() => {
+                          // Mostrar el menor valor distinto de cero
+                          const valores = [
+                            item.valor_guia ?? 0,
+                            item.valor_guia_cod ?? 0,
+                            item.valor_total_consignacion_pc ?? 0,
+                            item.valor ?? 0,
+                            item.valor_guia_gl ?? 0,
+                            item.valor_guia_cod ?? 0
+                          ].filter(v => v > 0);
+                          if (valores.length === 0) return "$0";
+                          const menor = Math.min(...valores);
+                          return `$${menor.toLocaleString('es-ES')}`;
+                        })()
+                      }
+                    </div>
+                  </div>
+                  <div className="tracking-detalles">
+                    <div className="tracking-detail-item">
+                      <span className="tracking-detail-label">Referencia</span>
+                      <span className="tracking-detail-value">{item.referencia}</span>
+                    </div>
+                    <div className="tracking-detail-item">
+                      <span className="tracking-detail-label">Número de Guía</span>
+                      <span className="tracking-detail-value">{item.tracking}</span>
+                    </div>
+                    <div className="tracking-detail-item">
+                      <span className="pago-info-label">Total</span>
+                      <span className="pago-info-value">
+                        {
+                          (() => {
+                            // Mostrar el menor valor distinto de cero
+                            const valores = [
+                              item.valor_guia ?? 0,
+                              item.valor_guia_cod ?? 0,
+                              item.valor_total_consignacion_pc ?? 0,
+                              item.valor ?? 0,
+                              item.valor_guia_gl ?? 0,
+                              item.valor_guia_cod ?? 0
+                            ].filter(v => v > 0);
+                            if (valores.length === 0) return "$0";
+                            const menor = Math.min(...valores);
+                            return `$${menor.toLocaleString('es-ES')}`;
+                          })()
+                        }
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Mensaje si no hay trackings */}
+        {(!detalleTracking || detalleTracking.length === 0) && (
+          <div style={{ 
+            textAlign: 'center', 
+            padding: '2rem', 
+            color: '#64748b',
+            fontStyle: 'italic'
+          }}>
+            No se encontraron guías asociadas a este pago.
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
       {/* Modal de Imagen */}
       {imagenSeleccionada && (
         <div
@@ -1126,6 +1519,151 @@ function parseFechaLocal(fechaStr: string) {
           </div>
         </div>
       )}
+      {/* Modal de Carrusel de Imágenes */}
+
+           {/* Modal de Carrusel de Imágenes - AGREGAR AQUÍ */}
+      {modalCarruselVisible && imagenesCarrusel.length > 0 && (
+        <div className="modal-overlay" onClick={cerrarCarrusel}>
+          <div className="modal-carrusel-content" onClick={(e) => e.stopPropagation()}>
+            
+            {/* Header del carrusel */}
+            <div className="carrusel-header">
+              <h3>Comprobantes de Pago</h3>
+              <span className="carrusel-contador">
+                {indiceImagenActual + 1} de {imagenesCarrusel.length}
+              </span>
+              <button
+                onClick={cerrarCarrusel}
+                className="cerrar-modal"
+                style={{
+                  position: 'absolute',
+                  top: '10px',
+                  right: '15px',
+                  background: 'rgba(0,0,0,0.5)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '30px',
+                  height: '30px',
+                  cursor: 'pointer',
+                  fontSize: '18px'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Imagen principal */}
+            <div className="carrusel-imagen-container">
+              <img 
+                src={imagenesCarrusel[indiceImagenActual]} 
+                alt={`Comprobante ${indiceImagenActual + 1}`}
+                style={{
+                  maxWidth: '90vw',
+                  maxHeight: '70vh',
+                  objectFit: 'contain'
+                }}
+              />
+            </div>
+
+            {/* Controles de navegación */}
+            {imagenesCarrusel.length > 1 && (
+              <>
+                {/* Botones anterior/siguiente */}
+                <button
+                  onClick={anteriorImagen}
+                  className="carrusel-btn carrusel-btn-anterior"
+                  style={{
+                    position: 'absolute',
+                    left: '20px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'rgba(0,0,0,0.7)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '50px',
+                    height: '50px',
+                    cursor: 'pointer',
+                    fontSize: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  ←
+                </button>
+
+                <button
+                  onClick={siguienteImagen}
+                  className="carrusel-btn carrusel-btn-siguiente"
+                  style={{
+                    position: 'absolute',
+                    right: '20px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'rgba(0,0,0,0.7)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '50px',
+                    height: '50px',
+                    cursor: 'pointer',
+                    fontSize: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  →
+                </button>
+
+                {/* Indicadores de posición */}
+                <div className="carrusel-indicadores" style={{
+                  position: 'absolute',
+                  bottom: '20px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  display: 'flex',
+                  gap: '8px'
+                }}>
+                  {imagenesCarrusel.map((_, indice) => (
+                    <button
+                      key={indice}
+                      onClick={() => irAImagen(indice)}
+                      style={{
+                        width: '12px',
+                        height: '12px',
+                        borderRadius: '50%',
+                        border: 'none',
+                        background: indice === indiceImagenActual ? '#007bff' : 'rgba(255,255,255,0.5)',
+                        cursor: 'pointer',
+                        transition: 'background 0.3s'
+                      }}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* Información adicional */}
+            <div className="carrusel-info" style={{
+              position: 'absolute',
+              bottom: '60px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              background: 'rgba(0,0,0,0.7)',
+              color: 'white',
+              padding: '8px 16px',
+              borderRadius: '20px',
+              fontSize: '14px'
+            }}>
+              Comprobante {indiceImagenActual + 1} de {imagenesCarrusel.length}
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Modal de Rechazo */}
       {modalVisible && (
