@@ -249,7 +249,7 @@ async def registrar_pago_conductor(
         refs_str = "', '".join(referencias_guias)
         
         query_clientes = f"""
-            SELECT tracking_number as referencia, cliente, valor_guia as valor
+            SELECT tracking_number as referencia, Cliente as cliente, valor_guia as valor
             FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
             WHERE tracking_number IN ('{refs_str}')
         """
@@ -1171,8 +1171,12 @@ def obtener_pagos_pendientes_contabilidad(
         logger.info(f"🔧 WHERE clause: {where_clause}")
 
         count_query = f"""
-            SELECT COUNT(DISTINCT pc.referencia_pago) as total
+            SELECT COUNT(*) as total
             FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+                ON pc.tracking = cod.tracking_number
+            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+                ON pc.tracking = gl.tracking_number
             {where_clause}
             """
 
@@ -1181,27 +1185,28 @@ def obtener_pagos_pendientes_contabilidad(
         SELECT 
             pc.referencia_pago,
             pc.correo as correo_conductor,
-            MAX(pc.fecha_pago) AS fecha,
-            COALESCE(MAX(pc.valor_total_consignacion), SUM(pc.valor)) AS valor,
-            MAX(pc.entidad) AS entidad,
-            MAX(pc.tipo) AS tipo,
-            MAX(pc.comprobante) AS imagen,
-            COUNT(*) AS num_guias,
-            STRING_AGG(DISTINCT SAFE_CAST(pc.tracking AS STRING), ', ' ORDER BY pc.tracking LIMIT 5) AS trackings_preview,
-            MAX(pc.estado_conciliacion) as estado_conciliacion,
-            MAX(pc.novedades) as novedades,
-            MAX(pc.creado_en) as fecha_creacion,
-            MAX(pc.modificado_en) as fecha_modificacion,
-            MAX(COALESCE(cod.Carrier, gl.carrier, 'N/A')) as carrier,
-            MAX(pc.Id_Transaccion) as Id_Transaccion
+            pc.fecha_pago AS fecha,
+            pc.valor AS valor,
+            pc.entidad AS entidad,
+            pc.tipo AS tipo,
+            pc.comprobante AS imagen,
+            1 AS num_guias,
+            pc.tracking AS trackings_preview,
+            pc.estado_conciliacion as estado_conciliacion,
+            pc.novedades as novedades,
+            pc.creado_en as fecha_creacion,
+            pc.modificado_en as fecha_modificacion,
+            COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier,
+            COALESCE(cod.Cliente, gl.cliente, pc.cliente, 'N/A') as cliente,
+            pc.Id_Transaccion as Id_Transaccion,
+            pc.valor_total_consignacion as valor_total_consignacion
         FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
         LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
             ON pc.tracking = cod.tracking_number
         LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
             ON pc.tracking = gl.tracking_number
         {where_clause}
-        GROUP BY pc.referencia_pago, pc.correo
-        ORDER BY MAX(pc.fecha_pago) DESC, MAX(pc.creado_en) DESC
+        ORDER BY pc.fecha_pago DESC, pc.creado_en DESC, pc.referencia_pago, pc.tracking
         LIMIT {limit}
         OFFSET {offset}
         """
@@ -1221,11 +1226,8 @@ def obtener_pagos_pendientes_contabilidad(
 
         pagos = []
         for row in main_result:
-            trackings_preview = row.get("trackings_preview", "")
-            if trackings_preview:
-                trackings_list = trackings_preview.split(", ")
-                if len(trackings_list) > 3:
-                    trackings_preview = ", ".join(trackings_list[:3]) + f" (+{len(trackings_list) - 3} más)"
+            # Ahora cada fila tiene un solo tracking, no necesitamos procesar múltiples
+            trackings_preview = row.get("trackings_preview", "") or ""
 
             pagos.append({
                 "referencia_pago": row.get("referencia_pago", ""),
@@ -1242,6 +1244,7 @@ def obtener_pagos_pendientes_contabilidad(
                 "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
                 "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
                 "carrier": str(row.get("carrier", "N/A")),
+                "cliente": str(row.get("cliente", "N/A")),
                 "Id_Transaccion": row.get("Id_Transaccion", None)
             })
 

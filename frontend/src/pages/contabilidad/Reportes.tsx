@@ -67,7 +67,7 @@ export default function ReportesContabilidad() {
   const [estadisticas, setEstadisticas] = useState<EstadisticasReporte | null>(null);
   const [estadisticasGlobales, setEstadisticasGlobales] = useState<EstadisticasReporte | null>(null);
   const [paginaActual, setPaginaActual] = useState(1);
-  const [registrosPorPagina] = useState(50);
+  const [registrosPorPagina] = useState(100); // Límite seguro que el backend puede manejar
   const [dropdownAbierto, setDropdownAbierto] = useState(false);
   
   const [filtros, setFiltros] = useState<FiltrosReporte>({
@@ -560,17 +560,17 @@ export default function ReportesContabilidad() {
 
   const exportarReportesSimple = async () => {
     try {
-      console.log('🚀 Exportando TODOS los datos con paginación múltiple...');
+      console.log('🚀 Exportando TODOS los registros con paginación eficiente...');
       
       let todosPagos: any[] = [];
       let paginaActualExport = 1;
-      const limitePorPagina = 100; // Páginas más pequeñas pero múltiples
+      const limitePorPagina = 100; // Usar límite seguro que funciona
       let tieneMasDatos = true;
       
-      // Construir parámetros base
+      // Construir parámetros base usando los mismos filtros aplicados
       const paramsBase = new URLSearchParams();
       
-      // Aplicar los mismos filtros que están activos
+      // Aplicar los mismos filtros que están activos en la tabla
       if (filtrosAplicados) {
         if (filtros.referencia.trim()) {
           paramsBase.append('referencia', filtros.referencia.trim());
@@ -622,7 +622,7 @@ export default function ReportesContabilidad() {
         params.append('limit', limitePorPagina.toString());
         params.append('offset', ((paginaActualExport - 1) * limitePorPagina).toString());
         
-        console.log(`� Cargando página ${paginaActualExport} (registros ${(paginaActualExport - 1) * limitePorPagina + 1}-${paginaActualExport * limitePorPagina})...`);
+        console.log(`🔄 Cargando página ${paginaActualExport} (registros ${(paginaActualExport - 1) * limitePorPagina + 1}-${paginaActualExport * limitePorPagina})...`);
         
         const response = await fetch(`http://127.0.0.1:8000/pagos/pendientes-contabilidad?${params.toString()}`, {
           headers: {
@@ -637,11 +637,17 @@ export default function ReportesContabilidad() {
         const data = await response.json();
         const pagosPagina = data.pagos || [];
         
-        console.log(`📊 Página ${paginaActualExport}: ${pagosPagina.length} pagos`);
+        console.log(`� Página ${paginaActualExport}: ${pagosPagina.length} pagos`);
         
         if (pagosPagina.length === 0) {
           tieneMasDatos = false;
         } else {
+          // Debug: mostrar estructura del primer registro
+          if (paginaActualExport === 1 && pagosPagina.length > 0) {
+            console.log('🔍 Estructura del primer registro:', pagosPagina[0]);
+            console.log('🔍 Campos disponibles:', Object.keys(pagosPagina[0]));
+          }
+          
           todosPagos.push(...pagosPagina);
           
           // Si la página tiene menos registros que el límite, es la última
@@ -652,8 +658,8 @@ export default function ReportesContabilidad() {
           paginaActualExport++;
         }
         
-        // Pausa entre llamadas para no saturar
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // Pausa corta entre llamadas para no saturar
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
       console.log(`✅ Total de pagos obtenidos: ${todosPagos.length}`);
@@ -663,22 +669,27 @@ export default function ReportesContabilidad() {
         return;
       }
 
-      // VERSIÓN SUPER OPTIMIZADA: Usar solo los datos básicos que ya tenemos
-      console.log('⚡ Generando CSV con datos básicos (SIN llamadas adicionales)...');
+      console.log('⚡ Generando CSV con todos los datos obtenidos...');
+      
+      // Debug: mostrar los primeros registros para verificar estructura
+      if (todosPagos.length > 0) {
+        console.log('🔍 Primeros 3 registros para CSV:', todosPagos.slice(0, 3));
+      }
       
       const csvContent = [
         "TRACKING,FECHA,VALOR,TIPO,SOPORTE,CLIENTE,CARRIER,VALOR_TN,SALDO",
         ...todosPagos.map((pago: any) => {
-          const tracking = pago.referencia_pago || 'N/A';
+          const tracking = pago.trackings_preview || '';
           const fecha = pago.fecha || '';
           const valor = pago.valor || 0;
-          const tipo = pago.tipo || 'N/A';
-          const cliente = 'Cliente General';
-          const carrier = 'N/A';
-          const valorTN = 0; // Por velocidad, usar 0
-          const saldo = valor; // Saldo = valor total
+          const tipo = pago.tipo || '';
+          const soporte = `APP-${pago.referencia_pago || ''}`; // Usar referencia_pago como soporte
+          const cliente = pago.cliente || ''; // Ahora usar el campo cliente correcto del backend
+          const carrier = pago.carrier || '';
+          const valorTN = 0; // No está disponible en estos datos
+          const saldo = 0; // No está disponible en estos datos
           
-          return `"${tracking}","${fecha}",${valor},"${tipo}","","${cliente}","${carrier}",${valorTN},${saldo}`;
+          return `"${tracking}","${fecha}",${valor},"${tipo}","${soporte}","${cliente}","${carrier}",${valorTN},${saldo}`;
         })
       ].join("\n");
       
