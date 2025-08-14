@@ -186,7 +186,7 @@ export default function PagosContabilidad() {
         fechaHasta: fechaHasta ? formatearFechaParaServidor(fechaHasta) : 'No especificada'
       });
 
-      const response = await fetch(`http://127.0.0.1:8000/pagos/pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -428,7 +428,7 @@ const descargarInformeCompleto = async () => {
       params_string: params.toString()
     });
 
-    const response = await fetch(`http://127.0.0.1:8000/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
+    const response = await fetch(`https://api.x-cargo.co/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
       headers: {
         Authorization: `Bearer ${getToken()}`
       }
@@ -509,7 +509,7 @@ const verImagen = async (src: string, referenciaPago?: string, correo?: string, 
         console.log(`🔍 Buscando imágenes por Id_Transaccion: ${idTransaccion}`);
       }
       
-      const url = `http://127.0.0.1:8000/pagos/imagenes-pago/${referenciaPago}${params.toString() ? '?' + params.toString() : ''}`;
+      const url = `https://api.x-cargo.co/pagos/imagenes-pago/${referenciaPago}${params.toString() ? '?' + params.toString() : ''}`;
       console.log(`📡 URL de búsqueda: ${url}`);
       
       const response = await fetch(url, {
@@ -566,13 +566,13 @@ const verDetallesPago = async ({
     let url = "";
     // Si el pago tiene id_transaccion, solo enviar ese parámetro
     if (id_transaccion !== undefined && id_transaccion !== null) {
-      url = `http://127.0.0.1:8000/pagos/detalles-pago?id_transaccion=${id_transaccion}`;
+      url = `https://api.x-cargo.co/pagos/detalles-pago?id_transaccion=${id_transaccion}`;
     } else {
       const params = new URLSearchParams();
       if (correo) params.append("correo", correo);
       if (fecha_pago) params.append("fecha_pago", fecha_pago);
       if (valor !== undefined) params.append("valor", valor.toString());
-      url = `http://127.0.0.1:8000/pagos/detalles-pago/${referencia_pago}?${params.toString()}`;
+      url = `https://api.x-cargo.co/pagos/detalles-pago/${referencia_pago}?${params.toString()}`;
     }
 
     const response = await fetch(url);
@@ -611,7 +611,7 @@ const verDetallesGuias = async ({
     if (valor_pagado !== undefined) params.append("valor_pagado", valor_pagado.toString()); // ← Añade esto
 
     const response = await fetch(
-      `http://127.0.0.1:8000/pagos/detalles-guias?${params.toString()}`,
+      `https://api.x-cargo.co/pagos/detalles-guias?${params.toString()}`,
       {
         headers: { Authorization: `Bearer ${getToken()}` }
       }
@@ -676,7 +676,7 @@ const verDetallesGuias = async ({
         modificado_por: user.email,
       });
 
-      const response = await fetch("http://127.0.0.1:8000/pagos/rechazar-pago", {
+      const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
