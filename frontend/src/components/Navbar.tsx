@@ -157,6 +157,14 @@ export default function Navbar() {
               >
                 <span>👤</span> Perfil
               </button>
+              {(user.role === "master" || user.role === "contabilidad") && (
+                <button
+                  onClick={() => window.open("https://xticket.x-cargo.co/login?redirect=/dashboard", "_blank")}
+                  className="dropdown-item"
+                >
+                  <span>🎟️</span> Solicitudes
+                </button>
+              )}
               <button
                 onClick={() => navigate("/cambiar-clave")}
                 className="dropdown-item"
@@ -235,6 +243,17 @@ export default function Navbar() {
         </div>
 
         <div className="mobile-menu-footer">
+          {(user.role === "master" || user.role === "contabilidad") && (
+            <button
+              onClick={() => {
+                window.open("https://xticket.x-cargo.co/login?redirect=/dashboard", "_blank");
+                setMobileMenuOpen(false);
+              }}
+              className="mobile-menu-action"
+            >
+              <span>🎟️</span> Solicitudes
+            </button>
+          )}
           <button
             onClick={() => {
               navigate("/cambiar-clave");

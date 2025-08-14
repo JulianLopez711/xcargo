@@ -1,3 +1,8 @@
+
+# Cargar variables de entorno desde .env
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
