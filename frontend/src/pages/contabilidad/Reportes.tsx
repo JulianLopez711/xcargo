@@ -47,7 +47,6 @@ interface EstadisticasReporte {
   total_registros: number;
   total_valor: number;
   total_valor_tn: number;
-  total_saldo: number;
   valor_promedio: number;
 }
 
@@ -451,7 +450,6 @@ export default function ReportesContabilidad() {
         total_registros: reportesProcesados.length,
         total_valor: reportesProcesados.reduce((sum, r) => sum + r.valor_individual, 0),
         total_valor_tn: reportesProcesados.reduce((sum, r) => sum + r.valor_tn, 0),
-        total_saldo: reportesProcesados.reduce((sum, r) => sum + r.saldo_individual, 0),
         valor_promedio: reportesProcesados.length > 0 
           ? reportesProcesados.reduce((sum, r) => sum + r.valor_individual, 0) / reportesProcesados.length 
           : 0
@@ -686,8 +684,8 @@ export default function ReportesContabilidad() {
           const soporte = `APP-${pago.referencia_pago || ''}`; // Usar referencia_pago como soporte
           const cliente = pago.cliente || ''; // Ahora usar el campo cliente correcto del backend
           const carrier = pago.carrier || '';
-          const valorTN = 0; // No está disponible en estos datos
-          const saldo = 0; // No está disponible en estos datos
+          const valorTN = pago.valor_tn || 0; // Usar el valor_tn real del backend
+          const saldo = pago.valor_tn || 0; // Usar la misma información que valor_tn
           
           return `"${tracking}","${fecha}",${valor},"${tipo}","${soporte}","${cliente}","${carrier}",${valorTN},${saldo}`;
         })
@@ -837,13 +835,7 @@ export default function ReportesContabilidad() {
             </div>
           </div>
           
-          <div className="stat-card">
-            <div className="stat-icon purple">💳</div>
-            <div className="stat-content">
-              <div className="stat-number">{formatearMoneda((estadisticasGlobales || estadisticas)!.total_saldo)}</div>
-              <div className="stat-label">Saldo Total</div>
-            </div>
-          </div>
+
         </div>
       </div>
     );
@@ -1111,7 +1103,6 @@ export default function ReportesContabilidad() {
                   <th>CLIENTE</th>
                   <th>CARRIER</th>
                   <th>SALDO TN</th>
-                  <th>SALDO TOTAL</th>
                   <th>ESTADO</th>
                 </tr>
               </thead>
@@ -1163,15 +1154,6 @@ export default function ReportesContabilidad() {
                       <span className="saldo-individual">
                         {formatearMoneda(reporte.saldo_individual)}
                       </span>
-                    </td>
-                    <td className="saldo-total-cell">
-                      {reporte.es_primer_tracking ? (
-                        <span className="saldo-total">
-                          {formatearMoneda(reporte.saldo_total_pago)}
-                        </span>
-                      ) : (
-                        <span className="saldo-continuacion">⋮</span>
-                      )}
                     </td>
                     <td className="estado-cell">
                       <span className="estado-badge">{getEstadoTexto(reporte.estado_conciliacion)}</span>

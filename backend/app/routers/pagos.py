@@ -1172,41 +1172,46 @@ def obtener_pagos_pendientes_contabilidad(
 
         count_query = f"""
             SELECT COUNT(*) as total
-            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
-            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
-                ON pc.tracking = cod.tracking_number
-            LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
-                ON pc.tracking = gl.tracking_number
-            {where_clause}
+            FROM (
+                SELECT pc.Id_Transaccion, pc.tracking, pc.referencia_pago
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+                LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
+                    ON pc.tracking = cod.tracking_number
+                LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+                    ON pc.tracking = gl.tracking_number
+                {where_clause}
+                GROUP BY pc.Id_Transaccion, pc.tracking, pc.referencia_pago
+            ) as grouped_results
             """
 
 
         main_query = f"""
         SELECT 
             pc.referencia_pago,
-            pc.correo as correo_conductor,
-            pc.fecha_pago AS fecha,
-            pc.valor AS valor,
-            pc.entidad AS entidad,
-            pc.tipo AS tipo,
-            pc.comprobante AS imagen,
-            1 AS num_guias,
+            MAX(pc.correo) as correo_conductor,
+            MAX(pc.fecha_pago) AS fecha,
+            MAX(pc.valor_total_consignacion) AS valor,
+            MAX(pc.entidad) AS entidad,
+            MAX(pc.tipo) AS tipo,
+            MAX(pc.comprobante) AS imagen,
+            COUNT(*) AS num_comprobantes,
             pc.tracking AS trackings_preview,
-            pc.estado_conciliacion as estado_conciliacion,
-            pc.novedades as novedades,
-            pc.creado_en as fecha_creacion,
-            pc.modificado_en as fecha_modificacion,
-            COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier,
-            COALESCE(cod.Cliente, gl.cliente, pc.cliente, 'N/A') as cliente,
-            pc.Id_Transaccion as Id_Transaccion,
-            pc.valor_total_consignacion as valor_total_consignacion
+            MAX(pc.estado_conciliacion) as estado_conciliacion,
+            MAX(pc.novedades) as novedades,
+            MAX(pc.creado_en) as fecha_creacion,
+            MAX(pc.modificado_en) as fecha_modificacion,
+            MAX(COALESCE(cod.Carrier, gl.carrier, 'N/A')) as carrier,
+            MAX(COALESCE(cod.Cliente, gl.cliente, pc.cliente, 'N/A')) as cliente,
+            MAX(COALESCE(cod.Valor, gl.valor_guia, 0)) as valor_tn,
+            pc.Id_Transaccion as Id_Transaccion
         FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
         LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
             ON pc.tracking = cod.tracking_number
         LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
             ON pc.tracking = gl.tracking_number
         {where_clause}
-        ORDER BY pc.fecha_pago DESC, pc.creado_en DESC, pc.referencia_pago, pc.tracking
+        GROUP BY pc.Id_Transaccion, pc.tracking, pc.referencia_pago
+        ORDER BY MAX(pc.fecha_pago) DESC, MAX(pc.creado_en) DESC, pc.referencia_pago, pc.tracking
         LIMIT {limit}
         OFFSET {offset}
         """
@@ -1238,13 +1243,14 @@ def obtener_pagos_pendientes_contabilidad(
                 "tipo": str(row.get("tipo", "")),
                 "imagen": str(row.get("imagen", "")),
                 "novedades": str(row.get("novedades", "")),
-                "num_guias": int(row.get("num_guias", 0)),
+                "num_guias": int(row.get("num_comprobantes", 0)),
                 "trackings_preview": trackings_preview,
                 "correo_conductor": str(row.get("correo_conductor", "")),
                 "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
                 "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
                 "carrier": str(row.get("carrier", "N/A")),
                 "cliente": str(row.get("cliente", "N/A")),
+                "valor_tn": float(row.get("valor_tn", 0)) if row.get("valor_tn") else 0.0,
                 "Id_Transaccion": row.get("Id_Transaccion", None)
             })
 
