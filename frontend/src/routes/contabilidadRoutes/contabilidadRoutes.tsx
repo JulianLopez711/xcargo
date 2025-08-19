@@ -6,4 +6,5 @@ export const contabilidadRoutes = [
   { name: "Cruces", path: "/contabilidad/cruces" },
   { name: "Liquidacion", path: "/contabilidad/entregas" },
   { name: "Historial", path: "/contabilidad/historial" },
+  { name: "Reportes", path: "/contabilidad/reportes" },
 ];
