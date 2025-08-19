@@ -19,6 +19,24 @@
   justify-content: center;
 }
 
+/* Agregar a tu archivo CSS */
+.pago-grupo {
+  background-color: #f8f9fa;
+  border-left: 3px solid #007bff;
+}
+
+.referencia-agrupada {
+  word-break: break-all;
+  line-height: 1.2;
+}
+
+.grupo-indicador {
+  font-size: 0.7rem;
+  color: #007bff;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
 .pagos-filtros input,
 .pagos-filtros select {
   padding: 0.5rem;

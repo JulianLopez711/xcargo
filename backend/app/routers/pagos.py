@@ -127,7 +127,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
             detail=f"Error guardando comprobante de pago: {str(e)}"
         )
 
-@router.post("/registrar-conductor")
+
 
 @router.post("/registrar-conductor")
 async def registrar_pago_conductor(
@@ -240,31 +240,35 @@ async def registrar_pago_conductor(
 
         # PASO 5: Obtener información de clientes desde COD_pendientes_v1
         referencias_guias = [str(guia.get("referencia", "")).strip() for guia in lista_guias if guia.get("referencia")]
-        
+
         if not referencias_guias:
             raise HTTPException(status_code=400, detail="No se encontraron referencias válidas en las guías")
 
-        
         refs_str = "', '".join(referencias_guias)
-        
+
+        # 🔥 CORREGIDO: Usar el campo correcto 'Valor' (mayúscula) según la estructura de la tabla
         query_clientes = f"""
-            SELECT tracking_number as referencia, cliente, valor_guia as valor
+            SELECT tracking_number as referencia, Cliente as cliente, Valor as valor
             FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
             WHERE tracking_number IN ('{refs_str}')
         """
 
-        
         try:
             resultado_clientes = client.query(query_clientes).result()
             clientes_data = {
                 row["referencia"]: {
-                    "cliente": row["cliente"],  # 🔥 CORREGIDO: cambiado de "Cliente" a "cliente"
-                    "valor": row["valor"]
+                    "cliente": row["cliente"],
+                    "valor": row["valor"]  # 🔥 Este será el valor de COD_pendientes_v1.Valor
                 } for row in resultado_clientes
             }
             
-        except Exception as e:
+            # 🔥 NUEVO: Logging para verificar que se obtuvieron datos de BD
+            logger.info(f"📊 Referencias encontradas en COD_pendientes_v1: {len(clientes_data)}")
+            for ref, data in clientes_data.items():
+                logger.info(f"✅ {ref}: Cliente={data['cliente']}, Valor BD={data['valor']}")
             
+        except Exception as e:
+            logger.error(f"❌ Error consultando COD_pendientes_v1: {e}")
             clientes_data = {}
 
 
@@ -343,14 +347,20 @@ async def registrar_pago_conductor(
             referencia_value = str(guia.get("referencia", "")).strip()
             if not referencia_value:
                 continue
-            # Obtener datos del cliente
+            
+            # 🔥 MODIFICACIÓN PRINCIPAL: SIEMPRE usar valor de BD, nunca del frontend
             if referencia_value in clientes_data:
                 cliente_clean = clientes_data[referencia_value]["cliente"] or "Sin Cliente"
                 valor_individual = float(clientes_data[referencia_value]["valor"] or 0)
+                logger.info(f"✅ Usando valor BD para {referencia_value}: {valor_individual}")
             else:
+                # 🔥 Si no está en BD, usar 0 en lugar del valor del frontend
                 cliente_clean = "Sin Cliente"
-                valor_individual = float(guia.get("valor", 0))
+                valor_individual = 0.0  # 🔥 CAMBIO: Ya no usa guia.get("valor", 0)
+                logger.warning(f"⚠️ Referencia {referencia_value} NO encontrada en COD_pendientes_v1, usando valor 0")
+           
             # Procesar tracking
+           
             tracking_value = guia.get("tracking", "")
             if not tracking_value or str(tracking_value).lower() in ["null", "none", "", "undefined"]:
                 tracking_clean = referencia_value
@@ -1623,8 +1633,7 @@ def obtener_pagos_pendientes_contabilidad(
                 MAX(bm.fecha) AS fecha_movimiento_banco,      -- 🔥 NUEVO (opcional)
                 MAX(bm.descripcion) AS descripcion_banco,     -- 🔥 NUEVO (opcional)
 
-                -- 🔥 NUEVO: Agregar id_banco_asociado
-                MAX(pc.id_banco_asociado) AS id_banco_asociado,
+
                 
                 -- 🔥 INDICADOR DE AGRUPACIÓN - Usar la lógica correcta
                 CASE 
@@ -1879,16 +1888,16 @@ def rechazar_pago(payload: dict):
     Rechaza un pago cambiando su estado a rechazado y agregando la novedad
     """
     referencia_pago = payload.get("referencia_pago")
+    id_transaccion = payload.get("id_transaccion")
     novedad = payload.get("novedad")
     modificado_por = payload.get("modificado_por")
 
-    if not referencia_pago or not novedad or not modificado_por:
+    if (not referencia_pago and not id_transaccion) or not novedad or not modificado_por:
         raise HTTPException(
             status_code=400,
-            detail="Faltan campos requeridos (referencia_pago, novedad, modificado_por)"
+            detail="Faltan campos requeridos (referencia_pago o id_transaccion, novedad, modificado_por)"
         )
 
-    # Validar que la novedad no esté vacía
     if not novedad.strip():
         raise HTTPException(
             status_code=400,
@@ -1897,98 +1906,191 @@ def rechazar_pago(payload: dict):
 
     try:
         client = get_bigquery_client()
-        
-        # Verificar que el pago existe y puede ser rechazado
-        verificacion_query = """
-        SELECT COUNT(*) as total, MAX(estado_conciliacion) as estado_actual
-        FROM `{project}.{dataset}.pagosconductor`
-        WHERE referencia_pago = @referencia
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
-        
-        job_config_verificacion = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
-            ]
-        )
-        
-        resultado_verificacion = client.query(verificacion_query, job_config=job_config_verificacion).result()
-        fila_verificacion = next(resultado_verificacion)
-        
-        if fila_verificacion["total"] == 0:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No se encontró el pago con referencia {referencia_pago}"
-            )
-        
-        estado_actual = fila_verificacion["estado_actual"]
-        if estado_actual in ["rechazado", "conciliado_manual", "conciliado_automatico"]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"El pago no puede ser rechazado (estado actual: {estado_actual})"
-            )
-        
-        timestamp_actual = datetime.now()
-        
-        # Actualizar el estado del pago
-        query_rechazar = """
-        UPDATE `{project}.{dataset}.pagosconductor`
-        SET estado_conciliacion = 'rechazado',
-            novedades = CONCAT('RECHAZADO: ', @novedad, ' | Por: ', @modificado_por, ' el ', FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', @timestamp_modificacion)),
-            modificado_por = @modificado_por,
-            modificado_en = @timestamp_modificacion
-        WHERE referencia_pago = @referencia_pago
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
+        # Si se envía id_transaccion, priorizarlo
+        if id_transaccion is not None:
+            # Validar que todos los pagos del grupo puedan ser rechazados
+            verificacion_query = f"""
+                SELECT COUNT(*) as total, COUNTIF(estado_conciliacion IN ('rechazado', 'conciliado_manual', 'conciliado_automatico')) as no_rechazables
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                WHERE Id_Transaccion = @id_transaccion
+            """
+            job_config_verificacion = bigquery.QueryJobConfig(query_parameters=[
+                bigquery.ScalarQueryParameter("id_transaccion", "INT64", id_transaccion)
+            ])
+            resultado_verificacion = client.query(verificacion_query, job_config=job_config_verificacion).result()
+            fila_verificacion = next(resultado_verificacion)
+            if fila_verificacion["total"] == 0:
+                raise HTTPException(status_code=404, detail=f"No se encontró ningún pago con Id_Transaccion {id_transaccion}")
+            if fila_verificacion["no_rechazables"] > 0:
+                raise HTTPException(status_code=400, detail="No se puede rechazar porque uno o más pagos del grupo ya están rechazados o conciliados")
 
-        job_config_rechazar = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
+            # Actualizar todos los pagos con ese Id_Transaccion
+            query_rechazar = f"""
+                UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                SET estado_conciliacion = 'rechazado',
+                    novedades = CONCAT('RECHAZADO: ', @novedad, ' | Por: ', @modificado_por, ' el ', FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', @timestamp_modificacion)),
+                    modificado_por = @modificado_por,
+                    modificado_en = @timestamp_modificacion
+                WHERE Id_Transaccion = @id_transaccion
+            """
+            job_config_rechazar = bigquery.QueryJobConfig(query_parameters=[
+                bigquery.ScalarQueryParameter("id_transaccion", "INT64", id_transaccion),
                 bigquery.ScalarQueryParameter("novedad", "STRING", novedad.strip()),
                 bigquery.ScalarQueryParameter("modificado_por", "STRING", modificado_por),
-                bigquery.ScalarQueryParameter("timestamp_modificacion", "TIMESTAMP", timestamp_actual),
-            ]
-        )
+                bigquery.ScalarQueryParameter("timestamp_modificacion", "TIMESTAMP", datetime.now()),
+            ])
+            job = client.query(query_rechazar, job_config=job_config_rechazar)
+            job.result()
 
-        # Ejecutar la actualización
-        job = client.query(query_rechazar, job_config=job_config_rechazar)
-        job.result()  # Esperar a que termine
+            # Contar cuántas guías fueron afectadas
+            conteo_query = f"""
+                SELECT COUNT(*) as total_guias
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                WHERE Id_Transaccion = @id_transaccion
+            """
+            job_config_conteo = bigquery.QueryJobConfig(query_parameters=[
+                bigquery.ScalarQueryParameter("id_transaccion", "INT64", id_transaccion)
+            ])
+            resultado_conteo = client.query(conteo_query, job_config=job_config_conteo).result()
+            total_guias = next(resultado_conteo)["total_guias"]
 
-        # Contar cuántas guías fueron afectadas
-        conteo_query = """
-        SELECT COUNT(*) as total_guias
-        FROM `{project}.{dataset}.pagosconductor`
-        WHERE referencia_pago = @referencia
-        """.format(project=PROJECT_ID, dataset=DATASET_CONCILIACIONES)
-        
-        job_config_conteo = bigquery.QueryJobConfig(
-            query_parameters=[
+            return {
+                "mensaje": f"Pagos con Id_Transaccion {id_transaccion} rechazados exitosamente",
+                "Id_Transaccion": id_transaccion,
+                "novedad": novedad,
+                "total_guias": total_guias,
+                "modificado_por": modificado_por,
+                "timestamp": datetime.now().isoformat(),
+                "nuevo_estado": "rechazado"
+            }
+        else:
+            # Buscar el Id_Transaccion de la referencia
+            query_id_trans = f"""
+                SELECT Id_Transaccion FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                WHERE referencia_pago = @referencia
+                LIMIT 1
+            """
+            job_config_id = bigquery.QueryJobConfig(query_parameters=[
                 bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
-            ]
-        )
-        
-        resultado_conteo = client.query(conteo_query, job_config=job_config_conteo).result()
-        total_guias = next(resultado_conteo)["total_guias"]
+            ])
+            result_id = client.query(query_id_trans, job_config=job_config_id).result()
+            row_id = next(result_id, None)
+            id_trans = row_id.Id_Transaccion if row_id else None
 
-        
+            if id_trans is not None:
+                # Validar que todos los pagos del grupo puedan ser rechazados
+                verificacion_query = f"""
+                    SELECT COUNT(*) as total, COUNTIF(estado_conciliacion IN ('rechazado', 'conciliado_manual', 'conciliado_automatico')) as no_rechazables
+                    FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                    WHERE Id_Transaccion = @id_transaccion
+                """
+                job_config_verificacion = bigquery.QueryJobConfig(query_parameters=[
+                    bigquery.ScalarQueryParameter("id_transaccion", "INT64", id_trans)
+                ])
+                resultado_verificacion = client.query(verificacion_query, job_config=job_config_verificacion).result()
+                fila_verificacion = next(resultado_verificacion)
+                if fila_verificacion["total"] == 0:
+                    raise HTTPException(status_code=404, detail=f"No se encontró ningún pago con Id_Transaccion {id_trans}")
+                if fila_verificacion["no_rechazables"] > 0:
+                    raise HTTPException(status_code=400, detail="No se puede rechazar porque uno o más pagos del grupo ya están rechazados o conciliados")
 
-        return {
-            "mensaje": f"Pago con referencia {referencia_pago} rechazado exitosamente",
-            "referencia_pago": referencia_pago,
-            "novedad": novedad,
-            "total_guias": total_guias,
-            "modificado_por": modificado_por,
-            "timestamp": timestamp_actual.isoformat(),
-            "nuevo_estado": "rechazado"
-        }
+                # Actualizar todos los pagos con ese Id_Transaccion
+                query_rechazar = f"""
+                    UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                    SET estado_conciliacion = 'rechazado',
+                        novedades = CONCAT('RECHAZADO: ', @novedad, ' | Por: ', @modificado_por, ' el ', FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', @timestamp_modificacion)),
+                        modificado_por = @modificado_por,
+                        modificado_en = @timestamp_modificacion
+                    WHERE Id_Transaccion = @id_transaccion
+                """
+                job_config_rechazar = bigquery.QueryJobConfig(query_parameters=[
+                    bigquery.ScalarQueryParameter("id_transaccion", "INT64", id_trans),
+                    bigquery.ScalarQueryParameter("novedad", "STRING", novedad.strip()),
+                    bigquery.ScalarQueryParameter("modificado_por", "STRING", modificado_por),
+                    bigquery.ScalarQueryParameter("timestamp_modificacion", "TIMESTAMP", datetime.now()),
+                ])
+                job = client.query(query_rechazar, job_config=job_config_rechazar)
+                job.result()
 
+                conteo_query = f"""
+                    SELECT COUNT(*) as total_guias
+                    FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                    WHERE Id_Transaccion = @id_transaccion
+                """
+                job_config_conteo = bigquery.QueryJobConfig(query_parameters=[
+                    bigquery.ScalarQueryParameter("id_transaccion", "INT64", id_trans)
+                ])
+                resultado_conteo = client.query(conteo_query, job_config=job_config_conteo).result()
+                total_guias = next(resultado_conteo)["total_guias"]
+
+                return {
+                    "mensaje": f"Pagos con Id_Transaccion {id_trans} rechazados exitosamente",
+                    "Id_Transaccion": id_trans,
+                    "novedad": novedad,
+                    "total_guias": total_guias,
+                    "modificado_por": modificado_por,
+                    "timestamp": datetime.now().isoformat(),
+                    "nuevo_estado": "rechazado"
+                }
+            else:
+                # Comportamiento original: solo por referencia_pago
+                verificacion_query = f"""
+                    SELECT COUNT(*) as total, MAX(estado_conciliacion) as estado_actual
+                    FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                    WHERE referencia_pago = @referencia
+                """
+                job_config_verificacion = bigquery.QueryJobConfig(query_parameters=[
+                    bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
+                ])
+                resultado_verificacion = client.query(verificacion_query, job_config=job_config_verificacion).result()
+                fila_verificacion = next(resultado_verificacion)
+                if fila_verificacion["total"] == 0:
+                    raise HTTPException(status_code=404, detail=f"No se encontró el pago con referencia {referencia_pago}")
+                estado_actual = fila_verificacion["estado_actual"]
+                if estado_actual in ["rechazado", "conciliado_manual", "conciliado_automatico"]:
+                    raise HTTPException(status_code=400, detail=f"El pago no puede ser rechazado (estado actual: {estado_actual})")
+
+                query_rechazar = f"""
+                    UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                    SET estado_conciliacion = 'rechazado',
+                        novedades = CONCAT('RECHAZADO: ', @novedad, ' | Por: ', @modificado_por, ' el ', FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', @timestamp_modificacion)),
+                        modificado_por = @modificado_por,
+                        modificado_en = @timestamp_modificacion
+                    WHERE referencia_pago = @referencia_pago
+                """
+                job_config_rechazar = bigquery.QueryJobConfig(query_parameters=[
+                    bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago),
+                    bigquery.ScalarQueryParameter("novedad", "STRING", novedad.strip()),
+                    bigquery.ScalarQueryParameter("modificado_por", "STRING", modificado_por),
+                    bigquery.ScalarQueryParameter("timestamp_modificacion", "TIMESTAMP", datetime.now()),
+                ])
+                job = client.query(query_rechazar, job_config=job_config_rechazar)
+                job.result()
+
+                conteo_query = f"""
+                    SELECT COUNT(*) as total_guias
+                    FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                    WHERE referencia_pago = @referencia
+                """
+                job_config_conteo = bigquery.QueryJobConfig(query_parameters=[
+                    bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
+                ])
+                resultado_conteo = client.query(conteo_query, job_config=job_config_conteo).result()
+                total_guias = next(resultado_conteo)["total_guias"]
+
+                return {
+                    "mensaje": f"Pago con referencia {referencia_pago} rechazado exitosamente",
+                    "referencia_pago": referencia_pago,
+                    "novedad": novedad,
+                    "total_guias": total_guias,
+                    "modificado_por": modificado_por,
+                    "timestamp": datetime.now().isoformat(),
+                    "nuevo_estado": "rechazado"
+                }
     except HTTPException:
-        # Re-lanzar HTTPExceptions
         raise
     except Exception as e:
-        
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Error interno del servidor: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error interno del servidor: {str(e)}")
 
 async def notificar_error_bono(correo: str, excedente: float, razon: str):
     """
@@ -2189,6 +2291,7 @@ def exportar_todos_pagos_pendientes_contabilidad(
     Exporta TODOS los pagos pendientes de contabilidad que coincidan con los filtros (sin paginación)
     ✅ ACTUALIZADO: Usa exactamente los mismos filtros que obtener_pagos_pendientes_contabilidad
     ✅ NUEVO: Agrupa por Id_Transaccion cuando existe, o por referencia individual
+    ✅ INCLUYE: Todas las columnas de banco asociado (id_banco_asociado, valor_banco_asociado, etc.)
     """
     try:
         client = get_bigquery_client()
@@ -2285,7 +2388,7 @@ def exportar_todos_pagos_pendientes_contabilidad(
         SELECT 
             CASE 
                 WHEN pc.Id_Transaccion IS NOT NULL THEN CAST(pc.Id_Transaccion AS STRING)
-                ELSE pc.referencia_pago
+                ELSE CONCAT(pc.referencia_pago, '|', pc.correo, '|', CAST(pc.fecha_pago AS STRING))
             END as grupo_id,
             
             -- 🔥 REFERENCIAS AGRUPADAS
@@ -2323,7 +2426,12 @@ def exportar_todos_pagos_pendientes_contabilidad(
             MAX(pc.modificado_en) as fecha_modificacion,
             MAX(COALESCE(cod.Carrier, gl.carrier, 'N/A')) as carrier,
             MAX(pc.Id_Transaccion) AS Id_Transaccion,
-            
+            -- 🔥 CAMPOS DE BANCO ASOCIADO COMPLETOS
+            MAX(pc.id_banco_asociado) AS id_banco_asociado,
+            MAX(bm.valor_banco) AS valor_banco_asociado,
+            MAX(bm.fecha) AS fecha_movimiento_banco,
+            MAX(bm.descripcion) AS descripcion_banco,
+
             CASE 
                 WHEN pc.Id_Transaccion IS NOT NULL AND COUNT(DISTINCT pc.referencia) > 1 
                 THEN true 
@@ -2335,6 +2443,9 @@ def exportar_todos_pagos_pendientes_contabilidad(
             ON pc.tracking = cod.tracking_number
         LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
             ON pc.tracking = gl.tracking_number
+        -- 🔥 AGREGADO: JOIN CON TABLA DE MOVIMIENTOS BANCARIOS
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos` bm 
+            ON pc.id_banco_asociado = bm.id
         {where_clause}
         GROUP BY grupo_id, pc.Id_Transaccion
         ORDER BY MAX(pc.fecha_pago) DESC, MAX(pc.creado_en) DESC
@@ -2378,7 +2489,12 @@ def exportar_todos_pagos_pendientes_contabilidad(
                 "fecha_creacion": row.get("fecha_creacion").isoformat() if row.get("fecha_creacion") else None,
                 "fecha_modificacion": row.get("fecha_modificacion").isoformat() if row.get("fecha_modificacion") else None,
                 "carrier": str(row.get("carrier", "N/A")),
-                "Id_Transaccion": row.get("Id_Transaccion", None)
+                "Id_Transaccion": row.get("Id_Transaccion", None),
+                # 🔥 AGREGADO: Campos de banco en la respuesta
+                "id_banco_asociado": row.get("id_banco_asociado", None),
+                "valor_banco_asociado": float(row.get("valor_banco_asociado", 0)) if row.get("valor_banco_asociado") else None,
+                "fecha_movimiento_banco": str(row.get("fecha_movimiento_banco", "")) if row.get("fecha_movimiento_banco") else None,
+                "descripcion_banco": str(row.get("descripcion_banco", "")) if row.get("descripcion_banco") else None
             }
             pagos_exportar.append(pago)
         
@@ -2457,6 +2573,414 @@ def debug_verificar_referencia(referencia: str):
                 "fecha_creacion": row.fecha_creacion.isoformat() if row.fecha_creacion else None
             }
             resultados.append(resultado)
+        
+        return {
+            "referencia_buscada": referencia,
+            "total_encontradas": len(resultados),
+            "resultados": resultados,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en debug verificar referencia: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error verificando referencia: {str(e)}"
+        )
+
+@router.get("/estadisticas-pendientes-contabilidad")
+def obtener_estadisticas_pendientes_contabilidad(
+    referencia: Optional[str] = Query(None, description="Filtrar por referencia de pago"),
+    estado: Optional[List[str]] = Query(None, description="Filtrar por uno o varios estados de conciliación"),
+    fecha_desde: Optional[str] = Query(None, description="Fecha desde (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(None, description="Fecha hasta (YYYY-MM-DD)"),
+    tracking: Optional[str] = Query(None, description="Filtrar por tracking"),
+    carrier: Optional[str] = Query(None, description="Filtrar por carrier"),
+    cliente: Optional[str] = Query(None, description="Filtrar por cliente"),
+    tipo: Optional[str] = Query(None, description="Filtrar por tipo"),
+    id_transaccion: Optional[str] = Query(None, description="Filtrar por ID de transacción")
+):
+    """
+    Obtiene estadísticas globales de pagos pendientes de contabilidad sin paginación
+    """
+    try:
+        client = get_bigquery_client()
+
+        FECHA_MINIMA = "2025-06-09"
+        logger.info(f"🗓️ [ESTADÍSTICAS] Filtro automático aplicado: >= {FECHA_MINIMA}")
+
+        condiciones = ["1=1"]
+        parametros = []
+
+        condiciones.append("pc.fecha_pago >= @fecha_minima_auto")
+        parametros.append(
+            bigquery.ScalarQueryParameter("fecha_minima_auto", "DATE", FECHA_MINIMA)
+        )
+
+        if referencia and referencia.strip():
+            condiciones.append("referencia_pago LIKE @referencia_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("referencia_filtro", "STRING", f"%{referencia.strip()}%")
+            )
+
+        if tracking and tracking.strip():
+            condiciones.append("pc.tracking LIKE @tracking_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("tracking_filtro", "STRING", f"%{tracking.strip()}%")
+            )
+
+        if carrier and carrier.strip():
+            condiciones.append("(COALESCE(cp.Carrier, gl.carrier, 'N/A') LIKE @carrier_filtro)")
+            parametros.append(
+                bigquery.ScalarQueryParameter("carrier_filtro", "STRING", f"%{carrier.strip()}%")
+            )
+
+        if cliente and cliente.strip():
+            condiciones.append("(COALESCE(cp.Cliente, gl.client, pc.correo) LIKE @cliente_filtro)")
+            parametros.append(
+                bigquery.ScalarQueryParameter("cliente_filtro", "STRING", f"%{cliente.strip()}%")
+            )
+
+        if tipo and tipo.strip():
+            condiciones.append("pc.tipo LIKE @tipo_filtro")
+            parametros.append(
+                bigquery.ScalarQueryParameter("tipo_filtro", "STRING", f"%{tipo.strip()}%")
+            )
+
+        if fecha_desde:
+            try:
+                datetime.strptime(fecha_desde, "%Y-%m-%d")
+                condiciones.append("pc.fecha_pago >= @fecha_desde")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("fecha_desde", "DATE", fecha_desde)
+                )
+            except ValueError:
+                pass
+
+        if fecha_hasta:
+            try:
+                datetime.strptime(fecha_hasta, "%Y-%m-%d")
+                condiciones.append("pc.fecha_pago <= @fecha_hasta")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("fecha_hasta", "DATE", fecha_hasta)
+                )
+            except ValueError:
+                pass
+
+        if id_transaccion and id_transaccion.strip():
+            try:
+                id_trans_int = int(id_transaccion.strip())
+                condiciones.append("pc.Id_Transaccion = @id_transaccion_filtro")
+                parametros.append(
+                    bigquery.ScalarQueryParameter("id_transaccion_filtro", "INTEGER", id_trans_int)
+                )
+            except ValueError:
+                pass  # En estadísticas, ignoramos el error silenciosamente
+
+        if estado and len(estado) > 0:
+            placeholders = []
+            for i, e in enumerate(estado):
+                param_name = f"estado_{i}"
+                placeholders.append(f"@{param_name}")
+                parametros.append(
+                    bigquery.ScalarQueryParameter(param_name, "STRING", e.strip().lower())
+                )
+            condiciones.append(f"LOWER(pc.estado_conciliacion) IN ({', '.join(placeholders)})")
+
+        condiciones_sql = " AND ".join(condiciones)
+
+        # Query para estadísticas (COUNT, SUM)
+        estadisticas_query = f"""
+        SELECT 
+            COUNT(DISTINCT pc.referencia_pago) as total_registros,
+            ROUND(SUM(CAST(pc.valor AS FLOAT64)), 2) as total_valor,
+            ROUND(SUM(CASE 
+                WHEN pc.estado_conciliacion IN ('pendiente_conciliacion', 'conciliado_automatico') 
+                THEN COALESCE(CAST(cp.Valor AS FLOAT64), 0.0)
+                ELSE COALESCE(CAST(gl.valor_guia AS FLOAT64), 0.0)
+            END), 2) as total_valor_tn,
+            ROUND(SUM(CAST(pc.valor AS FLOAT64)) - SUM(CASE 
+                WHEN pc.estado_conciliacion IN ('pendiente_conciliacion', 'conciliado_automatico') 
+                THEN COALESCE(CAST(cp.Valor AS FLOAT64), 0.0)
+                ELSE COALESCE(CAST(gl.valor_guia AS FLOAT64), 0.0)
+            END), 2) as total_saldo
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cp 
+            ON pc.tracking = cp.tracking_number
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
+            ON pc.tracking = gl.tracking_number
+        WHERE {condiciones_sql}
+        """
+
+        job_config = bigquery.QueryJobConfig(query_parameters=parametros)
+        query_job = client.query(estadisticas_query, job_config=job_config)
+        resultados = list(query_job.result())
+
+        if resultados:
+            estadisticas = resultados[0]
+            return {
+                "total_registros": estadisticas.total_registros or 0,
+                "total_valor": estadisticas.total_valor or 0.0,
+                "total_valor_tn": estadisticas.total_valor_tn or 0.0,
+                "total_saldo": estadisticas.total_saldo or 0.0
+            }
+        else:
+            return {
+                "total_registros": 0,
+                "total_valor": 0.0,
+                "total_valor_tn": 0.0,
+                "total_saldo": 0.0
+            }
+
+    except Exception as e:
+        logger.error("❌ Error en /estadisticas-pendientes-contabilidad:\n%s", traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno del servidor: {str(e)}"
+        )
+
+@router.get("/valores-tn-reales")
+def obtener_valores_tn_reales(
+    trackings: str = Query(..., description="Lista de trackings separados por coma"),
+    estado_conciliacion: str = Query(..., description="Estado de conciliación del pago")
+):
+    """
+    Obtiene los valores reales de TN desde COD_pendientes o guias_liquidacion según el estado
+    """
+    try:
+        client = get_bigquery_client()
+        
+        # Convertir string de trackings a lista
+        lista_trackings = [t.strip() for t in trackings.split(',') if t.strip()]
+        
+        if not lista_trackings:
+            raise HTTPException(status_code=400, detail="No se proporcionaron trackings válidos")
+        
+        # Crear placeholder para IN clause
+        trackings_placeholder = "', '".join(lista_trackings)
+        
+        valores_tn = {}
+        
+        if estado_conciliacion == 'pendiente_conciliacion':
+            # Buscar en COD_pendientes_v1
+            query = f"""
+            SELECT 
+                tracking_number as tracking,
+                Valor as valor_tn,
+                Cliente as cliente,
+                Carrier as carrier
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
+            WHERE tracking_number IN ('{trackings_placeholder}')
+            """
+            
+            logger.info(f"🔍 Buscando valores TN en COD_pendientes_v1 para trackings: {lista_trackings}")
+            
+        else:
+            # Buscar en guias_liquidacion para estados procesados
+            query = f"""
+            SELECT 
+                tracking_number as tracking,
+                valor_guia as valor_tn,
+                cliente,
+                carrier
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion`
+            WHERE tracking_number IN ('{trackings_placeholder}')
+            """
+            
+            logger.info(f"🔍 Buscando valores TN en guias_liquidacion para trackings: {lista_trackings}")
+        
+        results = client.query(query).result()
+        
+        # Procesar resultados
+        for row in results:
+            valores_tn[row.tracking] = {
+                "valor_tn": float(row.valor_tn) if row.valor_tn else 0.0,
+                "cliente": row.cliente if hasattr(row, 'cliente') and row.cliente else "Cliente General",
+                "carrier": row.carrier if hasattr(row, 'carrier') and row.carrier else "N/A",
+                "fuente": "COD_pendientes_v1" if estado_conciliacion == 'pendiente_conciliacion' else "guias_liquidacion"
+            }
+        
+        # Para trackings no encontrados, buscar en la otra tabla como fallback
+        trackings_no_encontrados = [t for t in lista_trackings if t not in valores_tn]
+        
+        if trackings_no_encontrados:
+            logger.info(f"🔄 Buscando trackings faltantes en tabla alternativa: {trackings_no_encontrados}")
+            
+            trackings_fallback_placeholder = "', '".join(trackings_no_encontrados)
+            
+            if estado_conciliacion == 'pendiente_conciliacion':
+                # Buscar en guias_liquidacion como fallback
+                query_fallback = f"""
+                SELECT 
+                    tracking_number as tracking,
+                    valor_guia as valor_tn,
+                    cliente,
+                    carrier
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion`
+                WHERE tracking_number IN ('{trackings_fallback_placeholder}')
+                """
+                fuente_fallback = "guias_liquidacion"
+            else:
+                # Buscar en COD_pendientes_v1 como fallback
+                query_fallback = f"""
+                SELECT 
+                    tracking_number as tracking,
+                    Valor as valor_tn,
+                    Cliente as cliente,
+                    Carrier as carrier
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
+                WHERE tracking_number IN ('{trackings_fallback_placeholder}')
+                """
+                fuente_fallback = "COD_pendientes_v1"
+            
+            results_fallback = client.query(query_fallback).result()
+            
+            for row in results_fallback:
+                if row.tracking not in valores_tn:  # Solo agregar si no existe
+                    valores_tn[row.tracking] = {
+                        "valor_tn": float(row.valor_tn) if row.valor_tn else 0.0,
+                        "cliente": row.cliente if hasattr(row, 'cliente') and row.cliente else "Cliente General",
+                        "carrier": row.carrier if hasattr(row, 'carrier') and row.carrier else "N/A",
+                        "fuente": fuente_fallback + "_fallback"
+                    }
+        
+        # Para trackings aún no encontrados, asignar valor 0
+        for tracking in lista_trackings:
+            if tracking not in valores_tn:
+                valores_tn[tracking] = {
+                    "valor_tn": 0.0,
+                    "cliente": "Cliente General",
+                    "carrier": "N/A",
+                    "fuente": "no_encontrado"
+                }
+        
+        logger.info(f"✅ Valores TN obtenidos: {len(valores_tn)} de {len(lista_trackings)} trackings")
+        
+        return {
+            "valores_tn": valores_tn,
+            "total_trackings": len(lista_trackings),
+            "encontrados": len([v for v in valores_tn.values() if v["fuente"] != "no_encontrado"]),
+            "estado_consultado": estado_conciliacion,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error obteniendo valores TN reales: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo valores TN: {str(e)}"
+        )
+
+
+# Endpoint para debugging - verificar datos de banco
+@router.get("/debug/verificar-banco")
+def debug_verificar_banco():
+    """
+    Endpoint de debugging para verificar los datos de banco asociado
+    """
+    try:
+        client = get_bigquery_client()
+        
+        # Verificar registros con id_banco_asociado
+        query_pagos_con_banco = f"""
+        SELECT 
+            referencia_pago,
+            id_banco_asociado,
+            valor_total_consignacion,
+            fecha_pago,
+            correo
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        WHERE id_banco_asociado IS NOT NULL
+        ORDER BY fecha_pago DESC
+        LIMIT 10
+        """
+        
+        # Verificar estructura de tabla banco_movimientos
+        query_banco_estructura = f"""
+        SELECT 
+            id,
+            valor_banco,
+            fecha,
+            descripcion
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
+        LIMIT 5
+        """
+        
+        # Verificar JOIN real
+        query_join_test = f"""
+        SELECT 
+            pc.referencia_pago,
+            pc.id_banco_asociado,
+            bm.id as banco_id,
+            bm.valor_banco,
+            bm.fecha as fecha_banco,
+            bm.descripcion
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos` bm 
+            ON pc.id_banco_asociado = bm.id
+        WHERE pc.id_banco_asociado IS NOT NULL
+        ORDER BY pc.fecha_pago DESC
+        LIMIT 10
+        """
+        
+        results_pagos = list(client.query(query_pagos_con_banco).result())
+        results_banco = list(client.query(query_banco_estructura).result())
+        results_join = list(client.query(query_join_test).result())
+        
+        pagos_con_banco = []
+        for row in results_pagos:
+            pagos_con_banco.append({
+                "referencia_pago": row.referencia_pago,
+                "id_banco_asociado": row.id_banco_asociado,
+                "valor_total_consignacion": float(row.valor_total_consignacion) if row.valor_total_consignacion else None,
+                "fecha_pago": str(row.fecha_pago),
+                "correo": row.correo
+            })
+        
+        banco_estructura = []
+        for row in results_banco:
+            banco_estructura.append({
+                "id": row.id,
+                "valor_banco": float(row.valor_banco) if row.valor_banco else None,
+                "fecha": str(row.fecha) if row.fecha else None,
+                "descripcion": row.descripcion
+            })
+        
+        join_results = []
+        for row in results_join:
+            join_results.append({
+                "referencia_pago": row.referencia_pago,
+                "id_banco_asociado": row.id_banco_asociado,
+                "banco_id": row.banco_id,
+                "valor_banco": float(row.valor_banco) if row.valor_banco else None,
+                "fecha_banco": str(row.fecha_banco) if row.fecha_banco else None,
+                "descripcion": row.descripcion
+            })
+        
+        return {
+            "pagos_con_banco_asociado": {
+                "total": len(pagos_con_banco),
+                "registros": pagos_con_banco
+            },
+            "estructura_banco_movimientos": {
+                "total": len(banco_estructura),
+                "registros": banco_estructura
+            },
+            "test_join": {
+                "total": len(join_results),
+                "registros": join_results
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en debug verificar banco: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error verificando datos de banco: {str(e)}"
+        )
         
         return {
             "referencia_buscada": referencia,
