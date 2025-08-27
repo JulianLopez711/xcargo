@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { saveAs } from "file-saver";
 import "../../styles/contabilidad/Pagos.css";
 
@@ -33,6 +33,16 @@ interface Pago {
   valor_banco_asociado?: number | null;
   fecha_movimiento_banco?: string | null;
   descripcion_banco?: string | null;
+  // 🔥 NUEVOS CAMPOS PARA MOVIMIENTOS BANCARIOS INDIVIDUALES
+  ids_banco_asociado?: string | null;
+  num_movimientos_banco?: number;
+  movimientos_bancarios?: Array<{
+    id: number;
+    valor: number;
+    fecha: string;
+    raw?: string;
+  }>;
+  total_valor_movimientos_banco?: number;
 }
 
 interface DetalleTracking {
@@ -90,11 +100,16 @@ export default function PagosContabilidad() {
   const [novedad, setNovedad] = useState("");
   const [refPagoSeleccionada, setRefPagoSeleccionada] = useState("");
   
+  // 🔥 NUEVO: Estado para transacciones bancarias
+  const [transaccionesBancarias, setTransaccionesBancarias] = useState<{[key: string]: any[]}>({});
+  const [cargandoTransacciones, setCargandoTransacciones] = useState<{[key: string]: boolean}>({});
+  
   const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
   const [imagenesCarrusel, setImagenesCarrusel] = useState<string[]>([]);
   const [indiceImagenActual, setIndiceImagenActual] = useState(0);
   const [modalCarruselVisible, setModalCarruselVisible] = useState(false);
 
+  const [pagoSeleccionadoCompleto, setPagoSeleccionadoCompleto] = useState<Pago | null>(null);
 
   const [detalleTracking, setDetalleTracking] = useState<DetalleTracking[] | null>(null);
   const [modalDetallesVisible, setModalDetallesVisible] = useState(false);
@@ -129,6 +144,15 @@ export default function PagosContabilidad() {
     setModalCarruselVisible(false);
     setImagenesCarrusel([]);
     setIndiceImagenActual(0);
+  };
+
+  const abrirModalRechazo = (pago: Pago) => {
+  const refParaRechazo = pago.referencia_pago_principal || pago.referencia_pago;
+  console.log("🖱️ Click en botón rechazar para:", refParaRechazo);
+  setRefPagoSeleccionada(refParaRechazo);
+  setPagoSeleccionadoCompleto(pago); // 🔥 NUEVO: Guardar el pago completo
+  setModalVisible(true);
+  
   };
 
   // Función para obtener pagos con paginación y filtros
@@ -339,11 +363,16 @@ export default function PagosContabilidad() {
       return;
     }
 
-    const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Fecha_Creacion\n";
+    const encabezado = "ID,Referencia_Pago,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Fecha_Creacion,Movimientos_Bancarios_IDs,Num_Movimientos,Total_Movimientos_Banco,Novedades\n";
     const filas = pagosFiltrados
-      .map((p: Pago, idx: number) =>
-        `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${p.estado_conciliacion}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${p.creado_en || ''}"`
-      )
+      .map((p: Pago, idx: number) => {
+        // Procesar movimientos bancarios para CSV
+        const movimientosIds = p.movimientos_bancarios?.map(m => m.id).join(';') || p.id_banco_asociado || '';
+        const numMovimientos = p.num_movimientos_banco || (p.id_banco_asociado ? 1 : 0);
+        const totalMovimientos = p.total_valor_movimientos_banco || p.valor_banco_asociado || 0;
+        
+        return `${idx + 1},"${p.referencia_pago}",${p.valor},"${p.fecha}","${p.entidad}","${p.estado_conciliacion}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${p.creado_en || ''}","${movimientosIds}",${numMovimientos},${totalMovimientos},"${(p.novedades || '').replace(/"/g, '""')}"`;
+      })
       .join("\n");
 
     const blob = new Blob([encabezado + filas], {
@@ -445,11 +474,11 @@ const descargarInformeCompleto = async () => {
       return;
     }
 
-    // Crear CSV con todos los datos incluyendo las nuevas columnas
-    const encabezado = "ID,Referencia_Pago,Num_Referencias,Es_Grupo,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Trackings_Completos,Hora_Pago,Novedades,Fecha_Creacion,Fecha_Modificacion,Carrier,Id_Transaccion\n";
+    // Crear CSV con todos los datos incluyendo las nuevas columnas de banco
+    const encabezado = "ID,Referencia_Pago,Num_Referencias,Es_Grupo,Valor_Total,Fecha,Entidad,Estado,Tipo,Num_Guias,Conductor,Trackings_Completos,Hora_Pago,Novedades,Fecha_Creacion,Fecha_Modificacion,Carrier,Id_Transaccion,ID_Banco_Asociado,Valor_Banco_Asociado,Fecha_Movimiento_Banco,Descripcion_Banco\n";
     const filas = data.pagos
       .map((p: Pago, idx: number) =>
-        `${idx + 1},"${p.referencia_pago}",${p.num_referencias || 1},"${p.es_grupo_transaccion ? 'Sí' : 'No'}",${p.valor},"${p.fecha}","${p.entidad}","${getEstadoTexto(p.estado_conciliacion)}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${(p.trackings_completos || '').replace(/"/g, '""')}","${p.hora_pago || ''}","${(p.novedades || '').replace(/"/g, '""')}","${p.creado_en || ''}","${p.fecha_modificacion || ''}","${p.carrier || 'N/A'}","${p.Id_Transaccion || ''}"`
+        `${idx + 1},"${p.referencia_pago}",${p.num_referencias || 1},"${p.es_grupo_transaccion ? 'Sí' : 'No'}",${p.valor},"${p.fecha}","${p.entidad}","${getEstadoTexto(p.estado_conciliacion)}","${p.tipo}",${p.num_guias},"${p.correo_conductor}","${(p.trackings_completos || '').replace(/"/g, '""')}","${p.hora_pago || ''}","${(p.novedades || '').replace(/"/g, '""')}","${p.creado_en || ''}","${p.fecha_modificacion || ''}","${p.carrier || 'N/A'}","${p.Id_Transaccion || ''}","${p.id_banco_asociado || ''}","${p.valor_banco_asociado || ''}","${p.fecha_movimiento_banco || ''}","${p.descripcion_banco || ''}"`
       )
       .join("\n");
 
@@ -652,73 +681,96 @@ const verDetallesGuias = async ({
   }
 };
 
-  const confirmarRechazo = async () => {
-    console.log("🔄 Iniciando proceso de rechazo...", {
-      refPagoSeleccionada,
-      novedad: novedad.trim(),
-      procesando
-    });
+const confirmarRechazo = async () => {
+  console.log("🔄 Iniciando proceso de rechazo...", {
+    refPagoSeleccionada,
+    novedad: novedad.trim(),
+    procesando
+  });
 
-    if (!novedad.trim()) {
-      alert("Debe escribir una observación para rechazar el pago");
-      return;
-    }
+  if (!novedad.trim()) {
+    alert("Debe escribir una observación para rechazar el pago");
+    return;
+  }
 
-    if (procesando) return;
-    setProcesando(refPagoSeleccionada);
+  if (procesando) return;
+  setProcesando(refPagoSeleccionada);
 
-    try {
-      const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
-      
-      console.log("📡 Enviando petición de rechazo:", {
+  try {
+    const user = JSON.parse(localStorage.getItem("user") || '{"email":"usuario@sistema.com"}');
+    
+    // 🔥 BUSCAR EL PAGO SELECCIONADO PARA OBTENER SU Id_Transaccion
+    const pagoSeleccionado = pagos.find(p => 
+      (p.referencia_pago_principal || p.referencia_pago) === refPagoSeleccionada
+    );
+    
+    // 🔥 CONSTRUIR PAYLOAD CON Id_Transaccion SI EXISTE
+    const payload: any = {
+      novedad,
+      modificado_por: user.email,
+    };
+    
+    // Priorizar Id_Transaccion si existe, sino usar referencia_pago
+    if (pagoSeleccionado?.Id_Transaccion) {
+      payload.id_transaccion = pagoSeleccionado.Id_Transaccion;
+      console.log("📡 Enviando petición de rechazo por Id_Transaccion:", {
+        id_transaccion: pagoSeleccionado.Id_Transaccion,
+        novedad,
+        modificado_por: user.email,
+      });
+    } else {
+      payload.referencia_pago = refPagoSeleccionada;
+      console.log("📡 Enviando petición de rechazo por referencia_pago:", {
         referencia_pago: refPagoSeleccionada,
         novedad,
         modificado_por: user.email,
       });
-
-      const response = await fetch("http://127.0.0.1:8000/pagos/rechazar-pago", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${getToken()}`
-        },
-        body: JSON.stringify({
-          referencia_pago: refPagoSeleccionada,
-          novedad,
-          modificado_por: user.email,
-        }),
-      });
-
-      console.log("📊 Estado de la respuesta:", {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Error desconocido");
-      }
-
-      const resultado = await response.json();
-      console.log("✅ Respuesta del servidor:", resultado);
-
-      alert(`❌ Pago rechazado correctamente. Razón: ${novedad}`);
-      
-      setModalVisible(false);
-      setNovedad("");
-      setRefPagoSeleccionada("");
-      
-      // Mantener los filtros aplicados después de rechazar
-      await obtenerPagos(paginaActual, filtrosAplicados);
-      
-    } catch (error: any) {
-      console.error("Error rechazando pago:", error);
-      alert(`❌ Error al rechazar el pago: ${error.message}`);
-    } finally {
-      setProcesando(null);
     }
-  };
+
+    const response = await fetch("http://127.0.0.1:8000/pagos/rechazar-pago", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${getToken()}`
+      },
+      body: JSON.stringify(payload),
+    });
+
+    console.log("📊 Estado de la respuesta:", {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Error desconocido");
+    }
+
+    const resultado = await response.json();
+    console.log("✅ Respuesta del servidor:", resultado);
+
+    // 🔥 MENSAJE MEJORADO PARA MOSTRAR SI FUE POR GRUPO O INDIVIDUAL
+    const mensajeExito = pagoSeleccionado?.Id_Transaccion
+      ? `❌ Grupo de pagos rechazado correctamente (ID: ${pagoSeleccionado.Id_Transaccion}). Razón: ${novedad}`
+      : `❌ Pago rechazado correctamente. Razón: ${novedad}`;
+    
+    alert(mensajeExito);
+    
+    setModalVisible(false);
+    setNovedad("");
+    setRefPagoSeleccionada("");
+    
+    // Mantener los filtros aplicados después de rechazar
+    await obtenerPagos(paginaActual, filtrosAplicados);
+    
+  } catch (error: any) {
+    console.error("Error rechazando pago:", error);
+    alert(`❌ Error al rechazar el pago: ${error.message}`);
+  } finally {
+    setProcesando(null);
+  }
+};
 
   const getEstadoTexto = (estado: string | undefined): string => {
     if (!estado) return "⏳ Sin estado";
@@ -793,6 +845,65 @@ function parseFechaLocal(fechaStr: string) {
     }
     
     return numeros;
+  };
+
+  // 🔥 NUEVA FUNCIÓN PARA OBTENER TRANSACCIONES BANCARIAS ASOCIADAS
+  const obtenerTransaccionesBancarias = async (referenciaPago: string, idTransaccion?: number) => {
+    const key = idTransaccion ? `tx_${idTransaccion}` : referenciaPago;
+    
+    // Si ya tenemos las transacciones cargadas, no volver a cargar
+    if (transaccionesBancarias[key]) {
+      return transaccionesBancarias[key];
+    }
+    
+    setCargandoTransacciones(prev => ({ ...prev, [key]: true }));
+    
+    try {
+      const params = new URLSearchParams();
+      params.append('referencia', referenciaPago);
+      
+      const url = `http://127.0.0.1:8000/conciliacion/transacciones-bancarias-disponibles?${params.toString()}`;
+      
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${getToken()}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const transacciones = data.transacciones || [];
+      
+      // Guardar en el estado
+      setTransaccionesBancarias(prev => ({ ...prev, [key]: transacciones }));
+      
+      return transacciones;
+    } catch (error) {
+      console.error('Error obteniendo transacciones bancarias:', error);
+      return [];
+    } finally {
+      setCargandoTransacciones(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  // 🔥 FUNCIÓN PARA MANEJAR CLIC EN TRANSACCIONES BANCARIAS
+  const toggleTransaccionesBancarias = async (referenciaPago: string, idTransaccion?: number) => {
+    const key = idTransaccion ? `tx_${idTransaccion}` : referenciaPago;
+    
+    if (transaccionesBancarias[key]) {
+      // Si ya están cargadas, las ocultamos
+      setTransaccionesBancarias(prev => {
+        const newState = { ...prev };
+        delete newState[key];
+        return newState;
+      });
+    } else {
+      // Si no están cargadas, las cargamos
+      await obtenerTransaccionesBancarias(referenciaPago, idTransaccion);
+    }
   };
 
   function limpiarValorMoneda(valor: string) {
@@ -1081,7 +1192,7 @@ function parseFechaLocal(fechaStr: string) {
               <th>Estado</th>
               <th>Comprobante</th>
               <th>Trackings</th>
-              <th>ID Banco Asociado</th>
+              <th>Movimientos Bancarios</th>
               <th>Novedades</th>
               <th>Acción</th>
             </tr>
@@ -1091,7 +1202,8 @@ function parseFechaLocal(fechaStr: string) {
           <tbody>
             {pagosFiltrados.length > 0 ? (
               pagosFiltrados.map((p, idx) => (
-                <tr key={`${p.referencia_pago}-${p.fecha}-${idx}`}>
+                <React.Fragment key={`${p.referencia_pago}-${p.fecha}-${idx}`}>
+                  <tr>
                   <td>{((paginaActual - 1) * pagosPorPagina) + idx + 1}</td>
                   
                    {/* 🔥 COLUMNA DE REFERENCIA SIMPLIFICADA */}
@@ -1196,9 +1308,93 @@ function parseFechaLocal(fechaStr: string) {
                     )}
                   </button>
                   </td>
-                  {/* 🔥 CELDA MEJORADA PARA ID BANCO CON VALOR DENTRO DEL RECUADRO */}
+                  {/* 🔥 CELDA MEJORADA PARA MOVIMIENTOS BANCARIOS INDIVIDUALES */}
                   <td style={{ padding: "6px", fontSize: "0.85rem" }}>
-                    {p.id_banco_asociado ? (
+                    {p.movimientos_bancarios && p.movimientos_bancarios.length > 0 ? (
+                      <div style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                        maxWidth: "200px"
+                      }}>
+                        {/* Encabezado con total de movimientos */}
+                        <div style={{
+                          fontSize: "0.7rem",
+                          fontWeight: "600",
+                          color: "#495057",
+                          marginBottom: "4px",
+                          textAlign: "center"
+                        }}>
+                          🏦 {p.num_movimientos_banco || 0} Movimiento{(p.num_movimientos_banco || 0) > 1 ? 's' : ''} Bancario{(p.num_movimientos_banco || 0) > 1 ? 's' : ''}
+                        </div>
+                        
+                        {/* Lista de movimientos individuales */}
+                        <div style={{
+                          maxHeight: "120px",
+                          overflowY: "auto",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "3px"
+                        }}>
+                          {p.movimientos_bancarios.map((movimiento, idx) => (
+                            <div
+                              key={idx}
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                padding: "6px 8px",
+                                borderRadius: "6px",
+                                fontSize: "0.7rem",
+                                fontWeight: "500",
+                                backgroundColor: "#d4edda",
+                                color: "#155724",
+                                border: "1px solid #c3e6cb",
+                                gap: "2px"
+                              }}
+                            >
+                              {/* ID del movimiento */}
+                              <div style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                fontSize: "0.65rem"
+                              }}>
+                                <span style={{ fontWeight: "600" }}>ID: {movimiento.id}</span>
+                                <span style={{ color: "#6c757d" }}>{movimiento.fecha}</span>
+                              </div>
+                              
+                              {/* Valor del movimiento */}
+                              <div style={{
+                                fontSize: "0.7rem",
+                                color: "#155724",
+                                fontWeight: "600",
+                                textAlign: "center"
+                              }}>
+                                💰 ${movimiento.valor?.toLocaleString() || 'N/A'}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        {/* Total de todos los movimientos */}
+                        {p.total_valor_movimientos_banco && (p.num_movimientos_banco || 0) > 1 && (
+                          <div style={{
+                            marginTop: "4px",
+                            padding: "4px 8px",
+                            backgroundColor: "#cce5ff",
+                            border: "1px solid #99d1ff",
+                            borderRadius: "6px",
+                            fontSize: "0.7rem",
+                            fontWeight: "600",
+                            color: "#0056b3",
+                            textAlign: "center"
+                          }}>
+                            💰 Total: ${p.total_valor_movimientos_banco.toLocaleString()}
+                          </div>
+                        )}
+                      </div>
+                    ) : p.id_banco_asociado ? (
+                      // Fallback para formato anterior
                       <div style={{
                         display: "inline-flex",
                         flexDirection: "column",
@@ -1258,27 +1454,89 @@ function parseFechaLocal(fechaStr: string) {
                         p.estado_conciliacion === "Rechazado" ||
                         p.estado_conciliacion === "conciliado_manual" ||
                         p.estado_conciliacion === "conciliado_automatico") && (
-                      <button
-                        onClick={() => {
-                          // Usar referencia principal para operaciones
-                          const refParaRechazo = p.referencia_pago_principal || p.referencia_pago;
-                          console.log("🖱️ Click en botón rechazar para:", refParaRechazo);
-                          setRefPagoSeleccionada(refParaRechazo);
-                          setModalVisible(true);
-                        }}
-                        className="boton-rechazar"
-                        disabled={procesando === (p.referencia_pago_principal || p.referencia_pago)}
-                        title={p.es_grupo_transaccion 
-                          ? `Rechazar grupo de ${p.num_referencias} referencias` 
-                          : "Rechazar pago"}
-                      >
-                        {procesando === (p.referencia_pago_principal || p.referencia_pago) 
-                          ? "⏳ Procesando..." 
-                          : p.es_grupo_transaccion ? "Rechazar Grupo" : "Rechazar"}
-                      </button>
+                  <button
+                    onClick={() => abrirModalRechazo(p)} // 🔥 CAMBIO: Usar nueva función
+                    className="boton-rechazar"
+                    disabled={procesando === (p.referencia_pago_principal || p.referencia_pago)}
+                    title={p.es_grupo_transaccion 
+                      ? `Rechazar grupo de ${p.num_referencias} referencias` 
+                      : "Rechazar pago"}
+                  >
+                    {procesando === (p.referencia_pago_principal || p.referencia_pago) 
+                      ? "⏳ Procesando..." 
+                      : p.es_grupo_transaccion ? "Rechazar Grupo" : "Rechazar"}
+                  </button>
                     )}
                   </td>
                 </tr>
+                
+                {/* Fila adicional para mostrar transacciones bancarias */}
+                {p.es_grupo_transaccion && p.Id_Transaccion && transaccionesBancarias[String(p.Id_Transaccion)] && (
+                  <tr style={{ backgroundColor: "#f8f9fa" }}>
+                    <td colSpan={13} style={{ padding: "12px" }}>
+                      <div style={{
+                        backgroundColor: "white",
+                        border: "1px solid #dee2e6",
+                        borderRadius: "8px",
+                        padding: "12px"
+                      }}>
+                        <h4 style={{
+                          margin: "0 0 8px 0",
+                          fontSize: "0.9rem",
+                          color: "#495057",
+                          fontWeight: "600"
+                        }}>
+                          🏦 Transacciones Bancarias Asociadas ({transaccionesBancarias[String(p.Id_Transaccion)].length})
+                        </h4>
+                        <div style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+                          gap: "8px",
+                          maxHeight: "200px",
+                          overflowY: "auto"
+                        }}>
+                          {transaccionesBancarias[String(p.Id_Transaccion)].map((transaccion: any, index: number) => (
+                            <div
+                              key={index}
+                              style={{
+                                border: "1px solid #e9ecef",
+                                borderRadius: "6px",
+                                padding: "8px 10px",
+                                backgroundColor: "#f8f9fa",
+                                fontSize: "0.8rem"
+                              }}
+                            >
+                              <div style={{ fontWeight: "600", color: "#495057", marginBottom: "4px" }}>
+                                ID: {transaccion.id_banco}
+                              </div>
+                              <div style={{ color: "#6c757d", marginBottom: "2px" }}>
+                                💰 ${transaccion.valor?.toLocaleString() || 'N/A'}
+                              </div>
+                              <div style={{ color: "#6c757d", marginBottom: "2px" }}>
+                                📅 {transaccion.fecha || 'N/A'}
+                              </div>
+                              {transaccion.descripcion && (
+                                <div style={{ 
+                                  color: "#6c757d", 
+                                  fontSize: "0.75rem",
+                                  fontStyle: "italic",
+                                  marginTop: "4px",
+                                  maxWidth: "100%",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap"
+                                }}>
+                                  {transaccion.descripcion}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               ))
             ) : (
               <tr>
@@ -1666,30 +1924,159 @@ function parseFechaLocal(fechaStr: string) {
 
 
       {/* Modal de Rechazo */}
-      {modalVisible && (
+      {modalVisible && pagoSeleccionadoCompleto && (
         <div className="modal-overlay">
-          <div className="modal-content">
+          <div className="modal-content" style={{ maxWidth: "600px", width: "90%" }}>
             <h3>¿Por qué deseas rechazar este pago?</h3>
-            <p style={{ color: "#666", fontSize: "0.9rem", marginBottom: "1rem" }}>
-              Referencia: <strong>{refPagoSeleccionada}</strong>
-            </p>
+            
+            {/* 🔥 INFORMACIÓN COMPLETA DEL PAGO/GRUPO */}
+            <div style={{ 
+              backgroundColor: "#f8f9fa", 
+              padding: "1rem", 
+              borderRadius: "8px", 
+              marginBottom: "1rem",
+              border: "1px solid #e9ecef"
+            }}>
+              {/* Mostrar si es grupo o individual */}
+              {pagoSeleccionadoCompleto.es_grupo_transaccion ? (
+                <div>
+                  <div style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    gap: "8px", 
+                    marginBottom: "8px",
+                    fontSize: "0.9rem",
+                    fontWeight: "600",
+                    color: "#007bff"
+                  }}>
+                    🔗 Grupo de Pagos
+                    <span style={{ 
+                      backgroundColor: "#e3f2fd", 
+                      padding: "2px 8px", 
+                      borderRadius: "12px",
+                      fontSize: "0.8rem"
+                    }}>
+                      {pagoSeleccionadoCompleto.num_referencias} referencias
+                    </span>
+                  </div>
+                  
+                  {/* ID Transacción */}
+                  {pagoSeleccionadoCompleto.Id_Transaccion && (
+                    <div style={{ marginBottom: "8px", fontSize: "0.9rem" }}>
+                      <strong>ID Transacción:</strong> {pagoSeleccionadoCompleto.Id_Transaccion}
+                    </div>
+                  )}
+                  
+                  {/* Referencias agrupadas */}
+                  <div style={{ marginBottom: "8px" }}>
+                    <strong>Referencias incluidas:</strong>
+                    <div style={{ 
+                      backgroundColor: "#fff", 
+                      padding: "8px", 
+                      borderRadius: "4px", 
+                      marginTop: "4px",
+                      maxHeight: "120px",
+                      overflowY: "auto",
+                      fontSize: "0.85rem",
+                      border: "1px solid #dee2e6"
+                    }}>
+                      {pagoSeleccionadoCompleto.referencia_pago
+                        .split(', ')
+                        .map((ref, idx) => (
+                          <div key={idx} style={{ 
+                            padding: "2px 0",
+                            borderBottom: idx < pagoSeleccionadoCompleto.referencia_pago.split(', ').length - 1 ? "1px solid #f0f0f0" : "none"
+                          }}>
+                            • {ref.trim()}
+                          </div>
+                        ))
+                      }
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ 
+                    fontSize: "0.9rem", 
+                    fontWeight: "600", 
+                    color: "#28a745",
+                    marginBottom: "8px"
+                  }}>
+                    📄 Pago Individual
+                  </div>
+                  <div style={{ marginBottom: "8px" }}>
+                    <strong>Referencia:</strong> {pagoSeleccionadoCompleto.referencia_pago}
+                  </div>
+                </div>
+              )}
+              
+              {/* Información común */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "0.85rem" }}>
+                <div>
+                  <strong>Valor Total:</strong> ${pagoSeleccionadoCompleto.valor.toLocaleString()}
+                </div>
+                <div>
+                  <strong>Guías:</strong> {pagoSeleccionadoCompleto.num_guias}
+                </div>
+                <div>
+                  <strong>Conductor:</strong> {pagoSeleccionadoCompleto.correo_conductor}
+                </div>
+                <div>
+                  <strong>Fecha:</strong> {pagoSeleccionadoCompleto.fecha}
+                </div>
+              </div>
+            </div>
+
+            {/* 🔥 ADVERTENCIA PARA GRUPOS */}
+            {pagoSeleccionadoCompleto.es_grupo_transaccion && (
+              <div style={{
+                backgroundColor: "#fff3cd",
+                border: "1px solid #ffeaa7",
+                borderRadius: "6px",
+                padding: "12px",
+                marginBottom: "1rem",
+                fontSize: "0.9rem"
+              }}>
+                <div style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  gap: "8px", 
+                  fontWeight: "600",
+                  color: "#856404",
+                  marginBottom: "4px"
+                }}>
+                  ⚠️ Atención
+                </div>
+                <div style={{ color: "#856404" }}>
+                  Al rechazar este grupo, se rechazarán <strong>todas las {pagoSeleccionadoCompleto.num_referencias} referencias</strong> incluidas en la transacción.
+                </div>
+              </div>
+            )}
+            
             <textarea
               value={novedad}
               onChange={(e) => {
                 console.log("📝 Escribiendo novedad:", e.target.value);
                 setNovedad(e.target.value);
               }}
-              rows={5}
-              placeholder="Ej: El valor no coincide con las guías."
-              style={{ width: "100%", marginBottom: "1rem" }}
-            />
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: "1rem",
+              rows={4}
+              placeholder={pagoSeleccionadoCompleto.es_grupo_transaccion 
+                ? "Ej: Los valores no coinciden con las guías del grupo."
+                : "Ej: El valor no coincide con las guías."
+              }
+              style={{ 
+                width: "100%", 
+                marginBottom: "1rem",
+                fontSize: "0.9rem",
+                padding: "0.75rem"
               }}
-            >
+            />
+            
+            <div style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "1rem",
+            }}>
               <button
                 className="boton-secundario"
                 onClick={() => {
@@ -1697,6 +2084,7 @@ function parseFechaLocal(fechaStr: string) {
                   setModalVisible(false);
                   setNovedad("");
                   setRefPagoSeleccionada("");
+                  setPagoSeleccionadoCompleto(null); // 🔥 LIMPIAR
                 }}
               >
                 Cancelar
@@ -1706,19 +2094,24 @@ function parseFechaLocal(fechaStr: string) {
                 onClick={() => {
                   console.log("✅ Intentando confirmar rechazo:", {
                     refPagoSeleccionada,
+                    esGrupo: pagoSeleccionadoCompleto.es_grupo_transaccion,
+                    numReferencias: pagoSeleccionadoCompleto.num_referencias,
                     novedad: novedad.trim(),
-                    novedadLength: novedad.trim().length,
                     procesando
                   });
                   confirmarRechazo();
                 }} 
                 disabled={procesando === refPagoSeleccionada || !novedad.trim()}
                 style={{
-                  backgroundColor: (!novedad.trim() || procesando === refPagoSeleccionada) ? "#6c757d" : undefined,
+                  backgroundColor: (!novedad.trim() || procesando === refPagoSeleccionada) ? "#6c757d" : 
+                                pagoSeleccionadoCompleto.es_grupo_transaccion ? "#dc3545" : "#007bff",
                   cursor: (!novedad.trim() || procesando === refPagoSeleccionada) ? "not-allowed" : "pointer"
                 }}
               >
-                {procesando === refPagoSeleccionada ? "⏳ Procesando..." : "Confirmar rechazo"}
+                {procesando === refPagoSeleccionada ? "⏳ Procesando..." : 
+                pagoSeleccionadoCompleto.es_grupo_transaccion ? 
+                `Rechazar Grupo (${pagoSeleccionadoCompleto.num_referencias})` : 
+                "Confirmar rechazo"}
               </button>
             </div>
           </div>

@@ -617,9 +617,30 @@
    =================== */
 
 .tabla-conciliacion {
-  overflow-x: auto;
+  overflow-x: scroll;
   border-radius: 8px;
   border: 1px solid #e5e7eb;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+/* Personalizar scrollbar para que sea siempre visible */
+.tabla-conciliacion::-webkit-scrollbar {
+  height: 8px;
+}
+
+.tabla-conciliacion::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.tabla-conciliacion::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.tabla-conciliacion::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .tabla-conciliacion table {

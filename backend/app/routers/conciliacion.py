@@ -3,9 +3,14 @@ from fastapi.responses import StreamingResponse
 from google.cloud import bigquery
 from typing import List, Dict, Optional, Any, AsyncGenerator
 from pydantic import BaseModel
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+
 from decimal import Decimal
 from collections import defaultdict
+import json
+import asyncio
+import logging
+import os
 import csv
 import io
 import logging
@@ -1217,6 +1222,7 @@ class ConciliacionManual(BaseModel):
             and bool(self.usuario_id)
         )
 
+
 @router.post("/liquidar-cliente")
 async def liquidar_entregas(cliente: str, usuario_id: str):
     """
@@ -1672,6 +1678,272 @@ async def conciliar_pago_manual(data: ConciliacionManual):
         raise HTTPException(status_code=500, detail=f"Error en conciliación manual: {str(e)}")
 
 
+@router.post("/exportar-tablas")
+async def exportar_tablas_csv():
+    """
+    Endpoint dedicado para exportar todas las tablas de conciliación a archivos CSV
+    """
+    client = bigquery.Client()
+    import os
+    import csv
+    import io
+    
+    def export_table_to_csv(query, filename):
+        """Exporta una tabla de BigQuery a archivo CSV"""
+        try:
+            rows = list(client.query(query).result())
+            if not rows:
+                logger.warning(f"No se encontraron datos para exportar en {filename}")
+                return ""
+            
+            fieldnames = rows[0].keys()
+            output = io.StringIO()
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            for row in rows:
+                writer.writerow({k: str(v) if v is not None else "" for k, v in row.items()})
+            
+            csv_content = output.getvalue()
+            
+            # Crear directorio de exportaciones
+            export_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "exportaciones")
+            export_dir = os.path.abspath(export_dir)
+            os.makedirs(export_dir, exist_ok=True)
+            
+            # Escribir archivo CSV
+            ruta_csv = os.path.join(export_dir, filename)
+            with open(ruta_csv, "w", encoding="utf-8", newline='') as f:
+                f.write(csv_content)
+            
+            logger.info(f"✅ Tabla exportada exitosamente: {filename} ({len(rows)} registros)")
+            return ruta_csv
+            
+        except Exception as e:
+            logger.error(f"❌ Error exportando {filename}: {str(e)}")
+            return None
+    
+    try:
+        logger.info("🚀 Iniciando exportación de tablas...")
+        archivos_exportados = []
+        errores_exportacion = []
+        
+        # Definir tablas a exportar
+        tablas_exportar = [
+            {
+                "query": "SELECT * FROM `datos-clientes-441216.Conciliaciones.pagosconductor`",
+                "filename": "pagosconductor.csv",
+                "descripcion": "Pagos de conductores"
+            },
+            {
+                "query": "SELECT * FROM `datos-clientes-441216.Conciliaciones.guias_liquidacion`",
+                "filename": "guias_liquidacion.csv",
+                "descripcion": "Guías de liquidación"
+            },
+            {
+                "query": "SELECT * FROM `datos-clientes-441216.Conciliaciones.COD_pendientes_v1`",
+                "filename": "COD_pendientes_v1.csv",
+                "descripcion": "COD pendientes"
+            },
+            {
+                "query": "SELECT * FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`",
+                "filename": "banco_movimientos.csv",
+                "descripcion": "Movimientos bancarios"
+            }
+        ]
+        
+        # Exportar cada tabla
+        for tabla in tablas_exportar:
+            logger.info(f"📄 Exportando: {tabla['descripcion']}...")
+            ruta_archivo = export_table_to_csv(tabla["query"], tabla["filename"])
+            
+            if ruta_archivo:
+                archivos_exportados.append({
+                    "archivo": tabla["filename"],
+                    "ruta": ruta_archivo,
+                    "descripcion": tabla["descripcion"],
+                    "status": "exitoso"
+                })
+            else:
+                errores_exportacion.append({
+                    "archivo": tabla["filename"],
+                    "descripcion": tabla["descripcion"],
+                    "error": "Error en exportación"
+                })
+        
+        # Generar estadísticas de exportación
+        total_tablas = len(tablas_exportar)
+        exitosos = len(archivos_exportados)
+        errores = len(errores_exportacion)
+        
+        resultado = {
+            "mensaje": f"Exportación completada: {exitosos}/{total_tablas} tablas exportadas",
+            "timestamp": datetime.utcnow().isoformat(),
+            "estadisticas": {
+                "total_tablas": total_tablas,
+                "exportaciones_exitosas": exitosos,
+                "exportaciones_fallidas": errores,
+                "porcentaje_exito": round((exitosos / total_tablas) * 100, 2) if total_tablas > 0 else 0
+            },
+            "archivos_exportados": archivos_exportados,
+            "errores": errores_exportacion,
+            "directorio_exportacion": os.path.join(os.path.dirname(__file__), "..", "..", "..", "exportaciones")
+        }
+        
+        if errores > 0:
+            logger.warning(f"⚠️ Exportación completada con {errores} errores")
+        else:
+            logger.info("✅ Todas las tablas exportadas exitosamente")
+        
+        return resultado
+        
+    except Exception as e:
+        logger.error(f"💥 Error crítico en exportación de tablas: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error crítico en exportación: {str(e)}"
+        )
+
+@router.post("/exportar-tabla-individual")
+async def exportar_tabla_individual(
+    tabla: str = Body(..., description="Nombre de la tabla a exportar"),
+    filtros: Optional[Dict] = Body(None, description="Filtros opcionales para la consulta")
+):
+    """
+    Endpoint para exportar una tabla específica con filtros opcionales
+    
+    Tablas disponibles:
+    - pagosconductor
+    - guias_liquidacion  
+    - COD_pendientes_v1
+    - banco_movimientos
+    """
+    client = bigquery.Client()
+    
+    # Mapeo de tablas permitidas
+    tablas_permitidas = {
+        "pagosconductor": {
+            "tabla_completa": "datos-clientes-441216.Conciliaciones.pagosconductor",
+            "descripcion": "Pagos de conductores"
+        },
+        "guias_liquidacion": {
+            "tabla_completa": "datos-clientes-441216.Conciliaciones.guias_liquidacion",
+            "descripcion": "Guías de liquidación"
+        },
+        "COD_pendientes_v1": {
+            "tabla_completa": "datos-clientes-441216.Conciliaciones.COD_pendientes_v1",
+            "descripcion": "COD pendientes"
+        },
+        "banco_movimientos": {
+            "tabla_completa": "datos-clientes-441216.Conciliaciones.banco_movimientos",
+            "descripcion": "Movimientos bancarios"
+        }
+    }
+    
+    if tabla not in tablas_permitidas:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tabla '{tabla}' no permitida. Tablas disponibles: {list(tablas_permitidas.keys())}"
+        )
+    
+    try:
+        tabla_info = tablas_permitidas[tabla]
+        
+        # Construir consulta base
+        query = f"SELECT * FROM `{tabla_info['tabla_completa']}`"
+        
+        # Agregar filtros si se proporcionan
+        parametros = []
+        if filtros:
+            condiciones = []
+            
+            # Procesar filtros comunes
+            if "fecha_inicio" in filtros and filtros["fecha_inicio"]:
+                if tabla == "pagosconductor":
+                    condiciones.append("fecha_pago >= @fecha_inicio")
+                elif tabla == "banco_movimientos":
+                    condiciones.append("fecha >= @fecha_inicio")
+                elif tabla == "guias_liquidacion":
+                    condiciones.append("fecha_pago >= @fecha_inicio")
+                parametros.append(bigquery.ScalarQueryParameter("fecha_inicio", "DATE", filtros["fecha_inicio"]))
+            
+            if "fecha_fin" in filtros and filtros["fecha_fin"]:
+                if tabla == "pagosconductor":
+                    condiciones.append("fecha_pago <= @fecha_fin")
+                elif tabla == "banco_movimientos":
+                    condiciones.append("fecha <= @fecha_fin")
+                elif tabla == "guias_liquidacion":
+                    condiciones.append("fecha_pago <= @fecha_fin")
+                parametros.append(bigquery.ScalarQueryParameter("fecha_fin", "DATE", filtros["fecha_fin"]))
+            
+            if "estado" in filtros and filtros["estado"]:
+                if tabla in ["pagosconductor", "banco_movimientos"]:
+                    condiciones.append("estado_conciliacion = @estado")
+                    parametros.append(bigquery.ScalarQueryParameter("estado", "STRING", filtros["estado"]))
+            
+            if condiciones:
+                query += " WHERE " + " AND ".join(condiciones)
+        
+        # Agregar límite por seguridad
+        query += " LIMIT 50000"
+        
+        logger.info(f"🔍 Exportando tabla '{tabla}' con consulta: {query}")
+        
+        # Ejecutar consulta
+        job_config = bigquery.QueryJobConfig(query_parameters=parametros) if parametros else None
+        rows = list(client.query(query, job_config=job_config).result())
+        
+        if not rows:
+            return {
+                "mensaje": f"No se encontraron datos para la tabla '{tabla}' con los filtros especificados",
+                "tabla": tabla,
+                "registros": 0,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        # Crear archivo CSV
+        fieldnames = rows[0].keys()
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        
+        for row in rows:
+            writer.writerow({k: str(v) if v is not None else "" for k, v in row.items()})
+        
+        csv_content = output.getvalue()
+        
+        # Crear directorio y archivo
+        export_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "exportaciones")
+        export_dir = os.path.abspath(export_dir)
+        os.makedirs(export_dir, exist_ok=True)
+        
+        timestamp_str = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        filename = f"{tabla}_{timestamp_str}.csv"
+        ruta_csv = os.path.join(export_dir, filename)
+        
+        with open(ruta_csv, "w", encoding="utf-8", newline='') as f:
+            f.write(csv_content)
+        
+        logger.info(f"✅ Tabla '{tabla}' exportada exitosamente: {filename} ({len(rows)} registros)")
+        
+        return {
+            "mensaje": f"Tabla '{tabla}' exportada exitosamente",
+            "tabla": tabla,
+            "descripcion": tabla_info["descripcion"],
+            "archivo": filename,
+            "ruta": ruta_csv,
+            "registros": len(rows),
+            "filtros_aplicados": filtros or {},
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error exportando tabla '{tabla}': {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error exportando tabla '{tabla}': {str(e)}"
+        )
+
 @router.get("/resumen-conciliacion")
 def obtener_resumen_conciliacion():
     """
@@ -1679,43 +1951,30 @@ def obtener_resumen_conciliacion():
     """
     client = bigquery.Client()
     
-    import os
-    import csv
     try:
-        # 1. Total de movimientos bancarios|
+        # ...existing code for resumen...
         query_mov_banco = """
         SELECT 
             COUNT(*) as total_movimientos_banco,
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
         """
-
-        # 2. Total de movimientos bancarios conciliados
-
         query_conciliados_banco = """
         SELECT
             COUNT(*) as conciliados_movimientos
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
         WHERE estado_conciliacion IN ('conciliado_exacto','conciliado_automatico','conciliado_manual')
         """        
-
-        # 3. Total de movientos bancarios pendientes
         query_pendientes_banco = """
         SELECT 
             COUNT(*) as pendientes_movimientos
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
         WHERE estado_conciliacion IN ('pendiente','pendiente_conciliacion','PENDIENTE')
         """
-
-        
-        # 4. Total absoluto valor_banco
         query_total_valor = """
         SELECT
            ROUND(SUM(valor_banco), 2) AS total_valor_banco
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
         """
-
-        # 5. Total de pagos conductor
-
         total_pagosconductor = """
         SELECT 
             COUNT(*) AS total_pagosconductor
@@ -1726,8 +1985,6 @@ def obtener_resumen_conciliacion():
             GROUP BY referencia_pago, correo
         )
         """
-        # 6. Total pagos conciliados conductor
-
         conciliados_pc = """
         SELECT 
             COUNT(*) AS conciliados_pc
@@ -1738,9 +1995,6 @@ def obtener_resumen_conciliacion():
             GROUP BY referencia_pago, correo
         )
         """
-
-        # 7. Total pagos pendientes conductor
-
         pendientes_pc = """
         SELECT COUNT(*) AS pendientes_pc
         FROM (
@@ -1750,47 +2004,16 @@ def obtener_resumen_conciliacion():
             GROUP BY referencia_pago, correo
         )
         """
-
-
-        # 8. Total pagos rechazados conductor
         rechazados_pc = """
         SELECT 
             COUNT(*) AS rechazados_pc
         FROM (
             SELECT referencia_pago, correo
             FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-            WHERE estado_conciliacion IN ('rechazado')
+            WHERE estado_conciliacion IN ('rechazado','Rechazado')
             GROUP BY referencia_pago, correo
         )
         """
-
-        # Exportación de movimientos bancarios a CSV para pruebas
-        ''''
-        query_export_csv = """
-        SELECT *
-        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-        """
-        rows = list(client.query(query_export_csv).result())
-        if rows:
-            # Obtener nombres de columnas
-            fieldnames = rows[0].keys()
-            output = io.StringIO()
-            writer = csv.DictWriter(output, fieldnames=fieldnames)
-            writer.writeheader()
-            for row in rows:
-                writer.writerow({k: str(v) if v is not None else "" for k, v in row.items()})
-            csv_content = output.getvalue()
-
-            # Guardar archivo CSV en la carpeta del proyecto
-            ruta_csv = os.path.join(os.path.dirname(__file__), "..", "..", "..", "movimientos_banco_export.csv")
-            ruta_csv = os.path.abspath(ruta_csv)
-            with open(ruta_csv, "w", encoding="utf-8") as f:
-                f.write(csv_content)
-        else:
-            csv_content = ""
-
-        # ...existing code...
-        '''
 
         #1
         res_mov_banco = list(client.query(query_mov_banco).result())[0]
@@ -1809,9 +2032,7 @@ def obtener_resumen_conciliacion():
         #8
         res_rechazados_pc = list(client.query(rechazados_pc).result())[0]
 
-
         return {
-            
             "total_movimientos_banco": int(res_mov_banco["total_movimientos_banco"]) if res_mov_banco["total_movimientos_banco"] else 0,
             "conciliados_movimientos": int(res_conciliados_banco["conciliados_movimientos"]) if res_conciliados_banco["conciliados_movimientos"] else 0,
             "pendientes_movimientos": int(res_pendientes_banco["pendientes_movimientos"]) if res_pendientes_banco["pendientes_movimientos"] else 0,
@@ -1820,7 +2041,7 @@ def obtener_resumen_conciliacion():
             "conciliados_pc": int(res_conciliados_pc["conciliados_pc"]) if res_conciliados_pc["conciliados_pc"] else 0,
             "pendientes_pc": int(pendientes_pc["pendientes_pc"]) if pendientes_pc["pendientes_pc"] else 0,
             "rechazados_pc": int(res_rechazados_pc["rechazados_pc"]) if res_rechazados_pc["rechazados_pc"] else 0,
-        
+            "timestamp": datetime.utcnow().isoformat()
         }
     except Exception as e:
         logger.error(f"Error obteniendo resumen de conciliación: {str(e)}")
@@ -1833,49 +2054,59 @@ def obtener_resumen_conciliacion():
 def marcar_conciliado_manual(data: dict):
     """
     Endpoint para marcar una conciliación como manual desde Cruces.tsx
+    🔥 MEJORADO: Maneja pagos agrupados con múltiples transacciones bancarias
     """
     id_banco = data.get("id_banco")
     referencia_pago = data.get("referencia_pago")
     observaciones = data.get("observaciones", "Conciliado manualmente")
     usuario = data.get("usuario", "sistema")
     
-    if not id_banco:
-        raise HTTPException(status_code=400, detail="id_banco es requerido")
+    # 🔥 NUEVO: Soporte para múltiples transacciones bancarias
+    ids_banco = data.get("ids_banco", [])  # Lista de IDs de transacciones bancarias
+    if id_banco and id_banco not in ids_banco:
+        ids_banco.append(id_banco)
+    
+    if not ids_banco:
+        raise HTTPException(status_code=400, detail="Al menos un id_banco es requerido")
     
     client = bigquery.Client()
     timestamp = datetime.utcnow()
     
     try:
-        # Si no hay referencia_pago, buscar el mejor match posible
-        if not referencia_pago:
-            # Buscar movimiento bancario
-            query_banco = """
-            SELECT fecha, valor_banco 
-            FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-            WHERE id = @id_banco
-            LIMIT 1
-            """
+        logger.info(f"🔗 INICIANDO CONCILIACIÓN MANUAL - IDs banco: {ids_banco}, Referencia: {referencia_pago}")
+        
+        # 1. Obtener información de las transacciones bancarias seleccionadas
+        query_transacciones_info = """
+        SELECT id, fecha, valor_banco, descripcion, estado_conciliacion
+        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+        WHERE id IN UNNEST(@ids_banco)
+        """
+        
+        job_config_info = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("ids_banco", "STRING", ids_banco)
+            ]
+        )
+        
+        transacciones_banco = list(client.query(query_transacciones_info, job_config=job_config_info).result())
+        
+        if not transacciones_banco:
+            raise HTTPException(status_code=404, detail="No se encontraron transacciones bancarias")
+        
+        logger.info(f"💳 Transacciones bancarias encontradas: {len(transacciones_banco)}")
+        for trans in transacciones_banco:
+            logger.info(f"   - ID: {trans['id']}, Valor: ${trans['valor_banco']:,.0f}, Fecha: {trans['fecha']}")
+
+        # 2. Si no hay referencia_pago, buscar el mejor match por valor y fecha
+        if not referencia_pago and len(transacciones_banco) == 1:
+            banco = transacciones_banco[0]
             
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("id_banco", "STRING", id_banco)
-                ]
-            )
-            
-            banco_result = list(client.query(query_banco, job_config=job_config).result())
-            
-            if not banco_result:
-                raise HTTPException(status_code=404, detail="Movimiento bancario no encontrado")
-            
-            banco = banco_result[0]
-            
-            # Buscar mejor match en pagos
             query_mejor_match = """
             SELECT referencia_pago
             FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
             WHERE fecha_pago = @fecha
             AND ABS(COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64), 0) - @valor) <= 1000
-            AND estado IN ('aprobado', 'pagado')
+            AND estado_conciliacion IN ('pendiente_conciliacion', 'pendiente')
             ORDER BY ABS(COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64), 0) - @valor)
             LIMIT 1
             """
@@ -1891,51 +2122,192 @@ def marcar_conciliado_manual(data: dict):
             
             if match_result:
                 referencia_pago = match_result[0]["referencia_pago"]
+
+        # 3. 🔥 VERIFICAR SI ES UN GRUPO DE PAGOS (múltiples referencias con misma referencia_pago)
+        es_grupo = False
+        pagos_del_grupo = []
         
-        # Actualizar movimiento bancario
-        query_update_banco = """
-        UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
-        SET 
-            estado_conciliacion = 'conciliado_manual',
-            referencia_pago_asociada = @referencia,
-            observaciones = @observaciones,
-            conciliado_por = @usuario,
-            conciliado_en = @timestamp,
-            confianza_match = 100
-        WHERE id = @id_banco
-        """
-        
-        job_config_banco = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("id_banco", "STRING", id_banco),
-                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago),
-                bigquery.ScalarQueryParameter("observaciones", "STRING", observaciones),
-                bigquery.ScalarQueryParameter("usuario", "STRING", usuario),
-                bigquery.ScalarQueryParameter("timestamp", "TIMESTAMP", timestamp)
-            ]
-        )
-        
-        client.query(query_update_banco, job_config=job_config_banco).result()
-        
-        # Si hay referencia de pago, actualizar también el pago
         if referencia_pago:
-            query_update_pago = """
-            UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
-            SET 
-                estado_conciliacion = 'conciliado_manual',
-                id_banco_asociado = @id_banco,
-                fecha_conciliacion = CURRENT_DATE(),
-                modificado_en = @timestamp,
-                modificado_por = @usuario,
-                confianza_conciliacion = 100,
-                observaciones_conciliacion = @observaciones,
-                conciliado = TRUE
+            query_verificar_grupo = """
+            SELECT 
+                Id_Transaccion,
+                referencia_pago,
+                valor,
+                COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64)) as valor_pago,
+                fecha_pago,
+                estado_conciliacion
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
             WHERE referencia_pago = @referencia
+            ORDER BY valor DESC
             """
             
-            job_config_pago = bigquery.QueryJobConfig(
+            job_config_grupo = bigquery.QueryJobConfig(
                 query_parameters=[
-                    bigquery.ScalarQueryParameter("id_banco", "STRING", id_banco),
+                    bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago)
+                ]
+            )
+            
+            pagos_del_grupo = list(client.query(query_verificar_grupo, job_config=job_config_grupo).result())
+            
+            # Es un grupo si hay múltiples transacciones bancarias O múltiples pagos con la misma referencia
+            es_grupo = len(transacciones_banco) > 1 or len(pagos_del_grupo) > 1
+            
+            logger.info(f"🔍 VERIFICACIÓN DE GRUPO:")
+            logger.info(f"   - ¿Es grupo?: {es_grupo}")
+            logger.info(f"   - Transacciones banco: {len(transacciones_banco)}")
+            logger.info(f"   - Pagos encontrados: {len(pagos_del_grupo)}")
+            
+            if es_grupo:
+                id_transaccion = pagos_del_grupo[0]["Id_Transaccion"] if pagos_del_grupo else None
+                logger.info(f"   - ID_Transaccion del grupo: {id_transaccion}")
+
+        # 4. 🔥 PROCESAR CONCILIACIÓN SEGÚN EL TIPO
+        if es_grupo and len(transacciones_banco) > 1:
+            # 🔥 CASO: MÚLTIPLES TRANSACCIONES BANCARIAS CON PAGOS AGRUPADOS
+            logger.info("🔗 PROCESANDO GRUPO CON MÚLTIPLES TRANSACCIONES")
+            
+            # Ordenar transacciones por valor (mayor a menor)
+            transacciones_ordenadas = sorted(transacciones_banco, key=lambda x: x["valor_banco"], reverse=True)
+            
+            # Obtener todos los pagos del grupo por su valor individual
+            valores_pagos = []
+            for pago in pagos_del_grupo:
+                valor_individual = float(pago["valor"]) if pago["valor"] else 0
+                if valor_individual > 0:
+                    valores_pagos.append({
+                        "valor": valor_individual,
+                        "pago_data": pago
+                    })
+            
+            logger.info(f"💰 Valores de pagos individuales: {[v['valor'] for v in valores_pagos]}")
+            
+            # Conciliar cada transacción bancaria con su pago correspondiente por valor
+            conciliaciones_exitosas = 0
+            errores_conciliacion = []
+            
+            for trans_banco in transacciones_ordenadas:
+                valor_banco = float(trans_banco["valor_banco"])
+                
+                # Buscar pago con valor exacto o más cercano
+                pago_match = None
+                diferencia_minima = float('inf')
+                
+                for valor_pago_info in valores_pagos:
+                    diferencia = abs(valor_pago_info["valor"] - valor_banco)
+                    if diferencia < diferencia_minima:
+                        diferencia_minima = diferencia
+                        pago_match = valor_pago_info
+                
+                if pago_match and diferencia_minima <= 1000:  # Tolerancia de $1000
+                    logger.info(f"✅ MATCH ENCONTRADO: Banco ${valor_banco:,.0f} -> Pago ${pago_match['valor']:,.0f} (diff: ${diferencia_minima:,.0f})")
+                    
+                    try:
+                        # Actualizar transacción bancaria
+                        query_update_banco = """
+                        UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
+                        SET 
+                            estado_conciliacion = 'conciliado_manual',
+                            referencia_pago_asociada = @referencia,
+                            observaciones = @observaciones,
+                            conciliado_por = @usuario,
+                            conciliado_en = @timestamp,
+                            confianza_match = 100
+                        WHERE id = @id_banco
+                        """
+                        
+                        job_config_banco_individual = bigquery.QueryJobConfig(
+                            query_parameters=[
+                                bigquery.ScalarQueryParameter("id_banco", "STRING", trans_banco["id"]),
+                                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago),
+                                bigquery.ScalarQueryParameter("observaciones", "STRING", f"{observaciones} - Grupo: ${valor_banco:,.0f}"),
+                                bigquery.ScalarQueryParameter("usuario", "STRING", usuario),
+                                bigquery.ScalarQueryParameter("timestamp", "TIMESTAMP", timestamp)
+                            ]
+                        )
+                        
+                        client.query(query_update_banco, job_config=job_config_banco_individual).result()
+                        
+                        # Actualizar pago específico por valor
+                        query_update_pago_especifico = """
+                        UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+                        SET 
+                            estado_conciliacion = 'conciliado_manual',
+                            id_banco_asociado = @id_banco,
+                            fecha_conciliacion = CURRENT_DATE(),
+                            modificado_en = @timestamp,
+                            modificado_por = @usuario,
+                            confianza_conciliacion = 100,
+                            observaciones_conciliacion = @observaciones,
+                            conciliado = TRUE
+                        WHERE referencia_pago = @referencia
+                        AND CAST(valor AS FLOAT64) = @valor_pago
+                        """
+                        
+                        job_config_pago_especifico = bigquery.QueryJobConfig(
+                            query_parameters=[
+                                bigquery.ScalarQueryParameter("id_banco", "STRING", trans_banco["id"]),
+                                bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago),
+                                bigquery.ScalarQueryParameter("valor_pago", "FLOAT", pago_match["valor"]),
+                                bigquery.ScalarQueryParameter("observaciones", "STRING", f"{observaciones} - Valor: ${pago_match['valor']:,.0f}"),
+                                bigquery.ScalarQueryParameter("usuario", "STRING", usuario),
+                                bigquery.ScalarQueryParameter("timestamp", "TIMESTAMP", timestamp)
+                            ]
+                        )
+                        
+                        client.query(query_update_pago_especifico, job_config=job_config_pago_especifico).result()
+                        
+                        conciliaciones_exitosas += 1
+                        logger.info(f"✅ Conciliación exitosa: {trans_banco['id']} <-> ${pago_match['valor']:,.0f}")
+                        
+                        # Remover el pago ya usado
+                        valores_pagos.remove(pago_match)
+                        
+                    except Exception as e:
+                        error_msg = f"Error conciliando {trans_banco['id']}: {str(e)}"
+                        errores_conciliacion.append(error_msg)
+                        logger.error(error_msg)
+                        
+                else:
+                    error_msg = f"No se encontró match para transacción ${valor_banco:,.0f}"
+                    errores_conciliacion.append(error_msg)
+                    logger.warning(error_msg)
+            
+            if errores_conciliacion:
+                logger.warning(f"⚠️ Errores en conciliación: {errores_conciliacion}")
+            
+            return {
+                "mensaje": f"Conciliación manual de grupo completada",
+                "tipo": "grupo_multiple",
+                "conciliaciones_exitosas": conciliaciones_exitosas,
+                "total_transacciones": len(transacciones_banco),
+                "errores": errores_conciliacion,
+                "referencia_pago": referencia_pago,
+                "usuario": usuario,
+                "timestamp": timestamp.isoformat()
+            }
+            
+        else:
+            # 🔄 CASO: CONCILIACIÓN SIMPLE (UNA TRANSACCIÓN)
+            logger.info("📄 PROCESANDO CONCILIACIÓN SIMPLE")
+            
+            trans_banco = transacciones_banco[0]
+            
+            # Actualizar movimiento bancario
+            query_update_banco = """
+            UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
+            SET 
+                estado_conciliacion = 'conciliado_manual',
+                referencia_pago_asociada = @referencia,
+                observaciones = @observaciones,
+                conciliado_por = @usuario,
+                conciliado_en = @timestamp,
+                confianza_match = 100
+            WHERE id = @id_banco
+            """
+            
+            job_config_banco = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("id_banco", "STRING", trans_banco["id"]),
                     bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago),
                     bigquery.ScalarQueryParameter("observaciones", "STRING", observaciones),
                     bigquery.ScalarQueryParameter("usuario", "STRING", usuario),
@@ -1943,15 +2315,44 @@ def marcar_conciliado_manual(data: dict):
                 ]
             )
             
-            client.query(query_update_pago, job_config=job_config_pago).result()
-        
-        return {
-            "mensaje": "Conciliación manual completada exitosamente",
-            "id_banco": id_banco,
-            "referencia_pago": referencia_pago,
-            "usuario": usuario,
-            "timestamp": timestamp.isoformat()
-        }
+            client.query(query_update_banco, job_config=job_config_banco).result()
+            
+            # Si hay referencia de pago, actualizar también el pago
+            if referencia_pago:
+                query_update_pago = """
+                UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+                SET 
+                    estado_conciliacion = 'conciliado_manual',
+                    id_banco_asociado = @id_banco,
+                    fecha_conciliacion = CURRENT_DATE(),
+                    modificado_en = @timestamp,
+                    modificado_por = @usuario,
+                    confianza_conciliacion = 100,
+                    observaciones_conciliacion = @observaciones,
+                    conciliado = TRUE
+                WHERE referencia_pago = @referencia
+                """
+                
+                job_config_pago = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("id_banco", "STRING", trans_banco["id"]),
+                        bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago),
+                        bigquery.ScalarQueryParameter("observaciones", "STRING", observaciones),
+                        bigquery.ScalarQueryParameter("usuario", "STRING", usuario),
+                        bigquery.ScalarQueryParameter("timestamp", "TIMESTAMP", timestamp)
+                    ]
+                )
+                
+                client.query(query_update_pago, job_config=job_config_pago).result()
+            
+            return {
+                "mensaje": "Conciliación manual completada exitosamente",
+                "tipo": "simple",
+                "id_banco": trans_banco["id"],
+                "referencia_pago": referencia_pago,
+                "usuario": usuario,
+                "timestamp": timestamp.isoformat()
+            }
         
     except HTTPException:
         raise
@@ -2237,17 +2638,24 @@ async def obtener_pagos_pendientes_conciliar():
         )
 
 
+
+
 @router.get("/transacciones-bancarias-disponibles")
-async def obtener_transacciones_bancarias_disponibles(referencia: str):
+async def obtener_transacciones_bancarias_disponibles(
+    referencia: str,
+    fecha_pago: Optional[str] = Query(None, description="Fecha del pago en formato YYYY-MM-DD"),
+    valor: Optional[float] = Query(None, description="Valor del pago para filtrar")
+    ):
     """
     Endpoint para obtener transacciones bancarias disponibles para una referencia específica
-    SOLO de la fecha exacta registrada en el pago (query_pago)
+    ✅ NUEVO: Si tiene Id_Transaccion, busca transacciones para todos los valores del grupo y en rango de fechas
     """
     client = bigquery.Client()
     try:
-        # Obtener info del pago
-        query_pago = """
+        # Primero verificar si el pago tiene Id_Transaccion
+        query_verificar_grupo = """
         SELECT 
+            Id_Transaccion,
             COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64)) as valor_pago,
             fecha_pago,
             entidad,
@@ -2256,105 +2664,213 @@ async def obtener_transacciones_bancarias_disponibles(referencia: str):
         WHERE referencia_pago = @referencia
         LIMIT 1
         """
-        job_config_pago = bigquery.QueryJobConfig(
+        
+        job_config_verificar = bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("referencia", "STRING", referencia)
             ]
         )
-        pago_result = list(client.query(query_pago, job_config=job_config_pago).result())
+        
+        pago_result = list(client.query(query_verificar_grupo, job_config=job_config_verificar).result())
+        
         if not pago_result:
             return {"transacciones": [], "mensaje": "Pago no encontrado"}
-        pago = pago_result[0]
-        valor_pago = float(pago["valor_pago"]) if pago["valor_pago"] else 0
-        fecha_pago = pago["fecha_pago"]
-        entidad_pago = (pago["entidad"] or "").lower()
-        tipo_pago = (pago["tipo"] or "").lower()
-        if not fecha_pago:
-            return {"transacciones": [], "mensaje": "El pago no tiene fecha registrada"}
-
-        # Buscar SOLO transacciones bancarias pendientes de la fecha exacta del pago
-        query_transacciones = """
-        SELECT 
-            id,
-            fecha,
-            valor_banco,
-            cuenta,
-            codigo,
-            cod_transaccion,
-            descripcion,
-            tipo,
-            estado_conciliacion
-        FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-        WHERE fecha = @fecha_pago
-        AND (
-            (estado_conciliacion = 'pendiente' OR estado_conciliacion IS NULL)
-        )
-        AND (referencia_pago_asociada IS NULL OR referencia_pago_asociada = '')
-        AND (
-            CASE 
-                WHEN @valor_pago <= 50000 THEN 
-                    valor_banco BETWEEN (@valor_pago * 0.8) AND (@valor_pago * 1.2)
-                WHEN @valor_pago <= 200000 THEN 
-                    valor_banco BETWEEN (@valor_pago * 0.9) AND (@valor_pago * 1.1)
-                ELSE 
-                    valor_banco BETWEEN (@valor_pago * 0.95) AND (@valor_pago * 1.05)
-            END
-        )
-        ORDER BY ABS(valor_banco - @valor_pago), fecha DESC
-        """
-        job_config_transacciones = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("fecha_pago", "DATE", fecha_pago),
-                bigquery.ScalarQueryParameter("valor_pago", "FLOAT", valor_pago)
-            ]
-        )
-        transacciones = list(client.query(query_transacciones, job_config=job_config_transacciones).result())
-
-        resultados = []
-        for transaccion in transacciones:
-            valor_transaccion = float(transaccion["valor_banco"])
-            porcentaje_similitud = calcular_porcentaje_similitud(
-                pago_fecha=fecha_pago,
-                pago_valor=valor_pago,
-                pago_entidad=entidad_pago,
-                pago_tipo=tipo_pago,
-                banco_fecha=transaccion["fecha"],
-                banco_valor=valor_transaccion,
-                banco_cuenta=transaccion["cuenta"] or "",
-                banco_tipo=transaccion["tipo"] or "",
-                banco_descripcion=transaccion["descripcion"] or ""
+        
+        pago_principal = pago_result[0]
+        id_transaccion = pago_principal["Id_Transaccion"]
+        fecha_pago_busqueda = fecha_pago if fecha_pago else pago_principal["fecha_pago"]
+        entidad_pago = (pago_principal["entidad"] or "").lower()
+        tipo_pago = (pago_principal["tipo"] or "").lower()
+        
+        # Variables para almacenar criterios de búsqueda
+        valores_a_buscar = []
+        es_grupo = False
+        
+        if id_transaccion is not None:
+            # 🔥 ES UN GRUPO: Obtener todas las referencias y sus valores individuales
+            es_grupo = True
+            query_grupo = """
+            SELECT 
+                referencia_pago,
+                valor as valor_individual,
+                COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64)) as valor_total,
+                fecha_pago
+            FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
+            WHERE Id_Transaccion = @id_transaccion
+            ORDER BY referencia_pago
+            """
+            
+            job_config_grupo = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("id_transaccion", "INT64", id_transaccion)
+                ]
             )
-            resultados.append({
-                "id": transaccion["id"],
-                "fecha": transaccion["fecha"].isoformat(),
-                "valor_banco": valor_transaccion,
-                "cuenta": transaccion["cuenta"],
-                "codigo": transaccion["codigo"],
-                "cod_transaccion": transaccion["cod_transaccion"],
-                "descripcion": transaccion["descripcion"],
-                "tipo": transaccion["tipo"],
-                "estado_conciliacion": transaccion["estado_conciliacion"],
-                "porcentaje_similitud": porcentaje_similitud,
-                "nivel_match": get_nivel_match(porcentaje_similitud)
-            })
-        resultados.sort(key=lambda x: x["porcentaje_similitud"], reverse=True)
+            
+            pagos_grupo = list(client.query(query_grupo, job_config=job_config_grupo).result())
+            
+            # Extraer valores únicos del grupo
+            valores_unicos = set()
+            for pago in pagos_grupo:
+                valor_individual = float(pago["valor_individual"]) if pago["valor_individual"] else 0
+                if valor_individual > 0:
+                    valores_unicos.add(valor_individual)
+            
+            valores_a_buscar = list(valores_unicos)
+            
+            logger.info(f"🔗 GRUPO DETECTADO - Id_Transaccion: {id_transaccion}")
+            logger.info(f"📊 Referencias en grupo: {[p['referencia_pago'] for p in pagos_grupo]}")
+            logger.info(f"💰 Valores individuales únicos a buscar: {valores_a_buscar}")
+            
+        else:
+            # 📄 ES INDIVIDUAL: Usar el valor del pago único
+            valor_pago = valor if valor else float(pago_principal["valor_pago"]) if pago_principal["valor_pago"] else 0
+            if valor_pago > 0:
+                valores_a_buscar = [valor_pago]
+            
+            logger.info(f"📄 PAGO INDIVIDUAL - Referencia: {referencia}")
+            logger.info(f"💰 Valor a buscar: {valor_pago}")
+
+        # Validaciones
+        if not fecha_pago_busqueda:
+            return {"transacciones": [], "mensaje": "El pago no tiene fecha registrada"}
+        if not valores_a_buscar:
+            return {"transacciones": [], "mensaje": "No se encontraron valores válidos para buscar"}
+
+        # Convertir fecha si es string
+        if isinstance(fecha_pago_busqueda, str):
+            fecha_pago_busqueda = datetime.strptime(fecha_pago_busqueda, "%Y-%m-%d").date()
+
+        # Definir rango de fechas si es grupo
+        if es_grupo:
+            rango_dias = 3  # Puedes ajustar el rango aquí
+            fecha_inicio = fecha_pago_busqueda - timedelta(days=rango_dias)
+            fecha_fin = fecha_pago_busqueda + timedelta(days=rango_dias)
+        else:
+            fecha_inicio = fecha_fin = fecha_pago_busqueda
+
+        # 🔥 BUSCAR TRANSACCIONES BANCARIAS PARA CADA VALOR
+        transacciones_encontradas = []
+        
+        for valor_buscar in valores_a_buscar:
+            logger.info(f"🔍 Buscando transacciones para valor: ${valor_buscar:,.0f}")
+            
+            query_transacciones = """
+            SELECT 
+                id,
+                fecha,
+                valor_banco,
+                cuenta,
+                codigo,
+                cod_transaccion,
+                descripcion,
+                tipo,
+                estado_conciliacion
+            FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
+            WHERE fecha BETWEEN @fecha_inicio AND @fecha_fin
+            AND valor_banco = @valor_buscar
+            AND (
+                (estado_conciliacion = 'pendiente' OR estado_conciliacion IS NULL)
+            )
+            AND (referencia_pago_asociada IS NULL OR referencia_pago_asociada = '')
+            ORDER BY fecha DESC
+            """
+            
+            job_config_transacciones = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("fecha_inicio", "DATE", fecha_inicio),
+                    bigquery.ScalarQueryParameter("fecha_fin", "DATE", fecha_fin),
+                    bigquery.ScalarQueryParameter("valor_buscar", "FLOAT", valor_buscar)
+                ]
+            )
+            
+            transacciones = list(client.query(query_transacciones, job_config=job_config_transacciones).result())
+            
+            logger.info(f"💳 Encontradas {len(transacciones)} transacciones para ${valor_buscar:,.0f}")
+            
+            # Procesar cada transacción encontrada
+            for transaccion in transacciones:
+                valor_transaccion = float(transaccion["valor_banco"])
+                
+                porcentaje_similitud = calcular_porcentaje_similitud(
+                    pago_fecha=fecha_pago_busqueda,
+                    pago_valor=valor_buscar,
+                    pago_entidad=entidad_pago,
+                    pago_tipo=tipo_pago,
+                    banco_fecha=transaccion["fecha"],
+                    banco_valor=valor_transaccion,
+                    banco_cuenta=transaccion["cuenta"] or "",
+                    banco_tipo=transaccion["tipo"] or "",
+                    banco_descripcion=transaccion["descripcion"] or ""
+                )
+                
+                transacciones_encontradas.append({
+                    "id": transaccion["id"],
+                    "fecha": transaccion["fecha"].isoformat(),
+                    "valor_banco": valor_transaccion,
+                    "cuenta": transaccion["cuenta"],
+                    "codigo": transaccion["codigo"],
+                    "cod_transaccion": transaccion["cod_transaccion"],
+                    "descripcion": transaccion["descripcion"],
+                    "tipo": transaccion["tipo"],
+                    "estado_conciliacion": transaccion["estado_conciliacion"],
+                    "porcentaje_similitud": porcentaje_similitud,
+                    "nivel_match": get_nivel_match(porcentaje_similitud),
+                    "valor_buscado": valor_buscar,  # 🔥 NUEVO: Indica qué valor se buscaba
+                    "es_del_grupo": es_grupo  # 🔥 NUEVO: Indica si viene de un grupo
+                })
+        
+        # Ordenar por porcentaje de similitud
+        transacciones_encontradas.sort(key=lambda x: x["porcentaje_similitud"], reverse=True)
+        
+        # 🔥 INFORMACIÓN DETALLADA DEL RESULTADO
+        resumen_busqueda = {
+            "es_grupo": es_grupo,
+            "id_transaccion": id_transaccion,
+            "valores_buscados": valores_a_buscar,
+            "total_valores_unicos": len(valores_a_buscar),
+            "total_transacciones_encontradas": len(transacciones_encontradas)
+        }
+        
+        if es_grupo:
+            # Agrupar resultados por valor para mejor visualización
+            transacciones_por_valor = {}
+            for trans in transacciones_encontradas:
+                valor_key = trans["valor_buscado"]
+                if valor_key not in transacciones_por_valor:
+                    transacciones_por_valor[valor_key] = []
+                transacciones_por_valor[valor_key].append(trans)
+            
+            resumen_busqueda["transacciones_por_valor"] = {
+                str(valor): len(transacciones) 
+                for valor, transacciones in transacciones_por_valor.items()
+            }
+        
+        logger.info(f"✅ BÚSQUEDA COMPLETADA - Total encontradas: {len(transacciones_encontradas)}")
+        
         return {
-            "transacciones": resultados,
-            "total": len(resultados),
+            "transacciones": transacciones_encontradas,
+            "total": len(transacciones_encontradas),
             "pago_referencia": referencia,
+            "resumen_busqueda": resumen_busqueda,
             "criterios_busqueda": {
-                "valor_pago": valor_pago,
-                "fecha_pago": fecha_pago.isoformat() if hasattr(fecha_pago, 'isoformat') else str(fecha_pago),
+                "fecha_inicio": fecha_inicio.isoformat(),
+                "fecha_fin": fecha_fin.isoformat(),
                 "entidad_pago": entidad_pago,
-                "tipo_pago": tipo_pago
+                "tipo_pago": tipo_pago,
+                "parametros_opcionales_usados": {
+                    "fecha_pago": fecha_pago is not None,
+                    "valor": valor is not None
+                }
             }
         }
+        
     except Exception as e:
         logger.error(f"Error obteniendo transacciones bancarias disponibles: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Error obteniendo transacciones: {str(e)}"
         )
+
 
 
 def calcular_porcentaje_similitud(
@@ -2507,3 +3023,8 @@ def get_nivel_match(porcentaje: float) -> str:
         return "🔴 Bajo"
     else:
         return "⚫ Muy Bajo"
+
+
+
+
+
