@@ -7,6 +7,73 @@
   min-height: 100vh;
 }
 
+.calendario-wrapper {
+  margin-top: 2rem;
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.dias-semana-header {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background-color: #1e293b;
+}
+
+.dia-semana-header {
+  background-color: #2563eb;
+  color: white;
+  padding: 0.75rem;
+  text-align: center;
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.calendario-dias-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background-color: #e5e7eb;
+  min-height: 400px;
+}
+
+.celda-vacia {
+  background-color: #f8fafc; /* Igual que el fondo general */
+  min-height: 120px;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  align-items: stretch;
+}
+
+.celda-dia {
+  background-color: white;
+  min-height: 140px;
+  padding: 0.75rem 0.5rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+}
+
+.dia-numero-solo {
+  color: #cbd5e1;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.celda-dia:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+}
+
+
 /* Header y navegación */
 .calendario-header {
   background: white;
@@ -139,7 +206,7 @@
   border-color: #dc2626;
 }
 
-/* Grid del calendario */
+/* Grid del calendario 
 .calendario-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -149,7 +216,7 @@
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
-
+*/
 .encabezado-dia {
   background: #1e293b;
   color: white;
@@ -162,19 +229,31 @@
 }
 
 .celda-dia {
-  background: white;
-  min-height: 120px;
-  padding: 0.75rem;
-  position: relative;
-  transition: all 0.2s;
+  background-color: white;
+  min-height: 140px;
+  padding: 0.75rem 0.5rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
 }
 
 .celda-dia.vacio {
-  background: #f8fafc;
+  background-color: #f8fafc; /* Igual que el fondo general */
+  min-height: 120px;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  align-items: stretch;
 }
 
 .celda-dia.lleno {
-  cursor: pointer;
+  border-left: 4px solid #10b981;
 }
 
 .celda-dia.lleno:hover {
@@ -185,19 +264,19 @@
 
 /* Estados de los días */
 .celda-dia.pendiente {
-  border-left: 4px solid #cbd5e1;
+  border-left-color: #cbd5e1;
 }
 
 .celda-dia.en-proceso {
-  border-left: 4px solid #f59e0b;
+  border-left-color: #f59e0b;
 }
 
 .celda-dia.completado {
-  border-left: 4px solid #10b981;
+  border-left-color: #10b981;
 }
 
 .celda-dia.con-diferencias {
-  border-left: 4px solid #dc2626;
+  border-left-color: #dc2626;
   background: #fef2f2;
 }
 
@@ -545,6 +624,8 @@
 .celda-dia.lleno {
   min-height: 140px;
   padding: 0.75rem 0.5rem;
+  width: 100%;
+  
 }
 
 .celda-informacion {
@@ -621,6 +702,49 @@
   border-left-color: #ef4444;
 }
 
+.calendario-grid {
+  margin-top: 2rem;
+}
+/*
+.dias-semana {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  margin-bottom: 1px;
+}
+*/
+.dia-semana-header {
+  background-color: #2563eb;
+  color: white;
+  padding: 1rem;
+  text-align: center;
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+/*
+.calendario-dias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: flex-start;
+}
+*/
+.celda-dia {
+  width: 200px;
+  height: 150px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.5rem;
+  background-color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.celda-dia:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
 /* Responsive mejorado para el nuevo layout */
 @media (max-width: 768px) {
   .reporte-titulo {
@@ -660,3 +784,4 @@
     font-size: 0.6rem;
   }
 }
+

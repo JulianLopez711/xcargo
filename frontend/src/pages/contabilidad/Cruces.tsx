@@ -1,6 +1,22 @@
 import React, { useState, useEffect } from "react";
 import "../../styles/contabilidad/Cruces.css";
 
+// 🎨 CSS para animaciones de carga
+const spinKeyframes = `
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+
+// Inyectar estilos CSS al head si no existen
+if (!document.querySelector('#pagination-spinner-styles')) {
+  const style = document.createElement('style');
+  style.id = 'pagination-spinner-styles';
+  style.textContent = spinKeyframes;
+  document.head.appendChild(style);
+}
+
 
 
 
@@ -17,14 +33,16 @@ interface ResultadoConciliacion {
     | "diferencia_fecha"
     | "sin_match";
   confianza: number;
-  referencia_pago?: string;
-  fecha_pago?: string;
-  valor_pago?: number;
+  referencia_pago: string;
+  referencia_pago_original?: string;
+  fecha_pago: string;
+  valor_pago: number;
   diferencia_valor?: number;
   diferencia_dias?: number;
   trackings?: string;
   correo_conductor?: string;
   entidad_pago?: string;
+  tipo?: string;
   num_guias?: number;
   observaciones?: string;
   num_matches_posibles?: number;
@@ -38,6 +56,15 @@ interface ResultadoConciliacion {
     correo_conductor?: string;
     trackings?: string[];
   }>;
+  id_transaccion?: string | number;
+  // 🔥 CAMPOS ADICIONALES PARA CONCILIACIÓN MANUAL (del endpoint /pendientes-contabilidad)
+  valor?: number;
+  num_referencias?: number;
+  es_grupo_transaccion?: boolean;
+  Id_Transaccion?: number;
+  entidad?: string;
+  hora_pago?: string;
+  estado_conciliacion?: string;
 }
 
 // Verificar que tu interfaz incluya:
@@ -112,6 +139,15 @@ interface SeleccionTransaccionModal {
     correo: string;
     entidad: string;
     tipo?: string; // Tipo de pago desde la tabla pagos conductores
+    // 🔥 CAMPOS ADICIONALES PARA CONCILIACIÓN MANUAL
+    referencia_pago_original?: string;
+    valor_total_consignacion?: number;
+    num_referencias?: number;
+    es_grupo_transaccion?: boolean;
+    id_transaccion?: string | number;
+    entidad_original?: string;
+    hora_pago?: string;
+    estado_conciliacion?: string;
   };
   transacciones_disponibles: TransaccionBancaria[];
 }
@@ -126,8 +162,25 @@ interface LoadingProgress {
 
 const Cruces: React.FC = () => {
   // ✅ CONFIGURACIÓN DE API - Usar servidor local para desarrollo
-  const API_BASE_URL = 'https://api.x-cargo.co';
-
+  const API_BASE_URL = 'http://127.0.0.1:8000';
+  const [transaccionesSeleccionadas, setTransaccionesSeleccionadas] = useState<string[]>([]);
+  const [pendientesPorConciliar, setPendientesPorConciliar] = useState<ResultadoConciliacion[]>([]);
+  const [mostrarPendientesManual, setMostrarPendientesManual] = useState(false);
+  
+  // 🔥 NUEVOS ESTADOS PARA PAGINACIÓN
+  const [paginacionPendientes, setPaginacionPendientes] = useState({
+    pagina_actual: 1,
+    total_paginas: 1,
+    total_registros: 0,
+    registros_por_pagina: 50, // Reducido de 100 para mejor performance
+    tiene_siguiente: false,
+    tiene_anterior: false
+  });
+  const [cargandoPendientes, setCargandoPendientes] = useState(false);
+  const [exportandoTablas, setExportandoTablas] = useState(false);
+  const [reviertendoConciliaciones, setReviertendoConciliaciones] = useState(false);
+  const [error, setError] = useState<string>("");
+  
   const [archivo, setArchivo] = useState<File | null>(null);
   const [subiendo, setSubiendo] = useState(false);
   const [mensaje, setMensaje] = useState("");
@@ -149,6 +202,21 @@ const Cruces: React.FC = () => {
     useState<ConciliacionManual | null>(null);
   const [modalSeleccionTransaccion, setModalSeleccionTransaccion] =
     useState<SeleccionTransaccionModal | null>(null);
+  // 🔥 NUEVO MODAL ESPECÍFICO PARA TABLA DE PENDIENTES (SIN useEffect PROBLEMÁTICO)
+  const [modalPendientesConciliacion, setModalPendientesConciliacion] =
+    useState<SeleccionTransaccionModal | null>(null);
+    
+  // 🖼️ ESTADO PARA CARRUSEL DE IMÁGENES
+  const [carruselImagenes, setCarruselImagenes] = useState<{
+    visible: boolean;
+    imagenes: string[];
+    indiceActual: number;
+  }>({
+    visible: false,
+    imagenes: [],
+    indiceActual: 0
+  });
+  
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgress>({
     total: 0,
     processed: 0,
@@ -161,53 +229,396 @@ const Cruces: React.FC = () => {
     return `$${Math.abs(valor).toLocaleString('es-CO')}`;
   };
 
-  const cargarDetallePago = async (referenciaPago: string) => {
+  //TEMPORAL: Concialiacion Manual
+
+// 🔥 FUNCIÓN MEJORADA QUE CARGA TODOS LOS REGISTROS SIN LIMITACIONES
+const cargarPendientesPorConciliar = async (pagina: number = 1, resetearDatos: boolean = false) => {
   try {
-    const response = await fetch(`https://api.x-cargo.co/pagos/detalles-pago-cruces/${referenciaPago}`);
+    setCargandoPendientes(true);
+    
+    // 🚀 QUITAR LIMITACIONES - CARGAR TODOS LOS REGISTROS
+    // Usar un límite muy alto para obtener todos los registros de una vez
+    const url = `http://127.0.0.1:8000/pagos/pendientes-contabilidad?estado=pendiente_conciliacion&limit=10000&offset=0`;
+    
+    console.log(`🔍 Cargando TODOS los pendientes sin limitaciones:`, url);
+    
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Error al obtener pendientes");
+    
+    const data = await res.json();
+    console.log("🔍 Respuesta del endpoint pendientes-contabilidad (TODOS):", data);
+
+    // Mapea los campos a los que espera la tabla
+    const pendientes = (data.pagos || []).map((p: any) => ({
+      referencia_pago: p.referencia_pago,
+      referencia_pago_original: p.referencia_pago_original,
+      fecha_pago: p.fecha || "",
+      valor_pago: p.valor_total_consignacion || p.valor || 0,
+      correo_conductor: p.correo_conductor || "",
+      entidad_pago: p.entidad || "No especificada",
+      tipo: p.tipo || "No especificado",
+      ...p // conserva el resto por si lo necesitas
+    }));
+
+    console.log(`✅ TODOS LOS REGISTROS CARGADOS: ${pendientes.length} registros`);
+
+    // 🔥 ORDENACIÓN GLOBAL DE TODOS LOS REGISTROS (DE MÁS VIEJO A MÁS NUEVO)
+    const todosLosPendientesOrdenados = pendientes.sort((a: any, b: any) => {
+      // 🔥 FUNCIÓN AUXILIAR PARA CONVERTIR FECHAS
+      const convertirFecha = (fechaStr: string) => {
+        if (!fechaStr) return new Date(0);
+        
+        // Si ya está en formato ISO (YYYY-MM-DD), usarla directamente
+        if (fechaStr.includes('-') && fechaStr.length >= 10) {
+          return new Date(fechaStr);
+        }
+        
+        // Si está en formato DD/MM/YYYY, convertir
+        if (fechaStr.includes('/')) {
+          const partes = fechaStr.split('/');
+          if (partes.length === 3) {
+            const [dia, mes, año] = partes;
+            return new Date(parseInt(año), parseInt(mes) - 1, parseInt(dia));
+          }
+        }
+        
+        // Fallback: intentar parsing directo
+        return new Date(fechaStr);
+      };
+      
+      const fechaA = convertirFecha(a.fecha_pago || a.fecha || '');
+      const fechaB = convertirFecha(b.fecha_pago || b.fecha || '');
+      
+      return fechaA.getTime() - fechaB.getTime(); // Más viejo primero
+    });
+
+    console.log(`✅ Total registros después de ordenar: ${todosLosPendientesOrdenados.length}`);
+    if (todosLosPendientesOrdenados.length > 0) {
+      console.log(`📅 Primer registro: ${todosLosPendientesOrdenados[0].referencia_pago} - ${todosLosPendientesOrdenados[0].fecha_pago}`);
+      console.log(`📅 Último registro: ${todosLosPendientesOrdenados[todosLosPendientesOrdenados.length - 1].referencia_pago} - ${todosLosPendientesOrdenados[todosLosPendientesOrdenados.length - 1].fecha_pago}`);
+    }
+
+    // 🔥 ELIMINAR DUPLICADOS POR REFERENCIA_PAGO (por si acaso)
+    const registrosUnicos = todosLosPendientesOrdenados.filter((registro: any, index: number, array: any[]) => 
+      array.findIndex((r: any) => r.referencia_pago === registro.referencia_pago) === index
+    );
+
+    if (registrosUnicos.length !== todosLosPendientesOrdenados.length) {
+      console.log(`⚠️ Se eliminaron ${todosLosPendientesOrdenados.length - registrosUnicos.length} duplicados`);
+    }
+
+    // Actualizar el estado con todos los registros ordenados y únicos
+    setPendientesPorConciliar(registrosUnicos);
+
+    // Actualizar información de paginación con todos los datos
+    const nuevaPaginacion = {
+      pagina_actual: 1, // Siempre página 1 porque cargamos todo
+      total_paginas: 1, // Solo una página porque tenemos todos los datos
+      total_registros: registrosUnicos.length, // Total real
+      registros_por_pagina: registrosUnicos.length, // Todos en una "página"
+      tiene_siguiente: false, // No hay más páginas
+      tiene_anterior: false // No hay páginas anteriores
+    };
+    
+    setPaginacionPendientes(nuevaPaginacion);
+
+    console.log(`✅ TODOS LOS REGISTROS CARGADOS Y LISTOS: ${registrosUnicos.length} registros únicos`);
+    console.log(`🎯 La paginación local manejará la visualización de ${registrosUnicos.length} registros`);
+    
+  } catch (error) {
+    console.error("❌ Error al cargar pendientes:", error);
+    setError("Error al cargar los pagos pendientes");
+  } finally {
+    setCargandoPendientes(false);
+  }
+};
+
+
+
+// 🔥 FUNCIÓN PARA RECARGAR DESDE EL INICIO (CARGA AUTOMÁTICA COMPLETA)
+const recargarPendientes = () => {
+  console.log("🔄 Recargando todos los pendientes desde el inicio...");
+  cargarPendientesPorConciliar(1, true);
+};
+
+
+
+// Nueva función para cargar detalles de pago usando Id_Transaccion o referencia_pago
+const cargarDetallePago = async (
+  referenciaPago: string | null,
+  idTransaccion?: string | number | null,
+  filtros?: {
+    correo?: string;
+    fecha_pago?: string;
+    valor?: number;
+    estado_conciliacion?: string;
+    hora_pago?: string;
+  }
+) => {
+  try {
+    let url = `http://127.0.0.1:8000/pagos/detalles-pago`;
+    const params = new URLSearchParams();
+
+    // Priorizar id_transaccion si está presente
+    if (idTransaccion) {
+      params.append('id_transaccion', idTransaccion.toString());
+    } else if (referenciaPago) {
+      params.append('referencia_pago', referenciaPago);
+    }
+
+    if (filtros) {
+      if (filtros.correo) params.append('correo', filtros.correo);
+      if (filtros.fecha_pago) params.append('fecha_pago', filtros.fecha_pago);
+      if (filtros.valor !== undefined) params.append('valor', filtros.valor.toString());
+      if (filtros.estado_conciliacion) params.append('estado_conciliacion', filtros.estado_conciliacion);
+      if (filtros.hora_pago) params.append('hora_pago', filtros.hora_pago);
+    }
+
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+    console.log("🔍 URL de petición con parámetros:", url);
+    const response = await fetch(url);
     if (!response.ok) throw new Error(`Error ${response.status}: ${response.statusText}`);
     const data = await response.json();
     console.log("🔍 Detalles del pago recibidos del endpoint:", data);
-    setDetallePagoSeleccionado(data.pago || null);
+    setDetallePagoSeleccionado(data.detalles || null);
   } catch (err: any) {
+    console.error("❌ Error cargando detalles del pago:", err);
     setDetallePagoSeleccionado(null);
   }
-   
-  };
+};
 
-
-  useEffect(() => {
-  if (modalSeleccionTransaccion?.pago?.referencia) {
-    cargarDetallePago(modalSeleccionTransaccion.pago.referencia);
+// Adaptar para usar id_transaccion si está disponible
+// Cuando se abre el modal de selección, cargar detalles y mapearlos al modal
+// 🔥 CONDICIONADO PARA EVITAR PETICIONES AUTOMÁTICAS INNECESARIAS
+useEffect(() => {
+  // ✅ SOLO EJECUTAR SI EL MODAL TIENE TRANSACCIONES CARGADAS
+  // Esto evita peticiones automáticas cuando se usa mostrarModalSeleccionTransaccionBancoSinPeticion
+  if (modalSeleccionTransaccion?.pago && modalSeleccionTransaccion.transacciones_disponibles.length > 0) {
+    const filtros = {
+      correo: modalSeleccionTransaccion.pago.correo !== "No disponible" ? modalSeleccionTransaccion.pago.correo : undefined,
+      fecha_pago: modalSeleccionTransaccion.pago.fecha ? modalSeleccionTransaccion.pago.fecha.split('T')[0] : undefined,
+      valor: modalSeleccionTransaccion.pago.valor
+    };
+    const idTransaccion = (modalSeleccionTransaccion.pago as any).id_transaccion || (modalSeleccionTransaccion.pago as any).Id_Transaccion || null;
+    
+    console.log("🔍 useEffect ejecutándose para modal con transacciones:", {
+      referencia: modalSeleccionTransaccion.pago.referencia,
+      transacciones_count: modalSeleccionTransaccion.transacciones_disponibles.length,
+      id_transaccion: idTransaccion
+    });
+    
+    // Llamar y mapear los detalles al modal
+    cargarDetallePago(modalSeleccionTransaccion.pago.referencia || null, idTransaccion, filtros).then(() => {
+      // Esperar a que setDetallePagoSeleccionado se actualice
+      setTimeout(() => {
+        if (Array.isArray(detallePagoSeleccionado) && detallePagoSeleccionado.length > 0) {
+          const detalle = detallePagoSeleccionado[0];
+          setModalSeleccionTransaccion((prev) => prev && {
+            ...prev,
+            pago: {
+              referencia: detalle.referencia_pago || detalle.referencia || "",
+              valor: detalle.valor || detalle.valor_total_consignacion_pc || 0,
+              fecha: detalle.fecha_pago || "",
+              correo: detalle.correo || "",
+              entidad: detalle.cliente || "",
+              tipo: detalle.tipo || "",
+              comprobante: detalle.comprobante || "",
+            }
+          });
+        }
+      }, 300);
+    });
+  } else if (modalSeleccionTransaccion?.pago) {
+    console.log("🚫 useEffect omitido - Modal sin transacciones cargadas:", {
+      referencia: modalSeleccionTransaccion.pago.referencia,
+      transacciones_count: modalSeleccionTransaccion.transacciones_disponibles.length
+    });
   }
-  }, [modalSeleccionTransaccion]);
+}, [modalSeleccionTransaccion]);
 
 
-  const verDetallesPago = async (referenciaPago: string) => {
-    try {
-      const response = await fetch(`https://api.x-cargo.co/pagos/detalles-pago-cruces/${referenciaPago}`);
-      
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-
-      const comprobante = data.pago?.comprobante;
-
-      console.log("🧾 URL del comprobante:", comprobante);
-
-      if (comprobante) {
-          verImagen(comprobante);
-        } else {
-          alert("No se encontró ningún comprobante");
-        }        
-
-    } catch (err: any) {
-      console.error("Error cargando detalles:", err);
-      alert(`Error al cargar detalles del pago: ${err.message}`);
+const verDetallesPago = async (referenciaPago: string, filtros?: {
+  correo?: string;
+  fecha_pago?: string;
+  valor?: number;
+  estado_conciliacion?: string;
+}) => {
+  try {
+    // Construir la URL base
+    let url = `http://127.0.0.1:8000/pagos/detalles-pago-cruces/${referenciaPago}`;
+    
+    // Construir parámetros de consulta si se proporcionan filtros
+    const params = new URLSearchParams();
+    
+    if (filtros) {
+      if (filtros.correo) params.append('correo', filtros.correo);
+      if (filtros.fecha_pago) params.append('fecha_pago', filtros.fecha_pago);
+      if (filtros.valor !== undefined) params.append('valor', filtros.valor.toString());
+      if (filtros.estado_conciliacion) params.append('estado_conciliacion', filtros.estado_conciliacion);
     }
-  };
+    
+    // Agregar parámetros a la URL si existen
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`Error ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    const comprobante = data.pago?.comprobante;
 
+    console.log("🧾 URL del comprobante:", comprobante);
+
+    if (comprobante) {
+      verImagen(comprobante);
+    } else {
+      alert("No se encontró ningún comprobante");
+    }        
+
+  } catch (err: any) {
+    console.error("Error cargando detalles:", err);
+    alert(`Error al cargar detalles del pago: ${err.message}`);
+  }
+};
+
+// 🔥 NUEVA FUNCIÓN PARA CARGAR COMPROBANTE DESDE MODAL DE PENDIENTES
+const verComprobantePendiente = async (pago: any) => {
+  try {
+    // Construir la referencia para la URL
+    const referencia = pago.referencia_pago_original || pago.referencia;
+    
+    if (!referencia) {
+      alert("No se encontró referencia de pago");
+      return;
+    }
+
+    // Construir URL base del endpoint /pagos/imagenes-pago
+    let url = `http://127.0.0.1:8000/pagos/imagenes-pago/${referencia}`;
+    
+    // Construir parámetros de consulta
+    const params = new URLSearchParams();
+    
+    if (pago.correo && pago.correo !== "No disponible") {
+      params.append('correo', pago.correo);
+    }
+    
+    if (pago.fecha) {
+      const fechaPago = pago.fecha.split('T')[0]; // Formato YYYY-MM-DD
+      params.append('fecha_pago', fechaPago);
+    }
+    
+    if (pago.valor_total_consignacion || pago.valor) {
+      const valor = pago.valor_total_consignacion || pago.valor;
+      params.append('valor', valor.toString());
+    }
+    
+    // 🔥 USAR ID_TRANSACCION SI ESTÁ DISPONIBLE
+    if (pago.id_transaccion) {
+      params.append('id_transaccion', pago.id_transaccion.toString());
+    }
+    
+    // Agregar parámetros a la URL
+    if (params.toString()) {
+      url += `?${params.toString()}`;
+    }
+    
+    console.log("🔍 URL del comprobante pendiente:", url);
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`Error ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    console.log("🧾 Respuesta del endpoint imagenes-pago:", data);
+    
+    // Buscar todas las imágenes en la respuesta
+    if (data.imagenes && Array.isArray(data.imagenes) && data.imagenes.length > 0) {
+      console.log(`✅ Encontradas ${data.imagenes.length} imágenes, mostrando en carrusel...`);
+      
+      // Abrir carrusel de imágenes
+      setCarruselImagenes({
+        visible: true,
+        imagenes: data.imagenes,
+        indiceActual: 0
+      });
+    } else {
+      console.warn("⚠️ No se encontraron imágenes en la respuesta:", data);
+      alert("No se encontró comprobante para este pago");
+    }
+    
+  } catch (err: any) {
+    console.error("❌ Error cargando comprobante pendiente:", err);
+    alert(`Error al cargar comprobante: ${err.message}`);
+  }
+};
+
+// 🖼️ FUNCIONES PARA CONTROLAR EL CARRUSEL
+const siguienteImagen = () => {
+  setCarruselImagenes(prev => ({
+    ...prev,
+    indiceActual: (prev.indiceActual + 1) % prev.imagenes.length
+  }));
+};
+
+const anteriorImagen = () => {
+  setCarruselImagenes(prev => ({
+    ...prev,
+    indiceActual: prev.indiceActual === 0 ? prev.imagenes.length - 1 : prev.indiceActual - 1
+  }));
+};
+
+const cerrarCarrusel = () => {
+  setCarruselImagenes({
+    visible: false,
+    imagenes: [],
+    indiceActual: 0
+  });
+};
+
+// 🔄 FUNCIÓN PARA LIMPIAR SELECCIÓN DE TRANSACCIONES
+const limpiarSeleccionTransacciones = () => {
+  setTransaccionesSeleccionadas([]);
+  console.log('🗑️ Selección de transacciones bancarias limpiada');
+};
+
+// 🚪 FUNCIÓN PARA CERRAR MODAL DE PENDIENTES Y CARRUSEL
+const cerrarModalPendientes = () => {
+  if (!conciliandoTransaccion) {
+    setModalPendientesConciliacion(null);
+    // También cerrar el carrusel si está abierto
+    if (carruselImagenes.visible) {
+      cerrarCarrusel();
+    }
+    console.log('🚪 Modal de pendientes y carrusel cerrados');
+  }
+};
+
+// 📄 FUNCIONES DE NAVEGACIÓN DE PÁGINAS
+const irAPagina = (nuevaPagina: number) => {
+  if (nuevaPagina >= 1 && nuevaPagina <= paginacionManual.totalPaginas) {
+    setPaginacionManual(prev => ({
+      ...prev,
+      paginaActual: nuevaPagina
+    }));
+    console.log(`📄 Navegando a página ${nuevaPagina}`);
+  }
+};
+
+const paginaAnterior = () => {
+  irAPagina(paginacionManual.paginaActual - 1);
+};
+
+const paginaSiguiente = () => {
+  irAPagina(paginacionManual.paginaActual + 1);
+};
 
   const verImagen = (src: string) => {
     if (!src) {
@@ -217,6 +628,60 @@ const Cruces: React.FC = () => {
     setImagenSeleccionada(src);
   };
   
+const toggleSeleccionTransaccion = (idTransaccion: string) => {
+  // Determinar cuál modal está activo
+  const modalActivo = modalSeleccionTransaccion || modalPendientesConciliacion;
+  if (!modalActivo) return;
+  
+  const numReferenciasAgrupadas = modalActivo.pago.num_referencias || 1;
+  
+  setTransaccionesSeleccionadas(prev => {
+    if (prev.includes(idTransaccion)) {
+      // Si ya está seleccionada, removerla
+      return prev.filter(id => id !== idTransaccion);
+    } else {
+      // Verificar si ya se alcanzó el límite de selecciones
+      if (prev.length >= numReferenciasAgrupadas) {
+        alert(`⚠️ Solo puedes seleccionar ${numReferenciasAgrupadas} transacción(es) bancaria(s) para ${numReferenciasAgrupadas} referencia(s) agrupada(s).`);
+        return prev; // No agregar más
+      }
+      // Si no está seleccionada y no se ha alcanzado el límite, agregarla
+      return [...prev, idTransaccion];
+    }
+  });
+};
+
+
+// Función para seleccionar todas las transacciones disponibles
+const seleccionarTodasTransacciones = () => {
+  // Determinar cuál modal está activo
+  const modalActivo = modalSeleccionTransaccion || modalPendientesConciliacion;
+  if (!modalActivo) return;
+  
+  const numReferenciasAgrupadas = modalActivo.pago.num_referencias || 1;
+  
+  const todasDisponibles = modalActivo.transacciones_disponibles
+    .filter(t => t.estado_conciliacion === 'pendiente')
+    .map(t => t.id)
+    .slice(0, numReferenciasAgrupadas); // Limitar al número de referencias agrupadas
+  
+  setTransaccionesSeleccionadas(todasDisponibles);
+  
+  // Mostrar mensaje informativo si hay más transacciones disponibles que el límite
+  const totalDisponibles = modalActivo.transacciones_disponibles
+    .filter(t => t.estado_conciliacion === 'pendiente').length;
+  
+  if (totalDisponibles > numReferenciasAgrupadas) {
+    alert(`ℹ️ Se seleccionaron las primeras ${numReferenciasAgrupadas} transacciones. Solo puedes seleccionar ${numReferenciasAgrupadas} para ${numReferenciasAgrupadas} referencia(s) agrupada(s).`);
+  }
+};
+
+// Función para limpiar todas las selecciones
+const limpiarSelecciones = () => {
+  setTransaccionesSeleccionadas([]);
+};
+
+
 
 
   const [logsProgreso, setLogsProgreso] = useState<string[]>([]);
@@ -230,6 +695,7 @@ const Cruces: React.FC = () => {
   } | null>(null);
   
   const [conciliandoTransaccion, setConciliandoTransaccion] = useState(false);
+  const [cargandoTransaccionesBanco, setCargandoTransaccionesBanco] = useState(false);
 
   // ✅ FUNCIÓN HELPER PARA CLASIFICAR SIMILITUD
   const getSimilitudClass = (porcentaje: number): string => {
@@ -272,6 +738,7 @@ const Cruces: React.FC = () => {
     }
   };
 
+
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
   useEffect(() => {
@@ -310,6 +777,117 @@ const Cruces: React.FC = () => {
     } catch (err: any) {
       console.error("Error cargando estadísticas:", err);
       setMensaje(`❌ Error: ${err.message}`);
+    }
+  };
+
+  // 📤 FUNCIÓN PARA EXPORTAR TODAS LAS TABLAS
+  const exportarTablas = async () => {
+    try {
+      setExportandoTablas(true);
+      setMensaje("🔄 Iniciando exportación de tablas...");
+      
+      const response = await fetch(
+        `${API_BASE_URL}/conciliacion/exportar-tablas`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Error del servidor: ${errorText}`);
+      }
+
+      const data = await response.json();
+      
+      // Mostrar resultado detallado
+      if (data.estadisticas.exportaciones_exitosas > 0) {
+        setMensaje(
+          `✅ Exportación completada: ${data.estadisticas.exportaciones_exitosas}/${data.estadisticas.total_tablas} tablas exportadas exitosamente`
+        );
+        
+        // Mostrar archivos exportados
+        console.log("📄 Archivos exportados:", data.archivos_exportados);
+        
+        // Limpiar mensaje después de 8 segundos
+        setTimeout(() => {
+          setMensaje("");
+        }, 8000);
+      } else {
+        setMensaje("⚠️ No se pudieron exportar las tablas");
+      }
+      
+    } catch (err: any) {
+      console.error("❌ Error exportando tablas:", err);
+      setMensaje(`❌ Error en exportación: ${err.message}`);
+      
+      // Limpiar mensaje de error después de 6 segundos
+      setTimeout(() => {
+        setMensaje("");
+      }, 6000);
+    } finally {
+      setExportandoTablas(false);
+    }
+  };
+
+  // 🔄 FUNCIÓN PARA REVERTIR CONCILIACIONES AUTOMÁTICAS
+  const revertirConciliacionesAutomaticas = async () => {
+    try {
+      setReviertendoConciliaciones(true);
+      setMensaje("🔄 Iniciando reversión de conciliaciones automáticas...");
+      
+      const response = await fetch(
+        `${API_BASE_URL}/conciliacion/revertir-conciliaciones-automaticas`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Error del servidor: ${errorText}`);
+      }
+
+      const data = await response.json();
+      
+      // Mostrar resultado detallado
+      if (data.status === "success") {
+        setMensaje(
+          `✅ Reversión completada: ${data.detalle.pagos_revertidos} pagos y ${data.detalle.movimientos_revertidos} movimientos bancarios revertidos desde 2025-08-27`
+        );
+        
+        console.log("🔄 Detalles de reversión:", data.detalle);
+        
+        // Recargar estadísticas
+        cargarEstadisticas();
+        
+        // Limpiar mensaje después de 10 segundos
+        setTimeout(() => {
+          setMensaje("");
+        }, 10000);
+      } else {
+        setMensaje(`ℹ️ ${data.mensaje}`);
+        setTimeout(() => {
+          setMensaje("");
+        }, 8000);
+      }
+      
+    } catch (err: any) {
+      console.error("❌ Error revirtiendo conciliaciones:", err);
+      setMensaje(`❌ Error en reversión: ${err.message}`);
+      
+      // Limpiar mensaje de error después de 6 segundos
+      setTimeout(() => {
+        setMensaje("");
+      }, 6000);
+    } finally {
+      setReviertendoConciliaciones(false);
     }
   };
 // ✅ NUEVA FUNCIÓN PARA CARGAR PAGOS PENDIENTES DE CONCILIAR
@@ -644,6 +1222,7 @@ const Cruces: React.FC = () => {
     
     
     try {
+      console.log("🔍 Todos los datos recibidos para la tabla:", data.resultados);
       const dataConvertida: ResumenConciliacion = {
         resumen: {
           total_movimientos_banco: data.resumen.total_movimientos_banco ?? 0,
@@ -685,266 +1264,572 @@ const Cruces: React.FC = () => {
   };
 
   // ✅ NUEVA FUNCIÓN PARA OBTENER TRANSACCIONES BANCARIAS DISPONIBLES
-  const obtenerTransaccionesBancarias = async (referenciaPago: string) => {
-    try {
+  // ✅ FUNCIÓN MEJORADA PARA OBTENER TRANSACCIONES BANCARIAS CON FILTROS OPCIONALES
+const obtenerTransaccionesBancarias = async (
+  referenciaPago: string, 
+  fechaPago?: string, 
+  valor?: number
+) => {
+  try {
+    // ✅ Construir URL con parámetros opcionales
+    const params = new URLSearchParams();
+    params.append('referencia', referenciaPago);
+    
+    if (fechaPago) {
+      params.append('fecha_pago', fechaPago);
+    }
+    
+    if (valor !== undefined) {
+      params.append('valor', valor.toString());
+    }
+
+    const url = `${API_BASE_URL}/conciliacion/transacciones-bancarias-disponibles?${params.toString()}`;
+    
+    console.log(`🔍 Obteniendo transacciones bancarias con URL: ${url}`);
+    
+    const res = await fetch(url);
+
+    if (!res.ok) {
+      throw new Error("Error al obtener transacciones bancarias");
+    }
+
+    const data = await res.json();
+    console.log(`✅ Transacciones bancarias obtenidas:`, data);
+    
+    return data.transacciones || [];
+  } catch (err: any) {
+    console.error("Error obteniendo transacciones bancarias:", err);
+    setMensaje("❌ Error al cargar transacciones bancarias: " + err.message);
+    return [];
+  }
+};
+
+const mostrarModalSeleccionTransaccionBanco = async (resultado: ResultadoConciliacion, esConciliacionManual: boolean = false) => {
+  try {
+    // ✅ VALIDACIÓN INICIAL - Verificar que resultado tenga los campos necesarios
+    if (!resultado) {
+      console.error("❌ Resultado es null o undefined");
+      setMensaje("❌ Error: Datos incompletos para mostrar transacciones bancarias");
+      return;
+    }
+
+    // Intentar usar el endpoint optimizado primero CON FILTROS OPCIONALES
+    let transacciones = [];
+    
+    // 🔥 USAR referencia_pago_original COMO PRIORIDAD, fallback a referencia_pago
+    const referenciaParaBuscar = resultado.referencia_pago_original || resultado.referencia_pago;
+    
+    if (referenciaParaBuscar) {
+      // ✅ PREPARAR FILTROS OPCIONALES
+      const fechaPagoParam = resultado.fecha_pago ? resultado.fecha_pago.split('T')[0] : undefined;
+      const valorPagoParam = resultado.valor_pago;
+      
+      console.log(`🔍 Buscando transacciones bancarias para:`, {
+        referencia_original: resultado.referencia_pago_original,
+        referencia_display: resultado.referencia_pago,
+        referencia_usada: referenciaParaBuscar,
+        fecha: fechaPagoParam,
+        valor: valorPagoParam,
+        esConciliacionManual
+      });
+      
+      // ✅ LLAMAR CON PARÁMETROS OPCIONALES usando referencia_pago_original
+      transacciones = await obtenerTransaccionesBancarias(
+        referenciaParaBuscar,
+        fechaPagoParam,
+        valorPagoParam
+      );
+    }
+    
+    // Si no hay referencia o no se encontraron transacciones, usar búsqueda por criterios (FALLBACK)
+    if (transacciones.length === 0) {
+      console.log("🔄 No se encontraron transacciones con endpoint optimizado, usando fallback...");
+      
+      // ✅ VALIDACIÓN SEGURA para fechas
+      const fechaExacta = resultado.fecha_pago && resultado.fecha_pago !== null 
+        ? resultado.fecha_pago.split('T')[0] 
+        : new Date().toISOString().split('T')[0];
+
+      const params = new URLSearchParams({
+        valor_min: resultado.valor_pago.toString(),
+        valor_max: resultado.valor_pago.toString(),
+        fecha_inicio: fechaExacta,
+        fecha_fin: fechaExacta,
+        estado: 'pendiente' // Solo transacciones no conciliadas
+      });
+
       const res = await fetch(
-        `${API_BASE_URL}/conciliacion/transacciones-bancarias-disponibles?referencia=${referenciaPago}`
+        `${API_BASE_URL}/conciliacion/obtener-movimientos-banco-disponibles?${params.toString()}`
       );
 
-      if (!res.ok) {
-        throw new Error("Error al obtener transacciones bancarias");
+      if (res.ok) {
+        const data = await res.json();
+        transacciones = data.transacciones || [];
+        console.log(`✅ Transacciones obtenidas con fallback: ${transacciones.length}`);
+      } else {
+        console.error("❌ Error en endpoint fallback:", res.statusText);
       }
-
-      const data = await res.json();
-      return data.transacciones || [];
-    } catch (err: any) {
-      console.error("Error obteniendo transacciones bancarias:", err);
-      setMensaje("❌ Error al cargar transacciones bancarias: " + err.message);
-      return [];
     }
-  };
-
-  // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIÓN
-  /*
-  const mostrarModalSeleccionTransaccion = async (pago: {
-    referencia: string;
-    valor: number;
-    fecha: string;
-    correo: string;
-    entidad: string;
-    tipo?: string; // Agregar el tipo de pago
-  }) => {
-   
-
-    const transacciones = await obtenerTransaccionesBancarias(pago.referencia);
+    
+    setModalSeleccionTransaccion({
+      pago: {
+        referencia: referenciaParaBuscar || resultado.id_banco || "Sin referencia",
+        valor: resultado.valor_pago || 0,
+        fecha: resultado.fecha_pago || new Date().toISOString(),
+        correo: resultado.correo_conductor || "No disponible",
+        entidad: resultado.entidad_pago || "No especificada",
+        tipo: resultado.tipo || "No especificado",
+        // 🔥 DATOS ESPECÍFICOS PARA CONCILIACIÓN MANUAL
+        ...(esConciliacionManual && {
+          // Usar datos del endpoint /pendientes-contabilidad
+          referencia_pago_original: resultado.referencia_pago_original,
+          valor_total_consignacion: resultado.valor_total_consignacion || resultado.valor_pago || resultado.valor,
+          num_referencias: resultado.num_referencias,
+          es_grupo_transaccion: resultado.es_grupo_transaccion,
+          id_transaccion: resultado.Id_Transaccion || resultado.id_transaccion,
+          entidad_original: resultado.entidad,
+          hora_pago: resultado.hora_pago,
+          estado_conciliacion: resultado.estado_conciliacion
+        })
+      },
+      transacciones_disponibles: transacciones,
+    });
     
     if (transacciones.length === 0) {
       setMensaje("⚠️ No se encontraron transacciones bancarias disponibles para conciliar");
-      return;
-    }
-
-    setModalSeleccionTransaccion({
-      pago,
-      transacciones_disponibles: transacciones,
-    });
-  };
-  */
-
-  // ✅ NUEVA FUNCIÓN PARA MOSTRAR MODAL DE SELECCIÓN DE TRANSACCIONES BANCARIAS
-  const mostrarModalSeleccionTransaccionBanco = async (resultado: ResultadoConciliacion) => {
-    try {
-      // Intentar usar el endpoint optimizado primero
-      let transacciones = [];
-      
-      if (resultado.referencia_pago) {
-        transacciones = await obtenerTransaccionesBancarias(resultado.referencia_pago);
-      }
-      
-      // Si no hay referencia o no se encontraron transacciones, usar búsqueda por criterios
-      if (transacciones.length === 0) {
-        
-       const fechaExacta = resultado.fecha_banco.split('T')[0]; 
-
-        const params = new URLSearchParams({
-          valor_min: resultado.valor_banco.toString(),
-          valor_max: resultado.valor_banco.toString(),
-          fecha_inicio: fechaExacta,
-          fecha_fin: fechaExacta,
-          estado: 'pendiente' // Solo transacciones no conciliadas
-        });
-
-        const res = await fetch(
-          `${API_BASE_URL}/conciliacion/obtener-movimientos-banco-disponibles?${params.toString()}`
-        );
-
-        if (res.ok) {
-          const data = await res.json();
-          transacciones = data.transacciones || [];
-          
-        } else {
-
-        }
-      }
-
-      // Si aún no hay transacciones, intentar fallback
-      if (transacciones.length === 0) {
-        /*
-        
-        const fallbackRes = await fetch(
-          `${API_BASE_URL}/conciliacion/pagos-pendientes-conciliar`
-        );
-        
-        if (fallbackRes.ok) {
-          const fallbackData = await fallbackRes.json();
-         
-          
-          // Simular estructura de transacciones bancarias usando los pagos pendientes como base
-          transacciones = fallbackData.pagos?.map((pago: any) => ({
-            id: pago.referencia,
-            fecha: pago.fecha_pago,
-            valor_banco: pago.valor,
-            cuenta: pago.entidad,
-            descripcion: `Pago conductor - ${pago.correo}`,
-            tipo: 'pago_conductor',
-            estado_conciliacion: pago.conciliado ? 'conciliado' : 'pendiente',
-            codigo: pago.referencia,
-            cod_transaccion: pago.referencia_pago,
-            porcentaje_similitud: 0,
-            nivel_match: "⚫ Sin calcular"
-          })).filter((t: any) => t.estado_conciliacion === 'pendiente') || [];
-        }
-
-      */
-      }
-
-      
-      
-      setModalSeleccionTransaccion({
-        pago: {
-          referencia: resultado.referencia_pago || resultado.id_banco,
-          valor: resultado.valor_banco,
-          fecha: resultado.fecha_banco,
-          correo: resultado.correo_conductor || "No disponible",
-          entidad: resultado.entidad_pago || "Movimiento Bancario",
-          tipo: resultado.entidad_pago || "Movimiento Bancario", // Usar entidad_pago como tipo
-        },
-        transacciones_disponibles: transacciones,
-      });
-      
-      if (transacciones.length === 0) {
-        setMensaje("⚠️ No se encontraron transacciones bancarias disponibles para conciliar");
-      } else {
-        
-      }
-      
-    } catch (err: any) {
-      console.error("💥 Error completo obteniendo transacciones bancarias:", err);
-      
-      // Mostrar modal temporal con mensaje de debug para que el usuario vea que está funcionando
-      setModalSeleccionTransaccion({
-        pago: {
-          referencia: resultado.referencia_pago || resultado.id_banco,
-          valor: resultado.valor_banco,
-          fecha: resultado.fecha_banco,
-          correo: resultado.correo_conductor || "No disponible",
-          entidad: resultado.entidad_pago || "Movimiento Bancario",
-          tipo: resultado.entidad_pago || "Movimiento Bancario", // Usar entidad_pago como tipo
-        },
-        transacciones_disponibles: [], // Lista vacía para mostrar el mensaje de error
-      });
-      
-      setMensaje("❌ Error al cargar transacciones bancarias: " + err.message + " - Modal habilitado para debug");
-    }
-  };
-
-  // ✅ FUNCIÓN PARA CONFIRMAR CONCILIACIÓN CON TRANSACCIÓN BANCARIA SELECCIONADA
-  const confirmarConciliacionConTransaccionBancaria = async (
-    idTransaccionBancaria: string,
-    referenciaMovimientoOriginal: string
-  ) => {
-    // ✅ EVITAR MÚLTIPLES LLAMADAS SIMULTÁNEAS
-    if (procesandoConciliacion || conciliandoTransaccion) {
-      console.log("⚠️ Ya hay una conciliación en proceso, ignorando nueva solicitud");
-      return;
+    } else {
+      console.log(`✅ Modal configurado con ${transacciones.length} transacciones disponibles`);
     }
     
-    try {
-      // ✅ MARCAR COMO PROCESANDO CONCILIACIÓN ESPECÍFICA
-      setConciliandoTransaccion(true);
+  } catch (err: any) {
+    console.error("💥 Error completo obteniendo transacciones bancarias:", err);
+    
+    // ✅ MOSTRAR MODAL AUNQUE HAYA ERROR para que el usuario pueda ver la información disponible
+    const referenciaParaMostrar = resultado?.referencia_pago_original || resultado?.referencia_pago || resultado?.id_banco || "Sin referencia";
+    
+    setModalSeleccionTransaccion({
+      pago: {
+        referencia: referenciaParaMostrar,
+        valor: resultado?.valor_pago || 0,
+        fecha: resultado?.fecha_pago || new Date().toISOString(),
+        correo: resultado?.correo_conductor || "No disponible",
+        entidad: resultado?.entidad_pago || "No especificada",
+        tipo: resultado?.tipo || "No especificado",
+        // 🔥 INCLUIR DATOS PARA CONCILIACIÓN MANUAL INCLUSO EN ERROR
+        ...(esConciliacionManual && {
+          referencia_pago_original: resultado?.referencia_pago_original,
+          valor_total_consignacion: resultado?.valor_total_consignacion || resultado?.valor_pago || resultado?.valor,
+          num_referencias: resultado?.num_referencias,
+          es_grupo_transaccion: resultado?.es_grupo_transaccion,
+          id_transaccion: resultado?.Id_Transaccion || resultado?.id_transaccion,
+          entidad_original: resultado?.entidad,
+          hora_pago: resultado?.hora_pago,
+          estado_conciliacion: resultado?.estado_conciliacion
+        })
+      },
+      transacciones_disponibles: [], // Lista vacía para mostrar el mensaje de error
+    });
+    
+    setMensaje(`❌ Error al cargar transacciones bancarias: ${err.message}`);
+  }
+};
+
+// 🔥 NUEVA FUNCIÓN ESPECÍFICA PARA TABLA DE PENDIENTES - USA MODAL SEPARADO
+const mostrarModalPendientesConciliacion = (resultado: ResultadoConciliacion) => {
+  try {
+    // ✅ VALIDACIÓN INICIAL
+    if (!resultado) {
+      console.error("❌ Resultado es null o undefined");
+      setMensaje("❌ Error: Datos incompletos para mostrar modal de conciliación");
+      return;
+    }
+
+    // 🔥 USAR referencia_pago_original COMO PRIORIDAD
+    const referenciaParaMostrar = resultado.referencia_pago_original || resultado.referencia_pago;
+    
+    console.log(`🔍 Abriendo modal de pendientes para:`, {
+      referencia_original: resultado.referencia_pago_original,
+      referencia_display: resultado.referencia_pago,
+      referencia_usada: referenciaParaMostrar,
+      fecha: resultado.fecha_pago,
+      valor: resultado.valor_pago,
+      Id_Transaccion: resultado.Id_Transaccion || resultado.id_transaccion
+    });
+    
+    // ✅ USAR EL MODAL ESPECÍFICO PARA PENDIENTES (NO AFECTA AL useEffect)
+    setModalPendientesConciliacion({
+      pago: {
+        referencia: referenciaParaMostrar || "Sin referencia",
+        valor: resultado.valor_pago || 0,
+        fecha: resultado.fecha_pago || new Date().toISOString(),
+        correo: resultado.correo_conductor || "No disponible",
+        entidad: resultado.entidad_pago || "No especificada",
+        tipo: resultado.tipo || "No especificado",
+        // 🔥 DATOS ESPECÍFICOS PARA CONCILIACIÓN MANUAL DE PENDIENTES
+        referencia_pago_original: resultado.referencia_pago_original,
+        valor_total_consignacion: resultado.valor_total_consignacion || resultado.valor_pago || resultado.valor,
+        num_referencias: resultado.num_referencias,
+        es_grupo_transaccion: resultado.es_grupo_transaccion,
+        id_transaccion: resultado.Id_Transaccion || resultado.id_transaccion,
+        entidad_original: resultado.entidad,
+        hora_pago: resultado.hora_pago,
+        estado_conciliacion: resultado.estado_conciliacion
+      },
+      transacciones_disponibles: [], // ✅ VACÍO INICIALMENTE
+    });
+    
+    console.log(`✅ Modal de pendientes abierto para referencia: ${referenciaParaMostrar}`);
+    
+  } catch (err: any) {
+    console.error("💥 Error abriendo modal de pendientes:", err);
+    setMensaje(`❌ Error al abrir modal de conciliación: ${err.message}`);
+  }
+};
+
+// 🔥 FUNCIÓN PARA CARGAR TRANSACCIONES BANCARIAS BAJO DEMANDA
+const cargarTransaccionesBancariasModal = async () => {
+  if (!modalSeleccionTransaccion) {
+    console.error("❌ No hay modal abierto para cargar transacciones");
+    return;
+  }
+
+  try {
+    setCargandoTransaccionesBanco(true);
+    
+    const pago = modalSeleccionTransaccion.pago;
+    // 🔥 USAR referencia_pago_original COMO PRIORIDAD, fallback a referencia
+    const referenciaParaBuscar = pago.referencia_pago_original || pago.referencia;
+    
+    console.log(`🔍 Cargando transacciones bancarias para:`, {
+      referencia_original: pago.referencia_pago_original,
+      referencia_display: pago.referencia,
+      referencia_usada: referenciaParaBuscar,
+      fecha: pago.fecha,
+      valor: pago.valor
+    });
+    
+    let transacciones = [];
+    
+    if (referenciaParaBuscar) {
+      // ✅ PREPARAR FILTROS OPCIONALES
+      const fechaPagoParam = pago.fecha ? pago.fecha.split('T')[0] : undefined;
+      const valorPagoParam = pago.valor_total_consignacion || pago.valor;
       
-
-
-      // ✅ MOSTRAR FEEDBACK INMEDIATO AL USUARIO
-      setMensaje("🔄 Procesando conciliación manual...");
-
-      const usuario = localStorage.getItem("correo") || "sistema@x-cargo.co";
+      // ✅ LLAMAR CON PARÁMETROS OPCIONALES
+      transacciones = await obtenerTransaccionesBancarias(
+        referenciaParaBuscar,
+        fechaPagoParam,
+        valorPagoParam
+      );
+    }
+    
+    // Si no se encontraron transacciones, usar búsqueda por criterios (FALLBACK)
+    if (transacciones.length === 0) {
+      console.log("🔄 No se encontraron transacciones con endpoint optimizado, usando fallback...");
       
-      // ✅ CORRECCIÓN: Los parámetros correctos según el contexto
-      // - idTransaccionBancaria: ID de la transacción bancaria seleccionada
-      // - referenciaMovimientoOriginal: La referencia del movimiento que se quiere conciliar
-      const requestBody = {
-        id_banco: idTransaccionBancaria,
-        referencia_pago: referenciaMovimientoOriginal,
-        observaciones: "Conciliado manualmente - Transacción bancaria seleccionada por usuario",
-        usuario,
-        fecha_conciliacion: new Date().toISOString(),
-      };
+      // ✅ VALIDACIÓN SEGURA para fechas
+      const fechaExacta = pago.fecha && pago.fecha !== null 
+        ? pago.fecha.split('T')[0] 
+        : new Date().toISOString().split('T')[0];
+
+      const params = new URLSearchParams({
+        valor_min: (pago.valor_total_consignacion || pago.valor).toString(),
+        valor_max: (pago.valor_total_consignacion || pago.valor).toString(),
+        fecha_inicio: fechaExacta,
+        fecha_fin: fechaExacta,
+        estado: 'pendiente' // Solo transacciones no conciliadas
+      });
 
       const res = await fetch(
-        `${API_BASE_URL}/conciliacion/marcar-conciliado-manual`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
-        }
+        `${API_BASE_URL}/conciliacion/obtener-movimientos-banco-disponibles?${params.toString()}`
       );
 
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error("❌ Error del servidor:", errorText);
-        let error;
-        try {
-          error = JSON.parse(errorText);
-        } catch {
-          error = { detail: errorText };
-        }
-        throw new Error(error.detail || "Error al conciliar transacción bancaria");
+      if (res.ok) {
+        const data = await res.json();
+        transacciones = data.transacciones || [];
+        console.log(`✅ Transacciones obtenidas con fallback: ${transacciones.length}`);
+      } else {
+        console.error("❌ Error en endpoint fallback:", res.statusText);
       }
-
-
-      // ✅ 1. MOSTRAR MENSAJE DE ÉXITO CLARO Y PERSISTENTE PRIMERO
-      const mensajeExito = `✅ ¡Conciliación exitosa! Transacción ${idTransaccionBancaria} conciliada con movimiento ${referenciaMovimientoOriginal}`;
-      setMensaje(mensajeExito);
-      
-      // ✅ 2. CERRAR MODAL DESPUÉS DE MOSTRAR MENSAJE
-      setModalSeleccionTransaccion(null);
-      
-      // ✅ 3. RECARGAR DATOS PARA REFLEJAR CAMBIOS INMEDIATAMENTE
-      
-      await cargarEstadisticas();
-      
-      // ✅ 4. REFRESCAR RESULTADOS DE CONCILIACIÓN SI EXISTEN
-      if (resultadoConciliacion && resultadoConciliacion.resultados) {
-        
-        // Encontrar y actualizar el item conciliado en los resultados
-        const nuevosResultados = resultadoConciliacion.resultados.map((item: ResultadoConciliacion) => {
-          if (item.referencia_pago === referenciaMovimientoOriginal || item.id_banco === idTransaccionBancaria) {
-            return {
-              ...item,
-              estado_match: 'conciliado_exacto' as const,
-              observaciones: 'Conciliado manualmente'
-            };
-          }
-          return item;
-        });
-        
-        setResultadoConciliacion({
-          ...resultadoConciliacion,
-          resultados: nuevosResultados
-        });
-      }
-      
-      // ✅ 5. LIMPIAR MENSAJE DESPUÉS DE 8 SEGUNDOS CON REFERENCIA CORRECTA
-      setTimeout(() => {
-        setMensaje(prevMensaje => prevMensaje === mensajeExito ? "" : prevMensaje);
-      }, 8000);
-      
-      
-    } catch (err: any) {
-      console.error("💥 Error completo en conciliación manual bancaria:", err);
-      setMensaje(`❌ Error en conciliación: ${err.message}`);
-      
-      // Limpiar mensaje de error después de 10 segundos
-      setTimeout(() => {
-        setMensaje(prevMensaje => prevMensaje.includes("Error en conciliación") ? "" : prevMensaje);
-      }, 10000);
-    } finally {
-      // ✅ SIEMPRE LIBERAR EL ESTADO DE PROCESAMIENTO
-      setConciliandoTransaccion(false);
     }
-  };
+    
+    // ✅ ACTUALIZAR EL MODAL CON LAS TRANSACCIONES CARGADAS
+    setModalSeleccionTransaccion(prev => prev && {
+      ...prev,
+      transacciones_disponibles: transacciones
+    });
+    
+    if (transacciones.length === 0) {
+      setMensaje("⚠️ No se encontraron transacciones bancarias disponibles para conciliar");
+    } else {
+      console.log(`✅ Transacciones cargadas: ${transacciones.length} disponibles`);
+      setMensaje(`✅ Se cargaron ${transacciones.length} transacciones bancarias disponibles`);
+      // Limpiar el mensaje después de unos segundos
+      setTimeout(() => {
+        setMensaje(prevMensaje => 
+          prevMensaje.includes("Se cargaron") ? "" : prevMensaje
+        );
+      }, 3000);
+    }
+    
+  } catch (err: any) {
+    console.error("💥 Error cargando transacciones bancarias:", err);
+    setMensaje(`❌ Error al cargar transacciones bancarias: ${err.message}`);
+  } finally {
+    setCargandoTransaccionesBanco(false);
+  }
+};
 
+// 🔥 FUNCIÓN ESPECÍFICA PARA CARGAR TRANSACCIONES EN MODAL DE PENDIENTES
+const cargarTransaccionesPendientes = async () => {
+  if (!modalPendientesConciliacion) {
+    console.error("❌ No hay modal de pendientes abierto");
+    return;
+  }
+
+  try {
+    setCargandoTransaccionesBanco(true);
+    
+    const pago = modalPendientesConciliacion.pago;
+    const referenciaParaBuscar = pago.referencia_pago_original || pago.referencia;
+    
+    console.log(`🔍 Cargando transacciones para pendientes:`, {
+      referencia_original: pago.referencia_pago_original,
+      referencia_display: pago.referencia,
+      referencia_usada: referenciaParaBuscar,
+      fecha: pago.fecha,
+      valor: pago.valor,
+      Id_Transaccion: pago.id_transaccion
+    });
+    
+    let transacciones = [];
+    
+    if (referenciaParaBuscar) {
+      // ✅ PREPARAR FILTROS OPCIONALES
+      const fechaPagoParam = pago.fecha ? pago.fecha.split('T')[0] : undefined;
+      const valorPagoParam = pago.valor_total_consignacion || pago.valor;
+      
+      // ✅ SOLO BUSCAR TRANSACCIONES BANCARIAS - NO DETALLES DE PAGO
+      transacciones = await obtenerTransaccionesBancarias(
+        referenciaParaBuscar,
+        fechaPagoParam,
+        valorPagoParam
+      );
+    }
+    
+    // Si no se encontraron, usar fallback
+    if (transacciones.length === 0) {
+      console.log("🔄 Usando búsqueda por criterios...");
+      
+      const fechaExacta = pago.fecha ? pago.fecha.split('T')[0] : new Date().toISOString().split('T')[0];
+      const params = new URLSearchParams({
+        valor_min: (pago.valor_total_consignacion || pago.valor).toString(),
+        valor_max: (pago.valor_total_consignacion || pago.valor).toString(),
+        fecha_inicio: fechaExacta,
+        fecha_fin: fechaExacta,
+        estado: 'pendiente'
+      });
+
+      const res = await fetch(`${API_BASE_URL}/conciliacion/obtener-movimientos-banco-disponibles?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        transacciones = data.transacciones || [];
+      }
+    }
+    
+    // ✅ ACTUALIZAR SOLO EL MODAL DE PENDIENTES
+    setModalPendientesConciliacion(prev => prev && {
+      ...prev,
+      transacciones_disponibles: transacciones
+    });
+    
+    if (transacciones.length === 0) {
+      setMensaje("⚠️ No se encontraron transacciones bancarias disponibles");
+    } else {
+      console.log(`✅ ${transacciones.length} transacciones cargadas para pendientes`);
+      setMensaje(`✅ Se cargaron ${transacciones.length} transacciones bancarias`);
+      setTimeout(() => setMensaje(""), 3000);
+    }
+    
+  } catch (err: any) {
+    console.error("💥 Error cargando transacciones pendientes:", err);
+    setMensaje(`❌ Error: ${err.message}`);
+  } finally {
+    setCargandoTransaccionesBanco(false);
+  }
+};
+
+  // ✅ FUNCIÓN PARA CONFIRMAR CONCILIACIÓN CON TRANSACCIÓN BANCARIA SELECCIONADA
+const confirmarConciliacionConTransaccionesBancarias = async () => {
+  // 🔥 VERIFICAR AMBOS MODALES: modalSeleccionTransaccion O modalPendientesConciliacion
+  const modalActivo = modalSeleccionTransaccion || modalPendientesConciliacion;
+  
+  console.log("🔍 DEBUG Conciliación:", {
+    modalSeleccionTransaccion: !!modalSeleccionTransaccion,
+    modalPendientesConciliacion: !!modalPendientesConciliacion,
+    modalActivo: !!modalActivo,
+    transaccionesSeleccionadas: transaccionesSeleccionadas,
+    cantidadSeleccionadas: transaccionesSeleccionadas.length
+  });
+  
+  if (!modalActivo || transaccionesSeleccionadas.length === 0) {
+    console.error("❌ Error validación:", {
+      modalActivo: !!modalActivo,
+      transaccionesSeleccionadas: transaccionesSeleccionadas.length
+    });
+    alert("⚠️ Debes seleccionar al menos una transacción bancaria");
+    return;
+  }
+
+  if (procesandoConciliacion || conciliandoTransaccion) {
+    console.log("⚠️ Ya hay una conciliación en proceso, ignorando nueva solicitud");
+    return;
+  }
+
+  try {
+    setConciliandoTransaccion(true);
+    
+    const usuario = localStorage.getItem("correo") || "sistema@x-cargo.co";
+    const referenciaMovimiento = modalActivo.pago.referencia;
+    
+    // Obtener información de las transacciones seleccionadas
+    const transaccionesInfo = modalActivo.transacciones_disponibles
+      .filter(t => transaccionesSeleccionadas.includes(t.id));
+    
+    const valorTotalSeleccionado = transaccionesInfo.reduce((sum, t) => sum + t.valor_banco, 0);
+    
+    setMensaje(`🔄 Procesando conciliación de ${transaccionesSeleccionadas.length} transacciones...`);
+
+    // 🔥 NUEVO: Enviar todas las transacciones en una sola llamada al backend
+    const requestBody = {
+      ids_banco: transaccionesSeleccionadas, // Array de IDs de transacciones bancarias
+      referencia_pago: referenciaMovimiento,
+      observaciones: `Conciliación manual múltiple - ${transaccionesSeleccionadas.length} transacciones por valor total: $${valorTotalSeleccionado.toLocaleString()}`,
+      usuario,
+      fecha_conciliacion: new Date().toISOString(),
+    };
+
+    console.log("🚀 Enviando conciliación múltiple:", requestBody);
+
+    const res = await fetch(
+      `${API_BASE_URL}/conciliacion/marcar-conciliado-manual`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      }
+    );
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`❌ Error en conciliación múltiple:`, errorText);
+      throw new Error(`Error en conciliación: ${errorText}`);
+    }
+
+    const resultado = await res.json();
+    console.log("✅ Resultado de conciliación múltiple:", resultado);
+
+    // Mensaje de éxito detallado
+    const mensajeExito = `✅ ¡Conciliación múltiple exitosa! 
+${transaccionesSeleccionadas.length} transacciones conciliadas
+Valor total: $${valorTotalSeleccionado.toLocaleString()}
+Referencia: ${referenciaMovimiento}`;
+    
+    setMensaje(mensajeExito);
+    
+    // Limpiar selecciones y cerrar modal
+    setTransaccionesSeleccionadas([]);
+    
+    // 🔥 CERRAR EL MODAL CORRECTO SEGÚN CUÁL ESTÉ ACTIVO
+    if (modalSeleccionTransaccion) {
+      setModalSeleccionTransaccion(null);
+    }
+    if (modalPendientesConciliacion) {
+      setModalPendientesConciliacion(null);
+    }
+    
+    // Recargar datos
+    await cargarEstadisticas();
+    
+    // Actualizar resultados de conciliación si existen
+    if (resultadoConciliacion && resultadoConciliacion.resultados) {
+      const nuevosResultados = resultadoConciliacion.resultados.map((item: ResultadoConciliacion) => {
+        if (item.referencia_pago === referenciaMovimiento) {
+          return {
+            ...item,
+            estado_match: 'conciliado_exacto' as const,
+            observaciones: `Conciliado manualmente - ${transaccionesSeleccionadas.length} transacciones`
+          };
+        }
+        return item;
+      });
+      
+      setResultadoConciliacion({
+        ...resultadoConciliacion,
+        resultados: nuevosResultados
+      });
+    }
+    
+    setTimeout(() => {
+      setMensaje(prevMensaje => prevMensaje === mensajeExito ? "" : prevMensaje);
+    }, 10000);
+    
+  } catch (err: any) {
+    console.error("💥 Error en conciliación múltiple:", err);
+    setMensaje(`❌ Error en conciliación múltiple: ${err.message}`);
+    
+    setTimeout(() => {
+      setMensaje(prevMensaje => prevMensaje.includes("Error en conciliación múltiple") ? "" : prevMensaje);
+    }, 10000);
+  } finally {
+    setConciliandoTransaccion(false);
+  }
+};
+
+useEffect(() => {
+  if (modalSeleccionTransaccion) {
+    setTransaccionesSeleccionadas([]);
+  }
+}, [modalSeleccionTransaccion]);
+
+// 🔥 LIMPIAR SELECCIONES CUANDO SE ABRE EL MODAL DE PENDIENTES
+useEffect(() => {
+  if (modalPendientesConciliacion) {
+    setTransaccionesSeleccionadas([]);
+  }
+}, [modalPendientesConciliacion]);
+
+  // 🚪 CERRAR CARRUSEL CUANDO SE CIERRA EL MODAL DE PENDIENTES
+  useEffect(() => {
+    if (!modalPendientesConciliacion && carruselImagenes.visible) {
+      console.log('🚪 Modal cerrado, cerrando carrusel automáticamente');
+      cerrarCarrusel();
+    }
+  }, [modalPendientesConciliacion, carruselImagenes.visible]);
+
+  // 📄 ESTADO PARA PAGINACIÓN MANUAL
+  const [paginacionManual, setPaginacionManual] = useState({
+    paginaActual: 1,
+    registrosPorPagina: 30,
+    totalPaginas: 1
+  });
+
+  // 📊 CALCULAR REGISTROS A MOSTRAR SEGÚN PAGINACIÓN
+  const registrosPaginados = React.useMemo(() => {
+    const inicio = (paginacionManual.paginaActual - 1) * paginacionManual.registrosPorPagina;
+    const fin = inicio + paginacionManual.registrosPorPagina;
+    return pendientesPorConciliar.slice(inicio, fin);
+  }, [pendientesPorConciliar, paginacionManual.paginaActual, paginacionManual.registrosPorPagina]);
+
+  // 🔄 ACTUALIZAR TOTAL DE PÁGINAS CUANDO CAMBIAN LOS REGISTROS
+  useEffect(() => {
+    const totalPaginas = Math.ceil(pendientesPorConciliar.length / paginacionManual.registrosPorPagina);
+    setPaginacionManual(prev => ({
+      ...prev,
+      totalPaginas: totalPaginas,
+      paginaActual: Math.min(prev.paginaActual, totalPaginas || 1)
+    }));
+  }, [pendientesPorConciliar.length, paginacionManual.registrosPorPagina]);
   const confirmarConciliacionManual = async (
     idBanco: string,
     referenciaPago: string
@@ -1012,19 +1897,19 @@ const Cruces: React.FC = () => {
       // Filtro por fecha visual (fecha_banco)
       let pasaFecha = true;
       if (fechaInicio) {
-        pasaFecha = pasaFecha && r.fecha_banco >= fechaInicio;
+        pasaFecha = pasaFecha && r.fecha_pago >= fechaInicio;
       }
       if (fechaFin) {
-        pasaFecha = pasaFecha && r.fecha_banco <= fechaFin;
+        pasaFecha = pasaFecha && r.fecha_pago <= fechaFin;
       }
       return pasaFiltroEstado && pasaBusqueda && pasaFecha;
     })
     .sort((a, b) => {
-      if (!a.fecha_banco || !b.fecha_banco) return 0;
+      if (!a.fecha_pago || !b.fecha_pago) return 0;
       if (ordenFecha === "asc") {
-        return a.fecha_banco.localeCompare(b.fecha_banco);
+        return a.fecha_pago.localeCompare(b.fecha_pago);
       } else {
-        return b.fecha_banco.localeCompare(a.fecha_banco);
+        return b.fecha_pago.localeCompare(a.fecha_pago);
       }
     });
 
@@ -1081,7 +1966,7 @@ const Cruces: React.FC = () => {
           <div className="stat-card primary">
             <div className="stat-icon">⏳</div>
              <span className="stat-label">SOPORTES PENDIENTES POR CONCILIAR </span>
-             <span className="stat-number">{estadisticasGenerales?.pendientes_pc ?? 0}</span>
+             <span className="stat-number">{estadisticasGenerales?.pendientes_pc?.toLocaleString() ?? 0}</span>
           </div>
           <div className="stat-card primary">
             <div className="stat-icon">❌</div>
@@ -1135,15 +2020,60 @@ const Cruces: React.FC = () => {
           </button>
         </div>
 
-        <button
-          className="boton-conciliar"
-          onClick={ejecutarConciliacion}
-          disabled={procesandoConciliacion}
-        >
-          {procesandoConciliacion
-            ? "🔄 Procesando..."
-            : "🤖 Ejecutar Conciliación Automática"}
-        </button>
+        <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginTop: "1rem" }}>
+          <button
+            className="boton-conciliar boton-animado"
+            style={{ minWidth: 180, fontWeight: 600, fontSize: 15, padding: '0.7em 1.5em', borderRadius: 10, transition: 'transform 0.1s, box-shadow 0.1s' }}
+            onClick={ejecutarConciliacion}
+            disabled={procesandoConciliacion}
+          >
+            {procesandoConciliacion
+              ? "🔄 Procesando..."
+              : "🤖 Ejecutar Conciliación Automática"}
+          </button>
+          <button
+            className="boton-conciliar boton-animado"
+            style={{ background: "#f59e0b", color: "#fff", minWidth: 180, fontWeight: 600, fontSize: 15, padding: '0.7em 1.5em', borderRadius: 10, transition: 'transform 0.1s, box-shadow 0.1s' }}
+            onClick={() => {
+              setMostrarPendientesManual(true);
+              recargarPendientes(); // 🔥 USAR NUEVA FUNCIÓN
+            }}
+            disabled={procesandoConciliacion}
+          >
+            📝 Conciliación Manual
+          </button>
+          {/*
+          <button
+            className="boton-conciliar boton-animado"
+            style={{ background: "#10b981", color: "#fff", minWidth: 180, fontWeight: 600, fontSize: 15, padding: '0.7em 1.5em', borderRadius: 10, transition: 'transform 0.1s, box-shadow 0.1s' }}
+            onClick={exportarTablas}
+            disabled={exportandoTablas || procesandoConciliacion}
+          >
+            {exportandoTablas
+              ? "📤 Exportando..."
+              : "📊 Exportar Tablas"}
+          </button>
+          */}
+          {/*
+          <button
+            className="boton-conciliar boton-animado"
+            style={{ background: "#8b5cf6", color: "#fff", minWidth: 180, fontWeight: 600, fontSize: 15, padding: '0.7em 1.5em', borderRadius: 10, transition: 'transform 0.1s, box-shadow 0.1s' }}
+            onClick={revertirConciliacionesAutomaticas}
+            disabled={reviertendoConciliaciones || procesandoConciliacion}
+          >
+            {reviertendoConciliaciones
+              ? "🔄 Revirtiendo..."
+              : "� "}
+          </button>
+          */}
+        </div>
+        <style>{`
+          .boton-animado:hover:not(:disabled), .boton-animado:focus:not(:disabled) {
+            transform: scale(1.04);
+            box-shadow: 0 2px 12px 0 #0002;
+            filter: brightness(1.08);
+          }
+        `}</style>
 
         {mensaje && (
           <div
@@ -1167,12 +2097,292 @@ const Cruces: React.FC = () => {
           </div>
         )}
       </div>
+    
+        
+          {mostrarPendientesManual && (
+            <div style={{ position: 'relative', marginTop: '2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <h3 style={{ margin: 0 }}>⏳ Pendientes por Conciliar</h3>
+                  {/* 🔥 INFORMACIÓN DE PAGINACIÓN CON ESTADO DE CARGA */}
+                  <div style={{ fontSize: '14px', color: '#6b7280', background: '#f3f4f6', padding: '4px 8px', borderRadius: '4px' }}>
+                    {cargandoPendientes ? (
+                      <>⏳ Cargando registros... {pendientesPorConciliar.length} de {paginacionPendientes.total_registros || '?'}</>
+                    ) : (
+                      <>📊 {pendientesPorConciliar.length} de {paginacionPendientes.total_registros} registros (ordenados: más viejo → más nuevo)</>
+                    )}
+                    {paginacionPendientes.total_paginas > 1 && !cargandoPendientes && (
+                      <span> | {paginacionPendientes.total_paginas} páginas procesadas</span>
+                    )}
+                  </div>
+                </div>
+                
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  {/* 🔥 BOTÓN RECARGAR */}
+                  <button
+                    className="boton-conciliar boton-animado"
+                    style={{ 
+                      background: '#3b82f6', 
+                      color: '#fff', 
+                      minWidth: 120, 
+                      fontWeight: 600, 
+                      fontSize: 13, 
+                      padding: '0.5em 1em', 
+                      borderRadius: 6,
+                      opacity: cargandoPendientes ? 0.6 : 1,
+                      cursor: cargandoPendientes ? 'not-allowed' : 'pointer'
+                    }}
+                    onClick={recargarPendientes}
+                    disabled={cargandoPendientes}
+                  >
+                    {cargandoPendientes ? '🔄 Cargando...' : '🔄 Recargar'}
+                  </button>
+                  
+                  <button
+                    className="boton-conciliar boton-animado"
+                    style={{ background: '#e11d48', color: '#fff', minWidth: 120, fontWeight: 600, fontSize: 13, padding: '0.5em 1em', borderRadius: 6 }}
+                    onClick={() => setMostrarPendientesManual(false)}
+                  >
+                    ✕ Cerrar
+                  </button>
+                </div>
+              </div>
+              
+              {cargandoPendientes && pendientesPorConciliar.length === 0 && (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '2rem', 
+                  background: '#f9fafb', 
+                  borderRadius: '8px', 
+                  border: '1px solid #e5e7eb',
+                  marginBottom: '1rem'
+                }}>
+                  <div style={{ fontSize: '24px', marginBottom: '0.5rem' }}>⏳</div>
+                  <div>Cargando pendientes por conciliar...</div>
+                </div>
+              )}
+
+              {pendientesPorConciliar.length > 0 && (
+                <>
+                  <div className="tabla-conciliacion">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>
+                            Fecha del Pago 
+                            <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 'normal' }}>
+                              <br />(Más viejo → Más nuevo)
+                            </span>
+                          </th>
+                          <th>Ref. Pago</th>
+                          <th>Valor del Pago</th>
+                          <th>Conductor</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {registrosPaginados.map((pendiente, idx) => (
+                          <tr key={`${pendiente.referencia_pago}-${idx}`}>
+                            <td>{formatearFecha(pendiente.fecha_pago)}</td>
+                            <td>
+                              <div style={{ fontSize: '13px' }}>
+                                {pendiente.referencia_pago}
+                                {pendiente.num_referencias && pendiente.num_referencias > 1 && (
+                                  <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
+                                    🔗 {pendiente.num_referencias} referencias agrupadas
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td>${pendiente.valor_pago.toLocaleString("es-CO")}</td>
+                            <td>
+                              <div style={{ fontSize: '14px' }}>
+                                {pendiente.correo_conductor}
+                              </div>
+                            </td>
+                            <td>
+                              <button
+                                className="btn-conciliar-manual"
+                                onClick={() => mostrarModalPendientesConciliacion(pendiente)}
+                                style={{ fontSize: '13px', padding: '6px 12px' }}
+                              >
+                                ✅ Conciliar
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {/* 🔥 CONTROLES DE PAGINACIÓN */}
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    marginTop: '1rem',
+                    padding: '1rem',
+                    background: '#f8fafc',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                      Mostrando {pendientesPorConciliar.length} de {paginacionPendientes.total_registros} registros totales
+                    </div>
+                    
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      {/* 🔥 INDICADOR DE CARGA AUTOMÁTICA */}
+                      {cargandoPendientes && (
+                        <div style={{
+                          background: '#3b82f6',
+                          color: 'white',
+                          border: 'none',
+                          padding: '8px 16px',
+                          borderRadius: '6px',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}>
+                          ⏳ Cargando automáticamente... 
+                          {paginacionPendientes.total_registros > 0 && (
+                            <span>({paginacionPendientes.total_registros - pendientesPorConciliar.length} restantes)</span>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* 🔥 PAGINACIÓN COMPACTA */}
+                      {pendientesPorConciliar.length > paginacionManual.registrosPorPagina && (
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          gap: '6px',
+                          marginTop: '16px',
+                          padding: '12px',
+                          backgroundColor: '#d1fae5',
+                          borderRadius: '8px'
+                        }}>
+                          {/* Botón Anterior */}
+                          <button
+                            onClick={paginaAnterior}
+                            disabled={paginacionManual.paginaActual === 1}
+                            style={{
+                              background: paginacionManual.paginaActual === 1 ? '#f3f4f6' : '#6b7280',
+                              color: paginacionManual.paginaActual === 1 ? '#9ca3af' : 'white',
+                              border: 'none',
+                              padding: '6px 12px',
+                              borderRadius: '5px',
+                              cursor: paginacionManual.paginaActual === 1 ? 'not-allowed' : 'pointer',
+                              fontSize: '13px',
+                              fontWeight: '500'
+                            }}
+                          >
+                            ← Anterior
+                          </button>
+
+                          {/* Números de página */}
+                          {Array.from({ length: Math.min(5, paginacionManual.totalPaginas) }, (_, i) => {
+                            let numeroPage;
+                            if (paginacionManual.totalPaginas <= 5) {
+                              numeroPage = i + 1;
+                            } else {
+                              const current = paginacionManual.paginaActual;
+                              const total = paginacionManual.totalPaginas;
+                              
+                              if (current <= 3) {
+                                numeroPage = i + 1;
+                              } else if (current >= total - 2) {
+                                numeroPage = total - 4 + i;
+                              } else {
+                                numeroPage = current - 2 + i;
+                              }
+                            }
+                            
+                            const esActual = numeroPage === paginacionManual.paginaActual;
+                            
+                            return (
+                              <button
+                                key={numeroPage}
+                                onClick={() => irAPagina(numeroPage)}
+                                style={{
+                                  background: esActual ? '#3b82f6' : 'white',
+                                  color: esActual ? 'white' : '#64748b',
+                                  border: '1px solid #d1d5db',
+                                  padding: '6px 10px',
+                                  borderRadius: '5px',
+                                  cursor: 'pointer',
+                                  fontSize: '13px',
+                                  fontWeight: esActual ? '600' : '500',
+                                  minWidth: '32px'
+                                }}
+                              >
+                                {numeroPage}
+                              </button>
+                            );
+                          })}
+
+                          {/* Botón Siguiente */}
+                          <button
+                            onClick={paginaSiguiente}
+                            disabled={paginacionManual.paginaActual === paginacionManual.totalPaginas}
+                            style={{
+                              background: paginacionManual.paginaActual === paginacionManual.totalPaginas ? '#f3f4f6' : '#6b7280',
+                              color: paginacionManual.paginaActual === paginacionManual.totalPaginas ? '#9ca3af' : 'white',
+                              border: 'none',
+                              padding: '6px 12px',
+                              borderRadius: '5px',
+                              cursor: paginacionManual.paginaActual === paginacionManual.totalPaginas ? 'not-allowed' : 'pointer',
+                              fontSize: '13px',
+                              fontWeight: '500'
+                            }}
+                          >
+                            Siguiente →
+                          </button>
+                          
+                          {/* Información de página */}
+                          <span style={{
+                            marginLeft: '12px',
+                            fontSize: '13px',
+                            color: '#6b7280',
+                            fontWeight: '500'
+                          }}>
+                            📄 {paginacionManual.paginaActual} de {paginacionManual.totalPaginas}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+              
+              {!cargandoPendientes && pendientesPorConciliar.length === 0 && (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '2rem', 
+                  background: '#f9fafb', 
+                  borderRadius: '8px', 
+                  border: '1px solid #e5e7eb' 
+                }}>
+                  <div style={{ fontSize: '48px', marginBottom: '1rem' }}>📋</div>
+                  <div style={{ fontSize: '18px', fontWeight: '600', marginBottom: '0.5rem' }}>
+                    No hay pagos pendientes por conciliar
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#6b7280' }}>
+                    Todos los pagos están conciliados o no hay datos disponibles
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
 
       {resultadosFiltrados.length > 0 ? (
         <div>
           <h3>📊 Resultados de Conciliación</h3>
 
-          {/* Resumen de resultados */}
+ 
           <div className="resumen-resultados">
             <div className="resumen-grid">
               <div className="resumen-item success">
@@ -1214,7 +2424,7 @@ const Cruces: React.FC = () => {
             </div>
           </div>
 
-          {/* Filtros y búsqueda */}
+
           <div className="filtros-conciliacion">
             <div
               style={{
@@ -1303,16 +2513,18 @@ const Cruces: React.FC = () => {
             </span>
           </div>
 
+       
+
           {/* Tabla de resultados */}
           <div className="tabla-conciliacion">
             <table>
               <thead>
                 <tr>
-                  <th>Fecha Banco</th>
-                  <th>Valor Total de los Tracking</th>
+                  <th>Fecha del Pago</th>
+                  <th>Ref. Pago</th>
+                  <th>Valor del Pago</th>
                   <th>Estado</th>
                   <th>Confianza</th>
-                  <th>Ref. Pago</th>
                   <th>Diferencias</th>
                   <th>Observaciones</th>
                   <th>Acciones</th>
@@ -1328,10 +2540,17 @@ const Cruces: React.FC = () => {
                       )}`,
                     }}
                   >
+                    {/*Fecha*/}
                     <td>
-                      {formatearFecha(resultado.fecha_banco)}
+                      {formatearFecha(resultado.fecha_pago)}
                     </td>
-                    <td>${resultado.valor_banco.toLocaleString("es-CO")}</td>
+                    {/*Referencia de Pago*/}
+                    <td>
+                      {resultado.referencia_pago || "-"}
+                    </td>
+                    {/*Valor*/}
+                    <td>
+                      ${resultado.valor_pago.toLocaleString("es-CO")}</td>
                     <td>
                       <span
                         className="estado-badge"
@@ -1363,7 +2582,7 @@ const Cruces: React.FC = () => {
                         </div>
                       )}
                     </td>
-                    <td>{resultado.referencia_pago || "-"}</td>
+                    
                     <td>
                       {resultado.diferencia_valor &&
                         resultado.diferencia_valor > 0 && (
@@ -1407,7 +2626,11 @@ const Cruces: React.FC = () => {
                           resultado.estado_match === "diferencia_fecha") && (
                           <button
                             className="btn-conciliar-manual"
-                            onClick={() => mostrarModalSeleccionTransaccionBanco(resultado)}
+                            onClick={() => {
+                              // Si el resultado tiene id_transaccion úsalo, si no referencia_pago
+                              const idTransaccion = (resultado as any).id_transaccion || (resultado as any).Id_Transaccion || null;
+                              mostrarModalSeleccionTransaccionBanco({ ...resultado, id_transaccion: idTransaccion });
+                            }}
                           >
                             ✅ Conciliar
                           </button>
@@ -1427,115 +2650,291 @@ const Cruces: React.FC = () => {
         </div>
       )}
       
-      {/* Modal de Selección de Transacción Bancaria */}
-      {modalSeleccionTransaccion && (
-        <div
-          className="modal-overlay"
-          onClick={() => !conciliandoTransaccion && setModalSeleccionTransaccion(null)}
-        >
-          <div
-            className="modal-content seleccion-transaccion"
-            onClick={(e) => e.stopPropagation()}
-            style={{ 
-              opacity: conciliandoTransaccion ? 0.9 : 1,
-              pointerEvents: conciliandoTransaccion ? 'none' : 'auto'
-            }}
-          >
-            <h3>🏦 Seleccionar Transacción Bancaria para Conciliar</h3>
-            
-            {conciliandoTransaccion && (
-              <div style={{
-                background: '#fef3c7',
-                border: '1px solid #f59e0b',
-                borderRadius: '6px',
-                padding: '0.75rem',
-                marginBottom: '1rem',
-                textAlign: 'center',
-                color: '#92400e',
-                fontWeight: '600'
+{modalSeleccionTransaccion && (
+  <div
+    className="modal-overlay"
+    onClick={() => !conciliandoTransaccion && setModalSeleccionTransaccion(null)}
+  >
+    <div
+      className="modal-content seleccion-transaccion"
+      onClick={(e) => e.stopPropagation()}
+      style={{ 
+        opacity: conciliandoTransaccion ? 0.9 : 1,
+        pointerEvents: conciliandoTransaccion ? 'none' : 'auto',
+        maxWidth: '95vw',
+        width: '1200px',
+        maxHeight: '90vh'
+      }}
+    >
+      <h3>🏦 Seleccionar Transacciones Bancarias para Conciliar</h3>
+      
+      {conciliandoTransaccion && (
+        <div style={{
+          background: '#fef3c7',
+          border: '1px solid #f59e0b',
+          borderRadius: '6px',
+          padding: '0.75rem',
+          marginBottom: '1rem',
+          textAlign: 'center',
+          color: '#92400e',
+          fontWeight: '600'
+        }}>
+          ⏳ Procesando conciliación manual... Por favor espere.
+        </div>
+      )}
+
+      <div className="detalle-grid" style={{ gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
+        <div className="detalle-seccion">
+          <h4>🟢 Movimiento a Conciliar</h4>
+          <div className="detalle-item">
+            <strong>Referencia de Pago:</strong> 
+            {modalSeleccionTransaccion.pago.referencia_pago_original && 
+             modalSeleccionTransaccion.pago.referencia_pago_original !== modalSeleccionTransaccion.pago.referencia
+              ? `🔗 ${modalSeleccionTransaccion.pago.referencia_pago_original}, ${modalSeleccionTransaccion.pago.referencia}`
+              : `🔗 ${modalSeleccionTransaccion.pago.referencia}`
+            }
+          </div>
+          
+          <div className="detalle-item">
+            <strong>Fecha:</strong>{" "}
+            {modalSeleccionTransaccion.pago.fecha ? formatearFecha(modalSeleccionTransaccion.pago.fecha) : "No disponible"}
+          </div>
+          
+          <div className="detalle-item">
+            <strong>Valor del pago:</strong> 
+            ${(modalSeleccionTransaccion.pago.valor_total_consignacion || modalSeleccionTransaccion.pago.valor)?.toLocaleString("es-CO") || "0"}
+          </div>
+          
+          {modalSeleccionTransaccion.pago.valor && 
+           modalSeleccionTransaccion.pago.valor_total_consignacion && 
+           modalSeleccionTransaccion.pago.valor_total_consignacion !== modalSeleccionTransaccion.pago.valor && (
+            <div className="detalle-item">
+              <strong>Valor Individual:</strong> 
+              ${modalSeleccionTransaccion.pago.valor?.toLocaleString("es-CO")}
+            </div>
+          )}
+          
+          {modalSeleccionTransaccion.pago.num_referencias && modalSeleccionTransaccion.pago.num_referencias > 1 && (
+            <div className="detalle-item">
+              <strong>Referencias agrupadas:</strong> {modalSeleccionTransaccion.pago.num_referencias}
+            </div>
+          )}
+          
+          <div className="detalle-item">
+            <strong>Correo Conductor:</strong> 
+            {modalSeleccionTransaccion.pago.correo || "No disponible"}
+          </div>
+          <div className="detalle-item">
+            <button onClick={() => verDetallesPago(
+              modalSeleccionTransaccion.pago.referencia,
+              {
+                correo: modalSeleccionTransaccion.pago.correo !== "No disponible" ? modalSeleccionTransaccion.pago.correo : undefined,
+                fecha_pago: modalSeleccionTransaccion.pago.fecha ? modalSeleccionTransaccion.pago.fecha.split('T')[0] : undefined,
+                valor: modalSeleccionTransaccion.pago.valor,
+                estado_conciliacion: undefined
+              }
+            )}>
+              <strong>Comprobante:</strong> 👁 Ver
+            </button>
+          </div>
+          
+          {/* 🔥 PANEL DE SELECCIÓN MÚLTIPLE */}
+          {modalSeleccionTransaccion.transacciones_disponibles.length > 0 && (
+            <div style={{
+              marginTop: '1rem',
+              padding: '1rem',
+              background: '#f8fafc',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <h5 style={{ margin: '0 0 0.5rem 0', color: '#1e40af' }}>📊 Resumen de Selección</h5>
+              <div style={{ fontSize: '14px', marginBottom: '0.5rem' }}>
+                <strong>Seleccionadas:</strong> {transaccionesSeleccionadas.length} transacciones
+              </div>
+              {transaccionesSeleccionadas.length > 0 && (
+                <div style={{ fontSize: '14px', marginBottom: '0.5rem' }}>
+                  <strong>Valor total:</strong> $
+                  {modalSeleccionTransaccion.transacciones_disponibles
+                    .filter(t => transaccionesSeleccionadas.includes(t.id))
+                    .reduce((sum, t) => sum + t.valor_banco, 0)
+                    .toLocaleString("es-CO")}
+                </div>
+              )}
+              
+              {/* Indicador de límite de selección */}
+              <div style={{ 
+                marginTop: '0.5rem', 
+                padding: '6px 10px', 
+                background: '#f0f9ff', 
+                border: '1px solid #3b82f6', 
+                borderRadius: '4px',
+                fontSize: '12px',
+                color: '#1e40af'
               }}>
-                ⏳ Procesando conciliación manual... Por favor espere.
+                📊 Selecciona máximo {modalSeleccionTransaccion.pago.num_referencias || 1} transacción(es) 
+                para {modalSeleccionTransaccion.pago.num_referencias || 1} referencia(s) agrupada(s)
+                <br />
+                <span style={{ color: '#059669', fontWeight: 'bold' }}>
+                  {transaccionesSeleccionadas.length}/{modalSeleccionTransaccion.pago.num_referencias || 1} seleccionada(s)
+                </span>
               </div>
-            )}
-
-            <div className="detalle-grid">
-              <div className="detalle-seccion">
-                <h4> 🟢 Movimiento a Conciliar</h4>
-                <div className="detalle-item">
-                  <strong>Referencia de Pago:</strong> {modalSeleccionTransaccion.pago.referencia}
-                </div>
-                <div className="detalle-item">
-                  <strong>Fecha:</strong>{" "}
-                  {detallePagoSeleccionado?.fecha_pago && formatearFecha(detallePagoSeleccionado.fecha_pago)}
-                </div>
-                <div className="detalle-item">
-                  <strong>Valor del pago:</strong> 
-                  ${detallePagoSeleccionado?.valor_total_consignacion.toLocaleString("es-CO")}
-                </div>
-                <div className="detalle-item">
-                  <strong>Valor total de tracking:</strong> 
-                  ${modalSeleccionTransaccion.pago.valor.toLocaleString("es-CO")}
-                </div>
-                <div className="detalle-item">
-                  <strong>Tipo de Movimiento:</strong> 
-                  {detallePagoSeleccionado?.tipo?.toLocaleString("es-CO")}
-                </div>
-                <div className="detalle-item">
-                  <strong>Correo Conductor:</strong> 
-                  {detallePagoSeleccionado?.correo?.toLocaleString("es-CO")}
-                </div>
-                  <div className="detalle-item" >
-                    <button onClick={() => verDetallesPago(modalSeleccionTransaccion.pago.referencia)}>
-                      <strong>Comprobante:</strong>   
-                      👁 Ver
-                    </button>
-                  </div>
+              
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                <button
+                  onClick={seleccionarTodasTransacciones}
+                  disabled={conciliandoTransaccion}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    background: '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ✅ Máximo ({modalSeleccionTransaccion.pago.num_referencias || 1})
+                </button>
+                <button
+                  onClick={limpiarSelecciones}
+                  disabled={conciliandoTransaccion}
+                  style={{
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    background: '#6b7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🗑️ Limpiar
+                </button>
               </div>
+            </div>
+          )}
+        </div>
 
-              <div className="detalle-seccion">
-                <h4>🏦 Transacciones Bancarias Disponibles</h4>
-                <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "12px" }}>
-                  💡 Selecciona la transacción bancaria que corresponde al movimiento que deseas conciliar. 
-                  Se muestran transacciones con valores similares (±10%) y fechas cercanas (±7 días).
+        <div className="detalle-seccion">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h4>🏦 Transacciones Bancarias Disponibles</h4>
+            <div style={{ fontSize: '14px', color: '#6b7280' }}>
+              {modalSeleccionTransaccion.transacciones_disponibles.length > 0 
+                ? `✅ ${modalSeleccionTransaccion.transacciones_disponibles.length} transacciones cargadas`
+                : '💡 Carga transacciones para conciliar'
+              }
+            </div>
+          </div>
+          
+          <div className="transacciones-list" style={{ maxHeight: '500px', overflowY: 'auto' }}>
+            {modalSeleccionTransaccion.transacciones_disponibles.length === 0 ? (
+              <div style={{ 
+                textAlign: "center", 
+                padding: "2rem", 
+                color: "#6b7280",
+                background: "#f9fafb",
+                borderRadius: "8px",
+                border: "1px dashed #d1d5db"
+              }}>
+                <p>💡 Transacciones bancarias no cargadas</p>
+                <p style={{ fontSize: "12px", marginTop: "8px", marginBottom: "16px" }}>
+                  Haz clic en el botón para cargar las transacciones bancarias disponibles para conciliar.
                 </p>
-                <div className="transacciones-list">
-                  {modalSeleccionTransaccion.transacciones_disponibles.length === 0 ? (
-                    <div style={{ 
-                      textAlign: "center", 
-                      padding: "2rem", 
-                      color: "#6b7280",
-                      background: "#f9fafb",
-                      borderRadius: "8px",
-                      border: "1px dashed #d1d5db"
-                    }}>
-                      <p>❌ No se encontraron transacciones bancarias disponibles</p>
-                      <p style={{ fontSize: "12px", marginTop: "8px" }}>
-                        Intenta ajustar los criterios de búsqueda o verifica que existan movimientos bancarios sin conciliar.
-                      </p>
-                    </div>
-                  ) : (
-                    modalSeleccionTransaccion.transacciones_disponibles.map((transaccion, idx) => (
-                    <div key={idx} className="transaccion-item">
-                      <div className="transaccion-info">
+                <button
+                  onClick={cargarTransaccionesBancariasModal}
+                  disabled={cargandoTransaccionesBanco}
+                  style={{
+                    background: cargandoTransaccionesBanco ? '#6b7280' : '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: '6px',
+                    cursor: cargandoTransaccionesBanco ? 'not-allowed' : 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px'
+                  }}
+                >
+                  {cargandoTransaccionesBanco 
+                    ? '⏳ Cargando...' 
+                    : '🔍 Cargar Transacciones Bancarias'}
+                </button>
+              </div>
+            ) : (
+              modalSeleccionTransaccion.transacciones_disponibles.map((transaccion, idx) => {
+                const estaSeleccionada = transaccionesSeleccionadas.includes(transaccion.id);
+                const estaPendiente = transaccion.estado_conciliacion === 'pendiente';
+                
+                return (
+                  <div 
+                    key={idx} 
+                    className="transaccion-item"
+                    style={{
+                      border: estaSeleccionada ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+                      background: estaSeleccionada ? '#eff6ff' : estaPendiente ? '#ffffff' : '#f9fafb',
+                      borderRadius: '8px',
+                      padding: '1rem',
+                      marginBottom: '0.75rem',
+                      transition: 'all 0.2s ease',
+                      opacity: estaPendiente ? 1 : 0.7,
+                      position: 'relative'
+                    }}
+                  >
+                    {/* Checkbox de selección */}
+                    {estaPendiente && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '8px',
+                        right: '8px'
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={estaSeleccionada}
+                          onChange={() => toggleSeleccionTransaccion(transaccion.id)}
+                          disabled={conciliandoTransaccion}
+                          style={{
+                            width: '18px',
+                            height: '18px',
+                            cursor: 'pointer'
+                          }}
+                        />
+                      </div>
+                    )}
+                    
+                    <div className="transaccion-info" style={{ paddingRight: '2rem' }}>
+                      <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                        gap: '0.5rem',
+                        fontSize: '14px'
+                      }}>
                         <div>
-                          <strong>ID Banco:</strong> {transaccion.id}
+                          <strong>ID Banco:</strong> 
+                          <span style={{ fontFamily: 'monospace', background: '#f1f5f9', padding: '2px 4px', borderRadius: '3px', marginLeft: '4px' }}>
+                            {transaccion.id}
+                          </span>
                         </div>
                         <div>
-                          <strong>Fecha:</strong>{" "}
-                          {formatearFecha(transaccion.fecha)}
+                          <strong>Fecha:</strong> {formatearFecha(transaccion.fecha)}
                         </div>
                         <div>
-                          <strong>Valor:</strong> $
-                          {transaccion.valor_banco.toLocaleString("es-CO")}
+                          <strong>Valor:</strong> 
+                          <span style={{ 
+                            fontWeight: 'bold', 
+                            color: '#059669', 
+                            fontSize: '15px',
+                            marginLeft: '4px'
+                          }}>
+                            ${transaccion.valor_banco.toLocaleString("es-CO")}
+                          </span>
                         </div>
                         <div>
                           <strong>Cuenta:</strong> {transaccion.cuenta}
                         </div>
-                        <div>
+                        <div style={{ gridColumn: '1 / -1' }}>
                           <strong>Descripción:</strong> 
-                          <span title={transaccion.descripcion}>
-                            {transaccion.descripcion.length > 50 
-                              ? transaccion.descripcion.substring(0, 50) + "..." 
+                          <span title={transaccion.descripcion} style={{ marginLeft: '4px' }}>
+                            {transaccion.descripcion.length > 80 
+                              ? transaccion.descripcion.substring(0, 80) + "..." 
                               : transaccion.descripcion}
                           </span>
                         </div>
@@ -1554,60 +2953,497 @@ const Cruces: React.FC = () => {
                         )}
                         <div>
                           <strong>Estado:</strong> 
-                          <span className={`estado-badge ${transaccion.estado_conciliacion === 'pendiente' ? 'pending' : 'success'}`}>
-                            {transaccion.estado_conciliacion === 'pendiente' ? '⏳ Pendiente' : '✅ Conciliado'}
+                          <span className={`estado-badge ${estaPendiente ? 'pending' : 'success'}`} style={{ marginLeft: '4px' }}>
+                            {estaPendiente ? '⏳ Pendiente' : '✅ Conciliado'}
                           </span>
                         </div>
                         {transaccion.porcentaje_similitud !== undefined && (
                           <div>
                             <strong>Similitud:</strong> 
-                            <span className={`similitud-badge similitud-${getSimilitudClass(transaccion.porcentaje_similitud)}`}>
+                            <span className={`similitud-badge similitud-${getSimilitudClass(transaccion.porcentaje_similitud)}`} style={{ marginLeft: '4px' }}>
                               {transaccion.porcentaje_similitud}% {transaccion.nivel_match || ''}
                             </span>
                           </div>
                         )}
                       </div>
-                      
-                      {transaccion.estado_conciliacion === 'pendiente' && (
-                        <button
-                          className="btn-seleccionar"
-                          disabled={conciliandoTransaccion}
-                          onClick={() => {
-                            confirmarConciliacionConTransaccionBancaria(
-                              transaccion.id,
-                              modalSeleccionTransaccion.pago.referencia
-                            );
-                          }}
-                          style={{ 
-                            opacity: conciliandoTransaccion ? 0.6 : 1,
-                            cursor: conciliandoTransaccion ? 'not-allowed' : 'pointer'
-                          }}
-                        >
-                          {conciliandoTransaccion ? '⏳ Procesando...' : '✅ Seleccionar'}
-                        </button>
-                      )}
                     </div>
-                  )))}
-                </div>
-              </div>
-            </div>
-            
-            <div className="modal-acciones">
-              <button
-                className="btn-cerrar"
-                disabled={conciliandoTransaccion}
-                onClick={() => !conciliandoTransaccion && setModalSeleccionTransaccion(null)}
-                style={{ 
-                  opacity: conciliandoTransaccion ? 0.6 : 1,
-                  cursor: conciliandoTransaccion ? 'not-allowed' : 'pointer'
-                }}
-              >
-                {conciliandoTransaccion ? '⏳ Procesando...' : '✕ Cerrar'}
-              </button>
-            </div>
+                    
+                    {/* Indicador visual de selección */}
+                    {estaSeleccionada && (
+                      <div style={{
+                        position: 'absolute',
+                        bottom: '8px',
+                        right: '8px',
+                        background: '#3b82f6',
+                        color: 'white',
+                        padding: '2px 6px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 'bold'
+                      }}>
+                        ✓ SELECCIONADA
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
+      </div>
+      
+      <div className="modal-acciones" style={{ 
+        borderTop: '1px solid #e5e7eb',
+        paddingTop: '1rem',
+        marginTop: '1rem',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div style={{ fontSize: '14px', color: '#6b7280' }}>
+          {transaccionesSeleccionadas.length > 0 && (
+            <span>
+              💡 {transaccionesSeleccionadas.length} transacción(es) seleccionada(s) para conciliar
+            </span>
+          )}
+        </div>
+        
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button
+            className="btn-cerrar"
+            disabled={conciliandoTransaccion}
+            onClick={() => !conciliandoTransaccion && setModalSeleccionTransaccion(null)}
+            style={{ 
+              opacity: conciliandoTransaccion ? 0.6 : 1,
+              cursor: conciliandoTransaccion ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {conciliandoTransaccion ? '⏳ Procesando...' : '✕ Cerrar'}
+          </button>
+          
+          {transaccionesSeleccionadas.length > 0 && (
+            <button
+              onClick={confirmarConciliacionConTransaccionesBancarias}
+              disabled={conciliandoTransaccion || transaccionesSeleccionadas.length === 0}
+              style={{
+                background: conciliandoTransaccion ? '#6b7280' : '#059669',
+                color: 'white',
+                border: 'none',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '6px',
+                cursor: conciliandoTransaccion ? 'not-allowed' : 'pointer',
+                fontWeight: '600',
+                fontSize: '14px'
+              }}
+            >
+              {conciliandoTransaccion 
+                ? '⏳ Procesando...' 
+                : `✅ Conciliar ${transaccionesSeleccionadas.length} Transacción${transaccionesSeleccionadas.length > 1 ? 'es' : ''}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+{/* 🔥 MODAL ESPECÍFICO PARA PENDIENTES - SIN useEffect PROBLEMÁTICO */}
+{modalPendientesConciliacion && (
+  <div
+    className="modal-overlay"
+    onClick={cerrarModalPendientes}
+  >
+    <div
+      className="modal-content seleccion-transaccion"
+      onClick={(e) => e.stopPropagation()}
+      style={{ 
+        opacity: conciliandoTransaccion ? 0.9 : 1,
+        pointerEvents: conciliandoTransaccion ? 'none' : 'auto',
+        maxWidth: '95vw',
+        width: '1200px',
+        maxHeight: '90vh'
+      }}
+    >
+      <h3>🏦 Conciliar Pago Pendiente</h3>
+      
+      {conciliandoTransaccion && (
+        <div style={{
+          background: '#fef3c7',
+          border: '1px solid #f59e0b',
+          borderRadius: '6px',
+          padding: '0.75rem',
+          marginBottom: '1rem',
+          textAlign: 'center',
+          color: '#92400e',
+          fontWeight: '600'
+        }}>
+          ⏳ Procesando conciliación manual... Por favor espere.
+        </div>
       )}
+
+      <div className="detalle-grid" style={{ gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
+        <div className="detalle-seccion">
+          <h4>🟢 Pago Pendiente por Conciliar</h4>
+          <div className="detalle-item">
+            <strong>Referencia de Pago:</strong> 
+            {(() => {
+              const pago = modalPendientesConciliacion.pago;
+              
+              // Si hay referencia original diferente, mostrar ambas separadas por coma
+              if (pago.referencia_pago_original && 
+                  pago.referencia_pago_original !== pago.referencia) {
+                return (
+                  <span style={{
+                    fontFamily: 'monospace',
+                    backgroundColor: '#f1f5f9',
+                    padding: '2px 4px',
+                    borderRadius: '3px'
+                  }}>
+                    🔗 {pago.referencia_pago_original}, {pago.referencia}
+                  </span>
+                );
+              } else {
+                // Solo mostrar la referencia principal
+                return (
+                  <span style={{
+                    fontFamily: 'monospace',
+                    backgroundColor: '#f1f5f9',
+                    padding: '2px 4px',
+                    borderRadius: '3px'
+                  }}>
+                    🔗 {pago.referencia}
+                  </span>
+                );
+              }
+            })()}
+          </div>
+          
+          <div className="detalle-item">
+            <strong>Fecha:</strong>{" "}
+            {modalPendientesConciliacion.pago.fecha ? formatearFecha(modalPendientesConciliacion.pago.fecha) : "No disponible"}
+          </div>
+          
+          <div className="detalle-item">
+            <strong>Valor del pago:</strong> 
+            ${(modalPendientesConciliacion.pago.valor_total_consignacion || modalPendientesConciliacion.pago.valor)?.toLocaleString("es-CO") || "0"}
+          </div>
+          
+          {modalPendientesConciliacion.pago.valor && 
+           modalPendientesConciliacion.pago.valor_total_consignacion && 
+           modalPendientesConciliacion.pago.valor_total_consignacion !== modalPendientesConciliacion.pago.valor && (
+            <div className="detalle-item">
+              <strong>Valor Individual:</strong> 
+              ${modalPendientesConciliacion.pago.valor?.toLocaleString("es-CO")}
+            </div>
+          )}
+          
+          {modalPendientesConciliacion.pago.num_referencias && modalPendientesConciliacion.pago.num_referencias > 1 && (
+            <div className="detalle-item">
+              <strong>Referencias agrupadas:</strong> {modalPendientesConciliacion.pago.num_referencias}
+            </div>
+          )}
+          
+          <div className="detalle-item">
+            <strong>Correo Conductor:</strong> 
+            {modalPendientesConciliacion.pago.correo || "No disponible"}
+          </div>
+
+          {modalPendientesConciliacion.pago.id_transaccion && (
+            <div className="detalle-item">
+              <strong>ID Transacción:</strong> 
+              <span style={{ fontFamily: 'monospace', background: '#f1f5f9', padding: '2px 4px', borderRadius: '3px' }}>
+                {modalPendientesConciliacion.pago.id_transaccion}
+              </span>
+            </div>
+          )}
+
+          {/* 🔥 BOTÓN VER COMPROBANTE PARA PENDIENTES */}
+          <div className="detalle-item">
+            <button 
+              onClick={() => verComprobantePendiente(modalPendientesConciliacion.pago)}
+              style={{
+                background: '#3b82f6',
+                color: 'white',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              👁 Ver Comprobante
+            </button>
+          </div>
+        </div>
+
+        <div className="detalle-seccion">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <h4>🏦 Transacciones Bancarias Disponibles</h4>
+            <div style={{ fontSize: '14px', color: '#6b7280' }}>
+              {modalPendientesConciliacion.transacciones_disponibles.length > 0 
+                ? `✅ ${modalPendientesConciliacion.transacciones_disponibles.length} transacciones cargadas`
+                : '💡 Carga transacciones para conciliar'
+              }
+            </div>
+          </div>
+          
+          <div className="transacciones-list" style={{ maxHeight: '500px', overflowY: 'auto' }}>
+            {modalPendientesConciliacion.transacciones_disponibles.length === 0 ? (
+              <div style={{ 
+                textAlign: "center", 
+                padding: "2rem", 
+                color: "#6b7280",
+                background: "#f9fafb",
+                borderRadius: "8px",
+                border: "1px dashed #d1d5db"
+              }}>
+                <p>💡 Transacciones bancarias no cargadas</p>
+                <p style={{ fontSize: "12px", marginTop: "8px", marginBottom: "16px" }}>
+                  Haz clic en el botón para cargar las transacciones bancarias disponibles.
+                </p>
+                <button
+                  onClick={cargarTransaccionesPendientes}
+                  disabled={cargandoTransaccionesBanco}
+                  style={{
+                    background: cargandoTransaccionesBanco ? '#6b7280' : '#3b82f6',
+                    color: 'white',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: '6px',
+                    cursor: cargandoTransaccionesBanco ? 'not-allowed' : 'pointer',
+                    fontWeight: '600',
+                    fontSize: '14px'
+                  }}
+                >
+                  {cargandoTransaccionesBanco 
+                    ? '⏳ Cargando...' 
+                    : '🔍 Cargar Transacciones Bancarias'}
+                </button>
+              </div>
+            ) : (
+              modalPendientesConciliacion.transacciones_disponibles.map((transaccion, idx) => {
+                const estaSeleccionada = transaccionesSeleccionadas.includes(transaccion.id);
+                const estaPendiente = transaccion.estado_conciliacion === 'pendiente';
+                
+                return (
+                  <div 
+                    key={idx} 
+                    className="transaccion-item"
+                    onClick={() => estaPendiente && !conciliandoTransaccion && toggleSeleccionTransaccion(transaccion.id)}
+                    style={{
+                      border: estaSeleccionada ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+                      background: estaSeleccionada ? '#eff6ff' : estaPendiente ? '#ffffff' : '#f9fafb',
+                      borderRadius: '8px',
+                      padding: '1rem',
+                      marginBottom: '0.75rem',
+                      transition: 'all 0.2s ease',
+                      opacity: estaPendiente ? 1 : 0.7,
+                      position: 'relative',
+                      cursor: estaPendiente && !conciliandoTransaccion ? 'pointer' : 'default',
+                      boxShadow: estaSeleccionada ? '0 2px 8px rgba(59, 130, 246, 0.2)' : 'none'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (estaPendiente && !conciliandoTransaccion) {
+                        e.currentTarget.style.backgroundColor = estaSeleccionada 
+                          ? '#dbeafe' 
+                          : '#f8fafc';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (estaPendiente && !conciliandoTransaccion) {
+                        e.currentTarget.style.backgroundColor = estaSeleccionada 
+                          ? '#eff6ff' 
+                          : '#ffffff';
+                      }
+                    }}
+                  >
+                    {/* Indicador visual de selección */}
+                    {estaPendiente && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '8px',
+                        right: '8px',
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        backgroundColor: estaSeleccionada ? '#3b82f6' : 'transparent',
+                        border: estaSeleccionada ? '2px solid #3b82f6' : '2px solid #cbd5e1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        pointerEvents: 'none'
+                      }}>
+                        {estaSeleccionada && '✓'}
+                      </div>
+                    )}
+                    
+                    <div className="transaccion-info" style={{ paddingRight: '2rem' }}>
+                      <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                        gap: '0.5rem',
+                        fontSize: '14px'
+                      }}>
+                        <div>
+                          <strong>ID Banco:</strong> 
+                          <span style={{ fontFamily: 'monospace', background: '#f1f5f9', padding: '2px 4px', borderRadius: '3px', marginLeft: '4px' }}>
+                            {transaccion.id}
+                          </span>
+                        </div>
+                        <div>
+                          <strong>Fecha:</strong> {formatearFecha(transaccion.fecha)}
+                        </div>
+                        <div>
+                          <strong>Valor:</strong> 
+                          <span style={{ 
+                            fontWeight: 'bold', 
+                            color: '#059669', 
+                            fontSize: '15px',
+                            marginLeft: '4px'
+                          }}>
+                            ${transaccion.valor_banco.toLocaleString("es-CO")}
+                          </span>
+                        </div>
+                        <div>
+                          <strong>Cuenta:</strong> {transaccion.cuenta}
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <strong>Descripción:</strong> 
+                          <span title={transaccion.descripcion} style={{ marginLeft: '4px' }}>
+                            {transaccion.descripcion.length > 80 
+                              ? transaccion.descripcion.substring(0, 80) + "..." 
+                              : transaccion.descripcion}
+                          </span>
+                        </div>
+                        <div>
+                          <strong>Estado:</strong> 
+                          <span className={`estado-badge ${estaPendiente ? 'pending' : 'success'}`} style={{ marginLeft: '4px' }}>
+                            {estaPendiente ? '⏳ Pendiente' : '✅ Conciliado'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Indicador visual de selección */}
+                    {estaSeleccionada && (
+                      <div style={{
+                        position: 'absolute',
+                        bottom: '8px',
+                        right: '8px',
+                        background: '#3b82f6',
+                        color: 'white',
+                        padding: '2px 6px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 'bold'
+                      }}>
+                        ✓ SELECCIONADA
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+      
+      <div className="modal-acciones" style={{ 
+        borderTop: '1px solid #e5e7eb',
+        paddingTop: '1rem',
+        marginTop: '1rem',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div style={{ fontSize: '14px', color: '#6b7280' }}>
+          {transaccionesSeleccionadas.length > 0 && (
+            <span>
+              💡 {transaccionesSeleccionadas.length} transacción(es) seleccionada(s) para conciliar
+            </span>
+          )}
+        </div>
+        
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button
+            className="btn-cerrar"
+            disabled={conciliandoTransaccion}
+            onClick={cerrarModalPendientes}
+            style={{ 
+              opacity: conciliandoTransaccion ? 0.6 : 1,
+              cursor: conciliandoTransaccion ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {conciliandoTransaccion ? '⏳ Procesando...' : '✕ Cerrar'}
+          </button>
+
+          {/* 🔄 BOTÓN PARA LIMPIAR SELECCIÓN */}
+          {transaccionesSeleccionadas.length > 0 && (
+            <button
+              onClick={limpiarSeleccionTransacciones}
+              disabled={conciliandoTransaccion}
+              style={{
+                background: conciliandoTransaccion ? '#6b7280' : '#f59e0b',
+                color: 'white',
+                border: 'none',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '6px',
+                cursor: conciliandoTransaccion ? 'not-allowed' : 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                opacity: conciliandoTransaccion ? 0.6 : 1,
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+              onMouseEnter={(e) => {
+                if (!conciliandoTransaccion) {
+                  e.currentTarget.style.backgroundColor = '#d97706';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!conciliandoTransaccion) {
+                  e.currentTarget.style.backgroundColor = '#f59e0b';
+                }
+              }}
+            >
+              🗑️ Limpiar Selección
+            </button>
+          )}
+          
+          {transaccionesSeleccionadas.length > 0 && (
+            <button
+              onClick={confirmarConciliacionConTransaccionesBancarias}
+              disabled={conciliandoTransaccion || transaccionesSeleccionadas.length === 0}
+              style={{
+                background: conciliandoTransaccion ? '#6b7280' : '#059669',
+                color: 'white',
+                border: 'none',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '6px',
+                cursor: conciliandoTransaccion ? 'not-allowed' : 'pointer',
+                fontWeight: '600',
+                fontSize: '14px'
+              }}
+            >
+              {conciliandoTransaccion 
+                ? '⏳ Procesando...' 
+                : `✅ Conciliar ${transaccionesSeleccionadas.length} Transacción${transaccionesSeleccionadas.length > 1 ? 'es' : ''}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* Modal de Imagen */}
         {imagenSeleccionada && (
@@ -2044,6 +3880,164 @@ const Cruces: React.FC = () => {
                   <div key={idx} className="log-item">{log}</div>
                 ))}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 🖼️ CARRUSEL DE IMÁGENES FLOTANTE */}
+      {carruselImagenes.visible && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: '50%',
+            right: '20px',
+            transform: 'translateY(-50%)',
+            width: '500px',
+            height: '700px',
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+            border: '2px solid #e2e8f0',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
+          }}
+        >
+          {/* Header del carrusel */}
+          <div style={{
+            padding: '16px',
+            backgroundColor: '#f8fafc',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexShrink: 0
+          }}>
+            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600' }}>
+              📄 Comprobantes ({carruselImagenes.indiceActual + 1}/{carruselImagenes.imagenes.length})
+            </h3>
+            <button
+              onClick={cerrarCarrusel}
+              style={{
+                background: '#ef4444',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                cursor: 'pointer',
+                fontSize: '14px'
+              }}
+            >
+              ✕ Cerrar
+            </button>
+          </div>
+
+          {/* Contenedor de la imagen */}
+          <div style={{
+            flex: 1,
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#f1f5f9',
+            padding: '20px',
+            minHeight: '0'
+          }}>
+            <img
+              src={carruselImagenes.imagenes[carruselImagenes.indiceActual]}
+              alt={`Comprobante ${carruselImagenes.indiceActual + 1}`}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                width: 'auto',
+                height: 'auto',
+                objectFit: 'contain',
+                borderRadius: '8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }}
+              onError={(e) => {
+                console.error('Error cargando imagen:', e);
+                (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjNmNGY2Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzY2NzI4NSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkVycm9yIGNhcmdhbmRvIGltYWdlbjwvdGV4dD48L3N2Zz4=';
+              }}
+            />
+
+            {/* Botones de navegación */}
+            {carruselImagenes.imagenes.length > 1 && (
+              <>
+                <button
+                  onClick={anteriorImagen}
+                  style={{
+                    position: 'absolute',
+                    left: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'rgba(0,0,0,0.7)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '40px',
+                    height: '40px',
+                    cursor: 'pointer',
+                    fontSize: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  ←
+                </button>
+                <button
+                  onClick={siguienteImagen}
+                  style={{
+                    position: 'absolute',
+                    right: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'rgba(0,0,0,0.7)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '40px',
+                    height: '40px',
+                    cursor: 'pointer',
+                    fontSize: '18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  →
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Footer con indicadores */}
+          {carruselImagenes.imagenes.length > 1 && (
+            <div style={{
+              padding: '12px',
+              backgroundColor: '#f8fafc',
+              borderTop: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '8px'
+            }}>
+              {carruselImagenes.imagenes.map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => setCarruselImagenes(prev => ({ ...prev, indiceActual: index }))}
+                  style={{
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '50%',
+                    border: 'none',
+                    backgroundColor: index === carruselImagenes.indiceActual ? '#3b82f6' : '#cbd5e1',
+                    cursor: 'pointer'
+                  }}
+                />
+              ))}
             </div>
           )}
         </div>

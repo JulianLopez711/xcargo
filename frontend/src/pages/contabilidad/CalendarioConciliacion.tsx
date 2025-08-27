@@ -136,14 +136,25 @@ export default function CalendarioConciliacion() {
     const [año, mes] = mesActual.split('-').map(Number);
     const diasDelMes = new Date(año, mes, 0).getDate();
     const primerDia = new Date(año, mes - 1, 1).getDay();
-    const offset = primerDia === 0 ? 6 : primerDia - 1;
+    const offset = primerDia === 0 ? 6 : primerDia - 1; // Lunes = 0
 
-    const calendario: (DiaConciliacion | null)[] = Array(offset).fill(null);
+    const calendario: { dia: DiaConciliacion | null; posicion: number }[] = [];
 
+    // Llenar espacios vacíos al inicio
+    for (let i = 0; i < offset; i++) {
+      calendario.push({ dia: null, posicion: i + 1 });
+    }
+
+    // Llenar días del mes
     for (let i = 1; i <= diasDelMes; i++) {
       const fecha = `${mesActual}-${i.toString().padStart(2, "0")}`;
-      const diaData = datos.find((d) => d.fecha === fecha) || null;
-      calendario.push(diaData);
+      const diaData = datos.find((d) => d.fecha === fecha);
+      const posicion = offset + i;
+      
+      calendario.push({ 
+        dia: diaData || null, 
+        posicion: ((posicion - 1) % 7) + 1 
+      });
     }
 
     return calendario;
@@ -303,21 +314,46 @@ export default function CalendarioConciliacion() {
         </div>
       </div>
 
-      {/* Calendario con celdas mejoradas */}
-      <div className="calendario-grid">
-        {diasSemana.map((d) => (
-          <div key={d} className="encabezado-dia">{d}</div>
-        ))}
+      {/* Calendario con estructura corregida */}
+      <div className="calendario-wrapper">
+        {/* Header de días de la semana */}
+        <div className="dias-semana-header">
+          {diasSemana.map((dia) => (
+            <div key={dia} className="dia-semana-header">
+              {dia}
+            </div>
+          ))}
+        </div>
 
-        {calendario.map((dia, idx) => (
-          <div 
-            key={idx} 
-            className={`celda-dia ${dia ? `lleno ${dia.estado}` : "vacio"}`}
-            onClick={() => dia && verDetallesDia(dia)}
-            style={{ cursor: dia ? 'pointer' : 'default' }}
-          >
-            {dia ? (
-              <>
+        {/* Grid de días */}
+        <div className="calendario-dias-grid">
+          {calendario.map((item, idx) => {
+            const { dia, posicion } = item;
+            
+            // Si no hay día (espacio vacío) o día sin datos significativos
+            if (!dia || (dia.plata_banco === 0 && dia.plata_soportes === 0 && dia.soportes_conciliados === 0)) {
+              return (
+                <div 
+                  key={idx} 
+                  className="celda-vacia" 
+                  style={{ gridColumn: posicion }}
+                >
+                  {dia && (
+                    <div className="dia-numero-solo">
+                      {dia.fecha.split("-")[2]}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
+            return (
+              <div 
+                key={idx} 
+                className={`celda-dia lleno ${dia.estado}`}
+                style={{ gridColumn: posicion }}
+                onClick={() => verDetallesDia(dia)}
+              >
                 <div className="dia-header">
                   <div className="fecha">{dia.fecha.split("-")[2]}</div>
                   {dia.avance === 100 && Math.abs(dia.diferencia) <= 10000 && (
@@ -347,21 +383,21 @@ export default function CalendarioConciliacion() {
                       style={{ 
                         width: `${dia.avance}%`,
                         background: dia.estado === 'con_diferencias' ? 
-                          'linear-gradient(90deg, #f59e0b, #d97706)' : // Amarillo/naranja para diferencias
+                          'linear-gradient(90deg, #f59e0b, #d97706)' : 
                           dia.avance >= 80 ? 
-                            'linear-gradient(90deg, #10b981, #059669)' : // Verde para avance alto (bueno)
+                            'linear-gradient(90deg, #10b981, #059669)' : 
                           dia.avance >= 50 ? 
-                            'linear-gradient(90deg, #f59e0b, #d97706)' : // Amarillo para avance medio
-                            'linear-gradient(90deg, #dc2626, #b91c1c)'   // Rojo para avance bajo (malo)
+                            'linear-gradient(90deg, #f59e0b, #d97706)' : 
+                            'linear-gradient(90deg, #dc2626, #b91c1c)'
                       }}
                     ></div>
                   </div>
                   <div className="avance-texto">{dia.avance.toFixed(0)}%</div>
                 </div>
-              </>
-            ) : null}
-          </div>
-        ))}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Modal de detalles usando estilos existentes */}
