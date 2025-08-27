@@ -725,54 +725,9 @@ const confirmarRechazo = async () => {
         novedad,
         modificado_por: user.email,
       });
-<<<<<<< HEAD
-
-      const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${getToken()}`
-        },
-        body: JSON.stringify({
-          referencia_pago: refPagoSeleccionada,
-          novedad,
-          modificado_por: user.email,
-        }),
-      });
-
-      console.log("📊 Estado de la respuesta:", {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Error desconocido");
-      }
-
-      const resultado = await response.json();
-      console.log("✅ Respuesta del servidor:", resultado);
-
-      alert(`❌ Pago rechazado correctamente. Razón: ${novedad}`);
-      
-      setModalVisible(false);
-      setNovedad("");
-      setRefPagoSeleccionada("");
-      
-      // Mantener los filtros aplicados después de rechazar
-      await obtenerPagos(paginaActual, filtrosAplicados);
-      
-    } catch (error: any) {
-      console.error("Error rechazando pago:", error);
-      alert(`❌ Error al rechazar el pago: ${error.message}`);
-    } finally {
-      setProcesando(null);
-=======
->>>>>>> origin/Oscar
     }
 
-    const response = await fetch("http://127.0.0.1:8000/pagos/rechazar-pago", {
+    const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",
@@ -907,7 +862,7 @@ function parseFechaLocal(fechaStr: string) {
       const params = new URLSearchParams();
       params.append('referencia', referenciaPago);
       
-      const url = `http://127.0.0.1:8000/conciliacion/transacciones-bancarias-disponibles?${params.toString()}`;
+      const url = `https://api.x-cargo.co/conciliacion/transacciones-bancarias-disponibles?${params.toString()}`;
       
       const response = await fetch(url, {
         headers: {

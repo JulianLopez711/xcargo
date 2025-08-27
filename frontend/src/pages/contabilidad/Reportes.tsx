@@ -173,7 +173,7 @@ export default function ReportesContabilidad() {
       
       console.log('📊 Parámetros globales (endpoint estadísticas):', params.toString());
 
-      const response = await fetch(`http://127.0.0.1:8000/pagos/estadisticas-pendientes-contabilidad?${params}`, {
+      const response = await fetch(`https://api.x-cargo.co/pagos/estadisticas-pendientes-contabilidad?${params}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -250,7 +250,7 @@ export default function ReportesContabilidad() {
 
       console.log('🔍 Parámetros de búsqueda reportes:', params.toString());
 
-      const response = await fetch(`http://127.0.0.1:8000/pagos/reportes-pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`https://api.x-cargo.co/pagos/reportes-pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -271,7 +271,7 @@ export default function ReportesContabilidad() {
         const promesasDetalles = data.pagos.map(async (pago: any) => {
           try {
             // Obtener detalles del pago para conseguir los trackings individuales
-            let urlDetalles = `http://127.0.0.1:8000/pagos/detalles-pago-reportes/${pago.referencia_pago}`;
+            let urlDetalles = `https://api.x-cargo.co/pagos/detalles-pago-reportes/${pago.referencia_pago}`;
             if (pago.Id_Transaccion !== undefined && pago.Id_Transaccion !== null) {
               urlDetalles += `?id_transaccion=${pago.Id_Transaccion}`;
             }
@@ -295,7 +295,7 @@ export default function ReportesContabilidad() {
             if (detalles.length > 0) {
               try {
                 const trackingsString = detalles.map((d: any) => d.tracking || d.referencia).join(',');
-                const urlValoresTN = `http://127.0.0.1:8000/pagos/valores-tn-reales?trackings=${encodeURIComponent(trackingsString)}&estado_conciliacion=${encodeURIComponent(pago.estado_conciliacion || 'pendiente_conciliacion')}`;
+                const urlValoresTN = `https://api.x-cargo.co/pagos/valores-tn-reales?trackings=${encodeURIComponent(trackingsString)}&estado_conciliacion=${encodeURIComponent(pago.estado_conciliacion || 'pendiente_conciliacion')}`;
                 
                 const responseValoresTN = await fetch(urlValoresTN, {
                   headers: {
@@ -622,7 +622,7 @@ export default function ReportesContabilidad() {
         
         console.log(`🔄 Cargando página ${paginaActualExport} (registros ${(paginaActualExport - 1) * limitePorPagina + 1}-${paginaActualExport * limitePorPagina})...`);
         
-        const response = await fetch(`http://127.0.0.1:8000/pagos/reportes-pendientes-contabilidad?${params.toString()}`, {
+        const response = await fetch(`https://api.x-cargo.co/pagos/reportes-pendientes-contabilidad?${params.toString()}`, {
           headers: {
             Authorization: `Bearer ${getToken()}`
           }
