@@ -109,7 +109,7 @@ async def guardar_comprobante(archivo: UploadFile) -> str:
         os.chmod(ruta_local, 0o644)
         
         # URL para acceso
-        comprobante_url = f"https://api.x-cargo.co/static/{nombre_archivo}"
+        comprobante_url = f"http://127.0.0.1:8000/static/{nombre_archivo}"
   
         
         return comprobante_url
@@ -1881,6 +1881,74 @@ def obtener_pagos_pendientes_contabilidad(
         )
 
 # Reportes ---
+
+@router.get("/historial-2")
+def obtener_historial_pagos_simplificado():
+    """
+    Endpoint que trae todos los pagos de la tabla pagosconductor con solo las columnas específicas:
+    - tracking, referencia_pago, referencia, valor, valor_total_consignacion, estado_conciliacion
+    """
+    try:
+        client = get_bigquery_client()
+        
+        logger.info("📊 Iniciando consulta para historial-2 simplificado")
+        
+        query = f"""
+        SELECT 
+            tracking,
+            referencia_pago,
+            referencia,
+            Id_Transaccion,
+            valor,
+            valor_total_consignacion,
+            estado_conciliacion,
+            DATE(fecha) AS fecha
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        ORDER BY creado_en DESC
+        """
+        
+        logger.info("🔍 Ejecutando consulta en BigQuery...")
+        results = client.query(query).result()
+        
+        historial = []
+        for row in results:
+            registro = {
+                "tracking": row.tracking or "",
+                "referencia_pago": row.referencia_pago or "",
+                "referencia": row.referencia or "",
+                "id_transaccion": row.Id_Transaccion or "",
+                "valor": float(row.valor) if row.valor is not None else 0.0,
+                "valor_total_consignacion": float(row.valor_total_consignacion) if row.valor_total_consignacion is not None else 0.0,
+                "estado_conciliacion": row.estado_conciliacion or "",
+                "fecha": row.fecha or ""
+            }
+            historial.append(registro)
+        
+        logger.info(f"✅ Consulta completada. Total registros: {len(historial)}")
+        
+        return {
+            "historial": historial,
+            "total_registros": len(historial),
+            "columnas": [
+                "tracking",
+                "referencia_pago", 
+                "referencia",
+                "id_transaccion",
+                "valor",
+                "valor_total_consignacion",
+                "estado_conciliacion",
+                "fecha"
+            ],
+            "timestamp": datetime.now().isoformat(),
+            "status": "success"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error en historial-2: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error obteniendo historial simplificado: {str(e)}"
+        )
 
 
 @router.get("/detalles-pago-reportes/{referencia_pago}")
