@@ -162,7 +162,7 @@ interface LoadingProgress {
 
 const Cruces: React.FC = () => {
   // ✅ CONFIGURACIÓN DE API - Usar servidor local para desarrollo
-  const API_BASE_URL = 'http://127.0.0.1:8000';
+  const API_BASE_URL = 'https://api.x-cargo.co';
   const [transaccionesSeleccionadas, setTransaccionesSeleccionadas] = useState<string[]>([]);
   const [pendientesPorConciliar, setPendientesPorConciliar] = useState<ResultadoConciliacion[]>([]);
   const [mostrarPendientesManual, setMostrarPendientesManual] = useState(false);
@@ -239,7 +239,7 @@ const cargarPendientesPorConciliar = async (pagina: number = 1, resetearDatos: b
     
     // 🚀 QUITAR LIMITACIONES - CARGAR TODOS LOS REGISTROS
     // Usar un límite muy alto para obtener todos los registros de una vez
-    const url = `http://127.0.0.1:8000/pagos/pendientes-contabilidad?estado=pendiente_conciliacion&limit=10000&offset=0`;
+    const url = `https://api.x-cargo.co/pagos/pendientes-contabilidad?estado=pendiente_conciliacion&limit=10000&offset=0`;
     
     console.log(`🔍 Cargando TODOS los pendientes sin limitaciones:`, url);
     
@@ -352,7 +352,7 @@ const cargarDetallePago = async (
   }
 ) => {
   try {
-    let url = `http://127.0.0.1:8000/pagos/detalles-pago`;
+    let url = `https://api.x-cargo.co/pagos/detalles-pago`;
     const params = new URLSearchParams();
 
     // Priorizar id_transaccion si está presente
@@ -443,7 +443,7 @@ const verDetallesPago = async (referenciaPago: string, filtros?: {
 }) => {
   try {
     // Construir la URL base
-    let url = `http://127.0.0.1:8000/pagos/detalles-pago-cruces/${referenciaPago}`;
+    let url = `https://api.x-cargo.co/pagos/detalles-pago-cruces/${referenciaPago}`;
     
     // Construir parámetros de consulta si se proporcionan filtros
     const params = new URLSearchParams();
@@ -495,7 +495,7 @@ const verComprobantePendiente = async (pago: any) => {
     }
 
     // Construir URL base del endpoint /pagos/imagenes-pago
-    let url = `http://127.0.0.1:8000/pagos/imagenes-pago/${referencia}`;
+    let url = `https://api.x-cargo.co/pagos/imagenes-pago/${referencia}`;
     
     // Construir parámetros de consulta
     const params = new URLSearchParams();

@@ -53,7 +53,7 @@ export default function HistorialPagos() {
     
     const filtrosAUsar = nuevosFiltros || filtros;
     try {
-      const url = `http://127.0.0.1:8000/pagos/historial-2`;
+      const url = `https://api.x-cargo.co/pagos/historial-2`;
 
       const response = await fetch(url, {
         method: 'GET',
