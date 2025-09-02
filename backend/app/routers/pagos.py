@@ -232,41 +232,69 @@ async def registrar_pago_conductor(
         try:
             lista_guias = json.loads(guias)
             # LOG: Mostrar referencias y trackings recibidos
-            logger.info(f"Referencias de guías recibidas: {[g.get('referencia') for g in lista_guias]}")
+            logger.info(f"Referencias de pago recibidas: {[g.get('referencia') for g in lista_guias]}")
             logger.info(f"Trackings de guías recibidas: {[g.get('tracking') for g in lista_guias]}")
             if not lista_guias:
                 raise HTTPException(status_code=400, detail="Debe asociar al menos una guía")
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Formato de guías inválido (JSON requerido)")
 
-        # PASO 5: Obtener información de clientes desde COD_pendientes_v1
-        referencias_guias = [str(guia.get("referencia", "")).strip() for guia in lista_guias if guia.get("referencia")]
+        # PASO 5: 🔥 CORREGIDO: Obtener trackings únicos para consultar COD_pendientes_v1
+        trackings_guias = []
+        for guia in lista_guias:
+            tracking = str(guia.get("tracking", "")).strip()
+            if tracking and tracking not in ["null", "none", "", "undefined"]:
+                trackings_guias.append(tracking)
+        
+        # Eliminar duplicados manteniendo el orden
+        trackings_unicos = list(dict.fromkeys(trackings_guias))
+        
+        if not trackings_unicos:
+            raise HTTPException(status_code=400, detail="No se encontraron trackings válidos en las guías")
 
-        if not referencias_guias:
-            raise HTTPException(status_code=400, detail="No se encontraron referencias válidas en las guías")
+        logger.info(f"📊 Trackings únicos para consultar COD_pendientes_v1: {trackings_unicos}")
+        
+        trackings_str = "', '".join(trackings_unicos)
 
-        refs_str = "', '".join(referencias_guias)
-
-        # 🔥 CORREGIDO: Usar el campo correcto 'Valor' (mayúscula) según la estructura de la tabla
+        # 🔥 CORREGIDO: Usar trackings para buscar en COD_pendientes_v1
         query_clientes = f"""
-            SELECT tracking_number as referencia, Cliente as cliente, Valor as valor
+            SELECT 
+                tracking_number,
+                Cliente as cliente, 
+                Ciudad as ciudad,
+                Departamento as departamento,
+                Valor as valor,
+                Status_Date as status_date,
+                Status_Big as status_big,
+                Carrier as carrier,
+                carrier_id,
+                Empleado as conductor_nombre_completo,
+                Employee_id as employee_id
             FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1`
-            WHERE tracking_number IN ('{refs_str}')
+            WHERE tracking_number IN ('{trackings_str}')
         """
 
         try:
             resultado_clientes = client.query(query_clientes).result()
             clientes_data = {
-                row["referencia"]: {
+                row["tracking_number"]: {
                     "cliente": row["cliente"],
-                    "valor": row["valor"]  # 🔥 Este será el valor de COD_pendientes_v1.Valor
+                    "ciudad": row["ciudad"],
+                    "departamento": row["departamento"],
+                    "valor": row["valor"],  # 🔥 Este será el valor de COD_pendientes_v1.Valor
+                    "status_date": row["status_date"],
+                    "status_big": row["status_big"],
+                    "carrier": row["carrier"],
+                    "carrier_id": row["carrier_id"],
+                    "conductor_nombre_completo": row["conductor_nombre_completo"],
+                    "employee_id": row["employee_id"]
                 } for row in resultado_clientes
             }
             
-            # 🔥 NUEVO: Logging para verificar que se obtuvieron datos de BD
-            logger.info(f"📊 Referencias encontradas en COD_pendientes_v1: {len(clientes_data)}")
-            for ref, data in clientes_data.items():
-                logger.info(f"✅ {ref}: Cliente={data['cliente']}, Valor BD={data['valor']}")
+            # 🔥 NUEVO: Logging para verificar que se obtuvieron datos de BD por tracking
+            logger.info(f"📊 Trackings encontrados en COD_pendientes_v1: {len(clientes_data)}")
+            for tracking, data in clientes_data.items():
+                logger.info(f"✅ Tracking {tracking}: Cliente={data['cliente']}, Ciudad={data.get('ciudad', '')}, Valor BD={data['valor']}")
             
         except Exception as e:
             logger.error(f"❌ Error consultando COD_pendientes_v1: {e}")
@@ -303,27 +331,10 @@ async def registrar_pago_conductor(
 
         valor_total_combinado = valor_pago + valor_bonos
 
-        # 🔎 FASE 2: Verificar conciliación automática con banco
-        try:
-            query_match = """
-            SELECT id FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-            WHERE fecha = @fecha_pago
-              AND ABS(valor_banco - @valor) <= 100
-              AND estado_conciliacion = 'pendiente'
-            LIMIT 1
-            """
-            job_config_match = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("fecha_pago", "DATE", fecha_pago),
-                    bigquery.ScalarQueryParameter("valor", "FLOAT64", valor_total_combinado)
-                ]
-            )
-            resultado_match = list(client.query(query_match, job_config=job_config_match).result())
-            estado_conciliacion = "conciliado_automatico" if resultado_match else "pendiente_conciliacion"
-            
-        except Exception as e:
-            
-            estado_conciliacion = "pendiente_conciliacion"
+        # 🔎 FASE 2: Establecer estado
+
+
+        estado_conciliacion = "pendiente_conciliacion"
 
         filas = []
 
@@ -349,29 +360,50 @@ async def registrar_pago_conductor(
             if not referencia_value:
                 continue
             
-            # 🔥 MODIFICACIÓN PRINCIPAL: SIEMPRE usar valor de BD, nunca del frontend
-            if referencia_value in clientes_data:
-                cliente_clean = clientes_data[referencia_value]["cliente"] or "Sin Cliente"
-                valor_individual = float(clientes_data[referencia_value]["valor"] or 0)
-                logger.info(f"✅ Usando valor BD para {referencia_value}: {valor_individual}")
-            else:
-                # 🔥 Si no está en BD, usar 0 en lugar del valor del frontend
-                cliente_clean = "Sin Cliente"
-                valor_individual = 0.0  # 🔥 CAMBIO: Ya no usa guia.get("valor", 0)
-                logger.warning(f"⚠️ Referencia {referencia_value} NO encontrada en COD_pendientes_v1, usando valor 0")
-           
-            # Procesar tracking
-           
+            # Procesar tracking PRIMERO para usarlo en la consulta de datos
             tracking_value = guia.get("tracking", "")
             if not tracking_value or str(tracking_value).lower() in ["null", "none", "", "undefined"]:
                 tracking_clean = referencia_value
             else:
                 tracking_clean = str(tracking_value).strip()
+            
+            # 🔥 CAMBIO 1: Usar valor del soporte individual que viene del frontend
+            valor_soporte_individual = float(guia.get("valor", 0))  # Valor del soporte específico
+            logger.info(f"✅ Usando valor del soporte para {referencia_value} (tracking: {tracking_clean}): {valor_soporte_individual}")
+            
+            # 🔥 CORREGIDO: Usar tracking_clean para buscar datos en COD_pendientes_v1
+            if tracking_clean in clientes_data:
+                cod_data = clientes_data[tracking_clean]
+                cliente_clean = cod_data["cliente"] or "Sin Cliente"
+                ciudad = cod_data.get("ciudad", "")
+                departamento = cod_data.get("departamento", "")
+                valor_guia_bd = cod_data.get("valor", 0)
+                status_date = cod_data.get("status_date")
+                status_big = cod_data.get("status_big", "")
+                carrier = cod_data.get("carrier", "")
+                carrier_id = cod_data.get("carrier_id")
+                conductor_nombre_completo = cod_data.get("conductor_nombre_completo", "")
+                employee_id_cod = cod_data.get("employee_id")
+                logger.info(f"✅ Datos COD_pendientes_v1 para tracking {tracking_clean}: Cliente={cliente_clean}, Ciudad={ciudad}, Departamento={departamento}")
+            else:
+                cliente_clean = "Sin Cliente"
+                ciudad = ""
+                departamento = ""
+                valor_guia_bd = 0
+                status_date = None
+                status_big = ""
+                carrier = ""
+                carrier_id = None
+                conductor_nombre_completo = ""
+                employee_id_cod = None
+                logger.warning(f"⚠️ Tracking {tracking_clean} NO encontrado en COD_pendientes_v1 para obtener datos completos")
+            
             # Asociar comprobante por índice (si hay suficientes, si no usar el primero)
             comprobante_url_asociado = comprobante_urls[i] if i < len(comprobante_urls) else (comprobante_urls[0] if comprobante_urls else None)
+            
             fila = {
-                "referencia": referencia_value,
-                "valor": valor_individual,
+                "referencia": referencia_value,  # Referencia individual de la guía
+                "valor": valor_soporte_individual,  # 🔥 CAMBIO 2: Valor del soporte individual
                 "fecha": fecha_pago,
                 "entidad": entidad,
                 "estado": "pagado",
@@ -386,12 +418,22 @@ async def registrar_pago_conductor(
                 "correo": correo,
                 "fecha_pago": fecha_pago,
                 "id_string": None,
-                "referencia_pago": referencia,
+                "referencia_pago": referencia_value,  # 🔥 CAMBIO 3: Mismo valor que referencia
                 "valor_total_consignacion": valor_pago,
                 "tracking": tracking_clean,
                 "cliente": cliente_clean,
                 "estado_conciliacion": estado_conciliacion,
                 "Id_Transaccion": nuevo_id_transaccion,
+                # 🔥 NUEVOS CAMPOS: Datos de COD_pendientes_v1 para guias_liquidacion
+                "ciudad": ciudad,
+                "departamento": departamento,
+                "valor_guia_bd": valor_guia_bd,  # Valor original de COD_pendientes_v1
+                "status_date": status_date,
+                "status_big": status_big,
+                "carrier": carrier,
+                "carrier_id": carrier_id,
+                "conductor_nombre_completo": conductor_nombre_completo,
+                "employee_id_cod": employee_id_cod,
             }
             filas.append(fila)
 
@@ -463,18 +505,33 @@ async def registrar_pago_conductor(
         
  # PASO 9: Insertar o actualizar en guias_liquidacion (MERGE/UPSERT por guía)
         try:
-
+            todas_referencias_pago = []
+            for fila_ref in filas:
+                ref_individual = fila_ref.get('referencia', '').strip()
+                if ref_individual and ref_individual not in todas_referencias_pago:
+                    todas_referencias_pago.append(ref_individual)
+            
+            pago_referencia_concatenado = ', '.join(todas_referencias_pago)
+            
             for fila in filas:
                 merge_query = f"""
                 MERGE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` AS gl
                 USING (SELECT
                         @tracking AS tracking_number,
-                        @employee_id AS employee_id,
+                        @employee_id_usuario AS employee_id,
                         @correo AS conductor_email,
                         @cliente AS cliente,
-                        @valor AS valor_guia,
+                        @ciudad AS ciudad,
+                        @departamento AS departamento,
+                        @valor_guia_bd AS valor_guia,
+                        @status_date AS status_date,
+                        @status_big AS status_big,
+                        @carrier AS carrier,
+                        @carrier_id AS carrier_id,
+                        @conductor_nombre_completo AS conductor_nombre_completo,
+                        @employee_id_cod AS employee_id_cod,
                         @fecha_pago AS fecha_entrega,
-                        @referencia_pago AS pago_referencia,
+                        @pago_referencia_concatenado AS pago_referencia,
                         @fecha_pago AS fecha_pago,
                         @valor AS valor_pagado,
                         @tipo AS metodo_pago,
@@ -487,6 +544,16 @@ async def registrar_pago_conductor(
                 ON gl.tracking_number = src.tracking_number
                 WHEN MATCHED THEN
                   UPDATE SET
+                    cliente = src.cliente,
+                    ciudad = src.ciudad,
+                    departamento = src.departamento,
+                    valor_guia = src.valor_guia,
+                    status_date = src.status_date,
+                    status_big = src.status_big,
+                    carrier = src.carrier,
+                    carrier_id = src.carrier_id,
+                    conductor_nombre_completo = src.conductor_nombre_completo,
+                    employee_id = COALESCE(src.employee_id_cod, src.employee_id),
                     pago_referencia = src.pago_referencia,
                     fecha_pago = src.fecha_pago,
                     valor_pagado = src.valor_pagado,
@@ -496,11 +563,14 @@ async def registrar_pago_conductor(
                     modificado_por = src.modificado_por
                 WHEN NOT MATCHED THEN
                   INSERT (
-                    tracking_number, employee_id, conductor_email, cliente, valor_guia, fecha_entrega,
-                    pago_referencia, fecha_pago, valor_pagado, metodo_pago, Id_Transaccion,
+                    tracking_number, employee_id, conductor_email, cliente, ciudad, departamento,
+                    valor_guia, status_date, status_big, carrier, carrier_id, conductor_nombre_completo,
+                    fecha_entrega, pago_referencia, fecha_pago, valor_pagado, metodo_pago, Id_Transaccion,
                     fecha_creacion, fecha_modificacion, creado_por, modificado_por, estado_liquidacion
                   ) VALUES (
-                    src.tracking_number, src.employee_id, src.conductor_email, src.cliente, src.valor_guia, src.fecha_entrega,
+                    src.tracking_number, COALESCE(src.employee_id_cod, src.employee_id), src.conductor_email, 
+                    src.cliente, src.ciudad, src.departamento, src.valor_guia, src.status_date, src.status_big,
+                    src.carrier, src.carrier_id, src.conductor_nombre_completo, src.fecha_entrega,
                     src.pago_referencia, src.fecha_pago, src.valor_pagado, src.metodo_pago, src.Id_Transaccion,
                     src.fecha_creacion, src.fecha_modificacion, src.creado_por, src.modificado_por, 'pagado'
                   )
@@ -508,14 +578,23 @@ async def registrar_pago_conductor(
                 job_config = bigquery.QueryJobConfig(
                     query_parameters=[
                         bigquery.ScalarQueryParameter("tracking", "STRING", fila['tracking']),
-                        bigquery.ScalarQueryParameter("employee_id", "INTEGER", obtener_employee_id_usuario(correo, client) or 0),
+                        bigquery.ScalarQueryParameter("employee_id_usuario", "INTEGER", obtener_employee_id_usuario(correo, client) or 0),
                         bigquery.ScalarQueryParameter("correo", "STRING", correo),
                         bigquery.ScalarQueryParameter("cliente", "STRING", fila['cliente']),
+                        bigquery.ScalarQueryParameter("ciudad", "STRING", fila.get('ciudad', '')),
+                        bigquery.ScalarQueryParameter("departamento", "STRING", fila.get('departamento', '')),
+                        bigquery.ScalarQueryParameter("valor_guia_bd", "FLOAT64", fila.get('valor_guia_bd', 0)),
+                        bigquery.ScalarQueryParameter("status_date", "DATE", fila.get('status_date')),
+                        bigquery.ScalarQueryParameter("status_big", "STRING", fila.get('status_big', '')),
+                        bigquery.ScalarQueryParameter("carrier", "STRING", fila.get('carrier', '')),
+                        bigquery.ScalarQueryParameter("carrier_id", "INTEGER", fila.get('carrier_id')),
+                        bigquery.ScalarQueryParameter("conductor_nombre_completo", "STRING", fila.get('conductor_nombre_completo', '')),
+                        bigquery.ScalarQueryParameter("employee_id_cod", "INTEGER", fila.get('employee_id_cod')),
                         bigquery.ScalarQueryParameter("valor", "FLOAT64", fila['valor']),
                         bigquery.ScalarQueryParameter("fecha_pago", "DATE", fila['fecha_pago']),
-                        bigquery.ScalarQueryParameter("referencia_pago", "STRING", fila['referencia_pago']),
-                    bigquery.ScalarQueryParameter("tipo", "STRING", fila['tipo']),
-                    bigquery.ScalarQueryParameter("id_transaccion", "INTEGER", nuevo_id_transaccion),
+                        bigquery.ScalarQueryParameter("pago_referencia_concatenado", "STRING", pago_referencia_concatenado),
+                        bigquery.ScalarQueryParameter("tipo", "STRING", fila['tipo']),
+                        bigquery.ScalarQueryParameter("id_transaccion", "INTEGER", nuevo_id_transaccion),
                     ]
                 )
                 client.query(merge_query, job_config=job_config).result()
@@ -617,6 +696,7 @@ async def registrar_pago_conductor(
             status_code=500, 
             detail="Error interno del servidor procesando el pago híbrido"
         )
+
 
 # 🔥 NUEVA RUTA: Consultar bonos disponibles por conductor
 
@@ -1885,26 +1965,40 @@ def obtener_pagos_pendientes_contabilidad(
 @router.get("/historial-2")
 def obtener_historial_pagos_simplificado():
     """
-    Endpoint que trae todos los pagos de la tabla pagosconductor con solo las columnas específicas:
-    - tracking, referencia_pago, referencia, valor, valor_total_consignacion, estado_conciliacion
+    Endpoint que trae todos los pagos de la tabla pagosconductor con campos específicos:
+    - referencia, valor, valor_total_consignacion, fecha, estado_conciliacion, tipo, 
+    - cantidad de tracking por referencia, tracking, comprobante, cliente, Id_Transaccion
     """
     try:
         client = get_bigquery_client()
         
-        logger.info("📊 Iniciando consulta para historial-2 simplificado")
+        logger.info("📊 Iniciando consulta para historial-2 con campos extendidos")
         
         query = f"""
+        WITH tracking_counts AS (
+            SELECT 
+                referencia,
+                COUNT(tracking) as cantidad_tracking
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            WHERE tracking IS NOT NULL AND tracking != ''
+            GROUP BY referencia
+        )
         SELECT 
-            tracking,
-            referencia_pago,
-            referencia,
-            Id_Transaccion,
-            valor,
-            valor_total_consignacion,
-            estado_conciliacion,
-            DATE(fecha) AS fecha
-        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-        ORDER BY creado_en DESC
+            pc.referencia,
+            pc.valor,
+            pc.valor_total_consignacion,
+            DATE(pc.fecha) AS fecha,
+            pc.estado_conciliacion,
+            pc.tipo,
+            pc.entidad,
+            COALESCE(tc.cantidad_tracking, 0) as cantidad_tracking,
+            pc.tracking,
+            pc.comprobante,
+            pc.cliente,
+            pc.Id_Transaccion
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
+        LEFT JOIN tracking_counts tc ON pc.referencia = tc.referencia
+        ORDER BY pc.creado_en DESC
         """
         
         logger.info("🔍 Ejecutando consulta en BigQuery...")
@@ -1913,14 +2007,18 @@ def obtener_historial_pagos_simplificado():
         historial = []
         for row in results:
             registro = {
-                "tracking": row.tracking or "",
-                "referencia_pago": row.referencia_pago or "",
                 "referencia": row.referencia or "",
-                "id_transaccion": row.Id_Transaccion or "",
                 "valor": float(row.valor) if row.valor is not None else 0.0,
                 "valor_total_consignacion": float(row.valor_total_consignacion) if row.valor_total_consignacion is not None else 0.0,
+                "fecha": row.fecha or "",
                 "estado_conciliacion": row.estado_conciliacion or "",
-                "fecha": row.fecha or ""
+                "tipo": row.tipo or "",
+                "entidad": row.entidad or "",
+                "cantidad_tracking": int(row.cantidad_tracking) if row.cantidad_tracking is not None else 0,
+                "tracking": row.tracking or "",
+                "comprobante": row.comprobante or "",
+                "cliente": row.cliente or "",
+                "id_transaccion": row.Id_Transaccion or ""
             }
             historial.append(registro)
         
@@ -1930,14 +2028,18 @@ def obtener_historial_pagos_simplificado():
             "historial": historial,
             "total_registros": len(historial),
             "columnas": [
-                "tracking",
-                "referencia_pago", 
                 "referencia",
-                "id_transaccion",
                 "valor",
                 "valor_total_consignacion",
+                "fecha",
                 "estado_conciliacion",
-                "fecha"
+                "tipo",
+                "entidad",
+                "cantidad_tracking",
+                "tracking",
+                "comprobante",
+                "cliente",
+                "id_transaccion"
             ],
             "timestamp": datetime.now().isoformat(),
             "status": "success"

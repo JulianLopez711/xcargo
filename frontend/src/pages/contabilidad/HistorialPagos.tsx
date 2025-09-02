@@ -3,14 +3,18 @@ import { saveAs } from "file-saver";
 import "../../styles/contabilidad/HistorialPagos.css";
 
 interface PagoHistorial {
-  tracking: string;
-  fecha: string;
-  referencia_pago: string;
   referencia: string;
-  id_transaccion: string;
   valor: number | undefined;
   valor_total_consignacion: number | undefined;
+  fecha: string;
   estado_conciliacion: string;
+  tipo: string;
+  entidad: string;
+  cantidad_tracking: number;
+  tracking: string;
+  comprobante: string;
+  cliente: string;
+  id_transaccion: string;
 }
 
 interface FiltrosHistorial {
@@ -82,7 +86,7 @@ export default function HistorialPagos() {
         if (filtrosAUsar.referencia && filtrosAUsar.referencia.trim() !== "") {
           const referenciaFiltro = filtrosAUsar.referencia.trim().toLowerCase();
           historialFiltrado = historialFiltrado.filter((pago: PagoHistorial) =>
-            (pago.referencia_pago || "").toLowerCase().includes(referenciaFiltro)
+            (pago.referencia || "").toLowerCase().includes(referenciaFiltro)
           );
         }
 
@@ -142,7 +146,11 @@ export default function HistorialPagos() {
       return;
     }
 
-    const totalValor = historial.reduce((sum, pago) => sum + (pago.valor || 0), 0);
+    // Aplicar lógica de valor: usar valor_total_consignacion si valor es 0
+    const totalValor = historial.reduce((sum, pago) => {
+      const valorFinal = (pago.valor === 0 || !pago.valor) ? (pago.valor_total_consignacion || 0) : pago.valor;
+      return sum + valorFinal;
+    }, 0);
     const valorPromedio = totalValor / historial.length;
 
     // Estadísticas por estado
@@ -151,8 +159,13 @@ export default function HistorialPagos() {
       porEstado[pago.estado_conciliacion] = (porEstado[pago.estado_conciliacion] || 0) + 1;
     });
 
-    // Para la nueva estructura, no tenemos entidad ni conductor
+    // Estadísticas por tipo
     const porEntidad: { [entidad: string]: number } = {};
+    historial.forEach(pago => {
+      if (pago.tipo) {
+        porEntidad[pago.tipo] = (porEntidad[pago.tipo] || 0) + 1;
+      }
+    });
     
     setEstadisticas({
       total_pagos: historial.length,
@@ -189,17 +202,23 @@ export default function HistorialPagos() {
       return;
     }
 
-    const encabezado = "Tracking,Fecha,Referencia_Pago,Referencia,ID_Transaccion,Valor,Valor_Total_Consignacion,Estado\n";
-    const filas = pagosPaginados.map(pago => 
-      `"${pago.tracking}","${pago.fecha || ''}","${pago.referencia_pago}","${pago.referencia}","${pago.id_transaccion}",${pago.valor},${pago.valor_total_consignacion},"${pago.estado_conciliacion}"`
-    ).join("\n");
+    const encabezado = "Referencia,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier,ID_Transaccion\n";
+    const filas = pagosPaginados.map(pago => {
+      const valorFinal = (pago.valor === 0 || !pago.valor) ? (pago.valor_total_consignacion || 0) : pago.valor;
+      return `"${pago.referencia}",${valorFinal},"${pago.fecha || ''}","${pago.estado_conciliacion}","${pago.entidad || ''}","${pago.tipo}","${pago.cliente}",${pago.cantidad_tracking},"${pago.tracking}","${pago.comprobante}","N/A","${pago.id_transaccion}"`;
+    }).join("\n");
 
     const blob = new Blob([encabezado + filas], {
       type: "text/csv;charset=utf-8;",
     });
     
     const fechaHoy = new Date().toISOString().split("T")[0];
-    saveAs(blob, `historial-pagos-simplificado-${fechaHoy}.csv`);
+    saveAs(blob, `historial-pagos-${fechaHoy}.csv`);
+  };
+
+  // Función para obtener el valor final aplicando la lógica solicitada
+  const obtenerValorFinal = (pago: PagoHistorial): number => {
+    return (pago.valor === 0 || !pago.valor) ? (pago.valor_total_consignacion || 0) : pago.valor;
   };
 
   // Mostrar cada TN (tracking) en su propia fila
@@ -405,61 +424,93 @@ export default function HistorialPagos() {
           </div>
         ) : (
           <>
-            <table className="historial-tabla" style={{minWidth: '1200px'}}>
+            <table className="historial-tabla" style={{minWidth: '1400px'}}>
               <thead>
                 <tr>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Referencia</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Valor</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Fecha</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Estado</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Entidad</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Tipo</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Conductor</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Guías</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>TN</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>REFERENCIA PAGO</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>REFERENCIA</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>ID TRANSACCIÓN</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>VALOR</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>VALOR TOTAL</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>ESTADO</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Comprobante</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Carrier</th>
                 </tr>
               </thead>
               <tbody>
-                {pagosPaginados.map((pago, idx) => (
-                  <tr key={`${pago.referencia_pago}-${pago.tracking}-${idx}`} className={`fila-${pago.estado_conciliacion?.toLowerCase()}`}>
-                    <td className="tracking-cell">
-                      {pago.tracking ? (
-                        <span title={pago.tracking}>{pago.tracking}</span>
-                      ) : (
-                        <span className="sin-tracking">-</span>
-                      )}
-                    </td>
-                    <td className="referencia-cell">
-                      <span className="referencia-text">{pago.referencia_pago}</span>
-                    </td>
-                    <td className="referencia-cell">
-                      <span className="referencia-text">{pago.referencia}</span>
-                    </td>
-                    <td className="id-transaccion-cell">
-                      <span className="id-text">{pago.id_transaccion || '-'}</span>
-                    </td>
-                    <td className="valor-cell">
-                      <span className="valor-principal">
-                        {formatearMoneda(pago.valor)}
-                      </span>
-                    </td>
-                    <td className="valor-total-cell">
-                      <span className="valor-total">
-                        {formatearMoneda(pago.valor_total_consignacion)}
-                      </span>
-                    </td>
-                    <td className="estado-cell">
-                      <span 
-                        className="estado-badge"
-                        style={{ 
-                          backgroundColor: getEstadoColor(pago.estado_conciliacion) + '20',
-                          color: getEstadoColor(pago.estado_conciliacion),
-                          border: `1px solid ${getEstadoColor(pago.estado_conciliacion)}40`
-                        }}
-                      >
-                        {getEstadoTexto(pago.estado_conciliacion)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {pagosPaginados.map((pago, idx) => {
+                  const valorFinal = obtenerValorFinal(pago);
+                  return (
+                    <tr key={`${pago.referencia}-${pago.tracking}-${idx}`} className={`fila-${pago.estado_conciliacion?.toLowerCase()}`}>
+                      <td className="referencia-cell">
+                        <span className="referencia-text">{pago.referencia}</span>
+                      </td>
+                      <td className="valor-cell">
+                        <span className="valor-principal">
+                          {formatearMoneda(valorFinal)}
+                        </span>
+                      </td>
+                      <td className="fecha-cell">
+                        <span className="fecha-text">
+                          {pago.fecha ? new Date(pago.fecha).toLocaleDateString('es-CO') : '-'}
+                        </span>
+                      </td>
+                      <td className="estado-cell">
+                        <span 
+                          className="estado-badge"
+                          style={{ 
+                            backgroundColor: getEstadoColor(pago.estado_conciliacion) + '20',
+                            color: getEstadoColor(pago.estado_conciliacion),
+                            border: `1px solid ${getEstadoColor(pago.estado_conciliacion)}40`
+                          }}
+                        >
+                          {getEstadoTexto(pago.estado_conciliacion)}
+                        </span>
+                      </td>
+                      <td className="entidad-cell">
+                        <span className="entidad-text">{pago.entidad || '-'}</span>
+                      </td>
+                      <td className="tipo-cell">
+                        <span className="tipo-text">{pago.tipo || '-'}</span>
+                      </td>
+                      <td className="conductor-cell">
+                        <span className="conductor-text">{pago.cliente || '-'}</span>
+                      </td>
+                      <td className="guias-cell">
+                        <span className="guias-count">
+                          {pago.cantidad_tracking || 0}
+                        </span>
+                      </td>
+                      <td className="tracking-cell">
+                        {pago.tracking ? (
+                          <span title={pago.tracking}>{pago.tracking}</span>
+                        ) : (
+                          <span className="sin-tracking">-</span>
+                        )}
+                      </td>
+                      <td className="comprobante-cell">
+                        {pago.comprobante ? (
+                          <a 
+                            href={pago.comprobante} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="comprobante-link"
+                          >
+                            📎 Ver
+                          </a>
+                        ) : (
+                          <span className="sin-comprobante">-</span>
+                        )}
+                      </td>
+                      <td className="carrier-cell">
+                        <span className="carrier-text">N/A</span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
 

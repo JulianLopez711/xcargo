@@ -4,6 +4,9 @@ from google.cloud import bigquery
 from typing import List, Dict, Optional, Any, AsyncGenerator
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
+import logging
+import json
+import asyncio
 
 from decimal import Decimal
 from collections import defaultdict
@@ -789,7 +792,7 @@ def conciliar_pago_automaticamente(
                     job_config=bigquery.QueryJobConfig(
                         query_parameters=[
                             bigquery.ScalarQueryParameter("estado", "STRING", 
-                                "conciliado_exacto" if es_match_exacto else "conciliado_aproximado"),
+                                "conciliado_automatico" if es_match_exacto else "conciliado_aproximado"),
                             bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago),
                             bigquery.ScalarQueryParameter("id_banco", "STRING", mov.id)
                         ]
@@ -812,7 +815,7 @@ def conciliar_pago_automaticamente(
                     job_config=bigquery.QueryJobConfig(
                         query_parameters=[
                             bigquery.ScalarQueryParameter("estado", "STRING", 
-                                "conciliado_exacto" if es_match_exacto else "conciliado_aproximado"),
+                                "conciliado_automatico" if es_match_exacto else "conciliado_aproximado"),
                             bigquery.ScalarQueryParameter("id_banco", "STRING", mov.id),
                             bigquery.ScalarQueryParameter("id_pago", "STRING", id_pago),
                             bigquery.ScalarQueryParameter("confianza", "FLOAT", score_total)
@@ -831,199 +834,232 @@ def conciliar_pago_automaticamente(
 @router.get("/conciliacion-automatica-mejorada")
 async def conciliacion_automatica_mejorada():
     """
-    Endpoint de conciliación automática con Server-Sent Events para progreso en tiempo real
+    Conciliación automática mejorada:
+    - Agrupa pagos por Id_Transaccion o referencia individual (solo estado 'pendiente_conciliacion')
+    - Movimientos bancarios solo estado 'pendiente', 'Pendiente', 'PENDIENTE'
+    - Si es pago agrupado (Id_Transaccion no nulo y varias referencias distintas): SIN MATCH directo
+    - Si es individual (Id_Transaccion nulo o solo una referencia): busca match exacto valor y fecha
+    - Si match: actualiza ambos lados, si Id_Transaccion no nulo agrega 'referencia_pago;Id_Transaccion' en banco
+    - Devuelve todos los pagos pendientes con resultado de la operación
     """
-    
     async def generar_progreso() -> AsyncGenerator[str, None]:
-        """Generador para el progreso en tiempo real"""
-        
         try:
-            client = bigquery.Client()
-            margen_error = 100  # pesos permitidos de diferencia
-
-            # Enviar evento de inicio
-            yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'inicio', 'mensaje': '🚀 Iniciando conciliación automática...', 'porcentaje': 0}))}\n\n"
-            await asyncio.sleep(0.1)
-
-            # 1. FASE: Obtener pagos pendientes
-            yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'fase', 'mensaje': '📋 Obteniendo pagos pendientes de conciliación...', 'porcentaje': 10}))}\n\n"
-            await asyncio.sleep(0.1)
-            
-            query_pagos = """
-                SELECT referencia_pago, valor, fecha_pago, id_string
-                FROM `datos-clientes-441216.Conciliaciones.pagosconductor`
-                WHERE estado_conciliacion = 'pendiente_conciliacion'
-                  AND referencia_pago IS NOT NULL
+            client = get_bigquery_client()
+            # 1. Obtener pagos pendientes agrupados
+            FECHA_MINIMA = "2025-06-09"
+            query_pagos = f"""
+                SELECT 
+                    CASE 
+                        WHEN pc.Id_Transaccion IS NOT NULL THEN CAST(pc.Id_Transaccion AS STRING)
+                        ELSE pc.referencia_pago
+                    END as grupo_pago,
+                    ARRAY_AGG(STRUCT(
+                        pc.referencia_pago AS referencia_pago,
+                        pc.referencia AS referencia,
+                        pc.valor AS valor,
+                        pc.valor_total_consignacion AS valor_total_consignacion,
+                        pc.fecha_pago AS fecha_pago,
+                        pc.id_string AS id_string,
+                        pc.Id_Transaccion AS Id_Transaccion
+                    )) AS pagos
+                FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
+                WHERE pc.fecha_pago >= @fecha_minima_auto
+                  AND pc.estado_conciliacion = 'pendiente_conciliacion'
+                  AND pc.referencia_pago IS NOT NULL
+                GROUP BY grupo_pago
             """
-            pagos_rows = list(client.query(query_pagos).result())
-            
-            # Agrupar por referencia_pago
-            pagos_por_referencia = defaultdict(list)
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("fecha_minima_auto", "DATE", FECHA_MINIMA)
+                ]
+            )
+            pagos_rows = list(client.query(query_pagos, job_config=job_config).result())
+            pagos_por_grupo = {}
             for row in pagos_rows:
-                pagos_por_referencia[row.referencia_pago].append(row)
+                pagos_por_grupo[row.grupo_pago] = row.pagos
 
-            yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'info', 'mensaje': f'📊 Encontrados {len(pagos_rows)} pagos en {len(pagos_por_referencia)} referencias únicas', 'porcentaje': 20}))}\n\n"
+            yield f"data: {json.dumps({'tipo': 'info', 'mensaje': f'📊 {sum(len(p) for p in pagos_por_grupo.values())} pagos en {len(pagos_por_grupo)} grupos', 'porcentaje': 20})}\n\n"
             await asyncio.sleep(0.1)
 
-            # 2. FASE: Obtener movimientos bancarios
-            yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'fase', 'mensaje': '🏦 Obteniendo movimientos bancarios pendientes...', 'porcentaje': 30}))}\n\n"
-            await asyncio.sleep(0.1)
-            
+            # 2. Obtener movimientos bancarios pendientes CON VALIDACIÓN DE VALOR EXTRAÍDO
             query_banco = """
-                SELECT id, fecha, valor_banco, tipo
+                SELECT 
+                    id, 
+                    fecha, 
+                    valor_banco, 
+                    tipo, 
+                    descripcion,
+                    -- 🔥 EXTRAER VALOR REAL DEL ID (después del segundo '_')
+                    CASE 
+                        WHEN REGEXP_CONTAINS(id, r'^BANCO_\d{8}_\d+_\d+$') THEN
+                            CAST(REGEXP_EXTRACT(id, r'^BANCO_\d{8}_(\d+)_\d+$') AS FLOAT64)
+                        ELSE valor_banco
+                    END as valor_real_extraido
                 FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-                WHERE estado_conciliacion = 'pendiente'
+                WHERE LOWER(estado_conciliacion) IN ('pendiente', 'pendiente_conciliacion')
+                   OR estado_conciliacion IN ('PENDIENTE', 'Pendiente', 'pendiente')
             """
             banco_rows = list(client.query(query_banco).result())
-            
-            yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'info', 'mensaje': f'💳 Encontrados {len(banco_rows)} movimientos bancarios pendientes', 'porcentaje': 40}))}\n\n"
+
+            yield f"data: {json.dumps({'tipo': 'info', 'mensaje': f'💳 {len(banco_rows)} movimientos bancarios pendientes', 'porcentaje': 40})}\n\n"
             await asyncio.sleep(0.1)
 
-            # 3. FASE: Procesar conciliaciones
-            yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'fase', 'mensaje': '🔄 Iniciando proceso de conciliación automática...', 'porcentaje': 50}))}\n\n"
-            await asyncio.sleep(0.1)
-            
             resultados = []
-            referencias_usadas = set()
-            resumen = {
-                "total_movimientos_banco": len(banco_rows),
-                "total_pagos_iniciales": len(pagos_rows),
-                "total_procesados": 0,
-                "referencias_unicas_utilizadas": 0,
-                "conciliado_exacto": 0,
-                "conciliado_aproximado": 0,
-                "sin_match": 0,
-            }
-
-            total_referencias = len(pagos_por_referencia)
             procesadas = 0
+            total_grupos = len(pagos_por_grupo)
 
-            for referencia, pagos in pagos_por_referencia.items():
+            for grupo, pagos in pagos_por_grupo.items():
                 procesadas += 1
-                
-                # Calcular porcentaje (50% a 90% del proceso total)
-                porcentaje_base = 50
-                porcentaje_procesamiento = 40
-                porcentaje_actual = porcentaje_base + int((procesadas / total_referencias) * porcentaje_procesamiento)
-                
-                valor_total = sum(float(pago.valor) for pago in pagos)
-                fecha_pago = pagos[0].fecha_pago
+                porcentaje_actual = 40 + int((procesadas / total_grupos) * 50)
+                # Determinar si es agrupado (Id_Transaccion no nulo y varias referencias distintas)
+                ids_transaccion = set([p["Id_Transaccion"] for p in pagos if p["Id_Transaccion"] is not None])
+                referencias = set([p["referencia"] for p in pagos])
+                es_agrupado = False
+                id_transaccion = pagos[0]["Id_Transaccion"] if pagos[0]["Id_Transaccion"] is not None else None
+                if id_transaccion is not None and len(referencias) > 1:
+                    es_agrupado = True
 
-                # Enviar progreso de procesamiento detallado con emoji y formato mejorado
-                mensaje_progreso = f"⏳ Procesando {procesadas}/{total_referencias} ({porcentaje_actual}%) - Referencia: {referencia} - Valor: ${valor_total:,.0f}"
-                progreso_data = {'tipo': 'progreso', 'mensaje': mensaje_progreso, 'porcentaje': porcentaje_actual, 'detalle': {'referencia': referencia, 'valor': float(valor_total), 'fecha': str(fecha_pago), 'num_pagos': len(pagos)}}
-                yield f"data: {json.dumps(convertir_decimales_a_float(progreso_data))}\n\n"
-                await asyncio.sleep(0.05)
+                # Tomar valores para mostrar
+                valor_total = float(pagos[0]["valor_total_consignacion"]) if ("valor_total_consignacion" in pagos[0] and pagos[0]["valor_total_consignacion"] is not None) else float(pagos[0]["valor"])
+                fecha_pago = pagos[0]["fecha_pago"]
+                referencia_pago = pagos[0]["referencia_pago"]
 
-                # Buscar match exacto
-                match = next((
-                    movimiento for movimiento in banco_rows
-                    if abs(float(movimiento.valor_banco) - valor_total) <= margen_error
-                    and str(movimiento.fecha) == str(fecha_pago)
-                ), None)
+                resultado_operacion = {
+                    "grupo_pago": grupo,
+                    "referencias": list(referencias),
+                    "Id_Transaccion": id_transaccion,
+                    "valor_total": valor_total,
+                    "fecha_pago": str(fecha_pago),
+                    "pagos": [dict(p) for p in pagos],
+                    "operacion": "",
+                    "match": None,
+                    "mensaje": "",
+                }
 
-                if match:
-                    # ✅ Conciliado exitosamente
-                    resumen["conciliado_exacto"] += 1
-                    referencias_usadas.add(referencia)
-
-                    resultados.append({
-                        "referencia_pago": referencia,
-                        "valor_banco": float(match.valor_banco),
-                        "fecha_banco": str(match.fecha),
-                        "estado_match": "conciliado_exacto",
-                        "confianza": 100,
-                        "observaciones": f"Match exacto por referencia {referencia}",
-                        "diferencia_valor": abs(float(match.valor_banco) - valor_total),
-                        "diferencia_dias": 0,
-                        "id_banco": match.id,
-                        "valor_pago": valor_total,
-                        "fecha_pago": str(fecha_pago),
-                        "num_matches_posibles": 1,
-                    })
-
-                    # Marcar conciliado en base de datos
-                    try:
-                        update_query = f"""
-                            UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
-                            SET estado_conciliacion = 'conciliado_automatico',
-                                fecha_conciliacion = CURRENT_DATE(),
-                                id_banco_asociado = '{match.id}',
-                                confianza_conciliacion = 100
-                            WHERE referencia_pago = '{referencia}'
-                        """
-                        client.query(update_query).result()
-
-                        update_mov = f"""
+                if es_agrupado:
+                    # Caso agrupado: SIN MATCH directo
+                    resultado_operacion["operacion"] = "sin_match_agrupado"
+                    resultado_operacion["mensaje"] = "Pago agrupado (varias referencias), no se concilia automáticamente"
+                    yield f"data: {json.dumps({'tipo': 'info', 'mensaje': f'❌ SIN MATCH AGRUPADO: {grupo}', 'porcentaje': porcentaje_actual})}\n\n"
+                else:
+                    # Caso individual: buscar match exacto en banco usando VALOR EXTRAÍDO DEL ID
+                    match = None
+                    for mov in banco_rows:
+                        valor_banco_real = float(mov.valor_real_extraido) if mov.valor_real_extraido else float(mov.valor_banco)
+                        
+                        # 🔥 VALIDACIÓN MEJORADA: Comparar con valor extraído del ID
+                        if valor_banco_real == valor_total and str(mov.fecha) == str(fecha_pago):
+                            # ✅ VALIDACIÓN ADICIONAL: Verificar coherencia entre valor_banco y valor extraído
+                            diferencia_valores = abs(float(mov.valor_banco) - valor_banco_real)
+                            
+                            # Si hay diferencia significativa, loguear para diagnóstico
+                            if diferencia_valores > 1000:  # Diferencia mayor a $1,000
+                                logger.warning(f"⚠️ DISCREPANCIA en {mov.id}: valor_banco=${mov.valor_banco}, valor_extraído=${valor_banco_real}")
+                                yield f"data: {json.dumps({'tipo': 'warning', 'mensaje': f'⚠️ Discrepancia detectada en {mov.id}', 'porcentaje': porcentaje_actual})}\n\n"
+                                # Continuar con la siguiente iteración si hay discrepancia grande
+                                continue
+                            
+                            match = mov
+                            break
+                    
+                    if match:
+                        # 🔥 ACTUALIZACIÓN MEJORADA: Usar criterios específicos según el tipo de pago
+                        
+                        if id_transaccion is not None:
+                            # ✅ PAGO CON Id_Transaccion: Actualizar SOLO por Id_Transaccion específico
+                            update_pagos_query = f"""
+                                UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+                                SET estado_conciliacion = 'conciliado_automatico',
+                                    fecha_conciliacion = CURRENT_DATE(),
+                                    id_banco_asociado = '{match.id}',
+                                    confianza_conciliacion = 100
+                                WHERE Id_Transaccion = {id_transaccion}
+                                  AND estado_conciliacion = 'pendiente_conciliacion'
+                            """
+                            ref_banco = f"{referencia_pago};{id_transaccion}"
+                            logger.info(f"🔗 Actualizando por Id_Transaccion: {id_transaccion}")
+                        else:
+                            # ✅ PAGO SIN Id_Transaccion: Usar criterios específicos (referencia + fecha + valor)
+                            valor_pago = pagos[0]["valor_total_consignacion"] if pagos[0]["valor_total_consignacion"] else pagos[0]["valor"]
+                            update_pagos_query = f"""
+                                UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
+                                SET estado_conciliacion = 'conciliado_automatico',
+                                    fecha_conciliacion = CURRENT_DATE(),
+                                    id_banco_asociado = '{match.id}',
+                                    confianza_conciliacion = 100
+                                WHERE referencia_pago = '{referencia_pago}'
+                                  AND fecha_pago = '{fecha_pago}'
+                                  AND COALESCE(valor_total_consignacion, valor) = {valor_pago}
+                                  AND Id_Transaccion IS NULL
+                                  AND estado_conciliacion = 'pendiente_conciliacion'
+                            """
+                            ref_banco = referencia_pago
+                            logger.info(f"📄 Actualizando pago individual: {referencia_pago} | {fecha_pago} | ${valor_pago}")
+                        
+                        client.query(update_pagos_query).result()
+                        
+                        # Actualizar banco_movimientos
+                        update_banco_query = f"""
                             UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
-                            SET estado_conciliacion = 'conciliado_exacto',
-                                referencia_pago_asociada = '{referencia}',
+                            SET estado_conciliacion = 'conciliado_automatico',
+                                referencia_pago_asociada = '{ref_banco}',
                                 confianza_match = 100,
                                 conciliado_en = CURRENT_TIMESTAMP()
                             WHERE id = '{match.id}'
                         """
-                        client.query(update_mov).result()
+                        client.query(update_banco_query).result()
+                        resultado_operacion["operacion"] = "conciliado_automatico"
+                        resultado_operacion["match"] = {
+                            "id_banco": match.id,
+                            "valor_banco": float(match.valor_banco),
+                            "valor_real_extraido": float(match.valor_real_extraido) if match.valor_real_extraido else float(match.valor_banco),
+                            "fecha_banco": str(match.fecha),
+                            "tipo": match.tipo,
+                            "descripcion": match.descripcion,
+                            "discrepancia_detectada": abs(float(match.valor_banco) - float(match.valor_real_extraido)) > 1000 if match.valor_real_extraido else False
+                        }
+                        resultado_operacion["mensaje"] = "Conciliado automáticamente con validación de valor extraído"
                         
-                        yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'exito', 'mensaje': f'✅ CONCILIADO: {referencia} - ${valor_total:,.0f}', 'porcentaje': porcentaje_actual}))}\n\n"
+                        # 🔥 LOG DETALLADO PARA DIAGNÓSTICO
+                        valor_usado = float(match.valor_real_extraido) if match.valor_real_extraido else float(match.valor_banco)
+                        logger.info(f"✅ CONCILIADO: {grupo} | Pago=${valor_total:,.0f} | Banco=${valor_usado:,.0f} | ID={match.id}")
                         
-                    except Exception as e:
-                        yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'error', 'mensaje': f'❌ Error actualizando BD para {referencia}: {str(e)}', 'porcentaje': porcentaje_actual}))}\n\n"
+                        yield f"data: {json.dumps({'tipo': 'exito', 'mensaje': f'✅ CONCILIADO: {grupo} - Pago:${valor_total:,.0f} ↔ Banco:${valor_usado:,.0f}', 'porcentaje': porcentaje_actual})}\n\n"
+                    else:
+                        resultado_operacion["operacion"] = "sin_match"
                         
-                else:
-                    # ❌ Sin match
-                    resumen["sin_match"] += 1
-                    
-                    # Log informativo cuando no hay match
-                    yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'info', 'mensaje': f'❌ Sin match: {referencia} - ${valor_total:,.0f} ({str(fecha_pago)})', 'porcentaje': porcentaje_actual}))}\n\n"
-                    
-                    resultados.append({
-                        "referencia_pago": referencia,
-                        "valor_banco": valor_total,
-                        "fecha_banco": str(fecha_pago),
-                        "estado_match": "sin_match",
-                        "confianza": 0,
-                        "observaciones": f"No se encontró match para la referencia {referencia}",
-                        "diferencia_valor": None,
-                        "diferencia_dias": None,
-                        "id_banco": None,
-                        "valor_pago": valor_total,
-                        "fecha_pago": str(fecha_pago),
-                        "num_matches_posibles": 0,
-                    })
+                        # 🔥 DIAGNÓSTICO DETALLADO: Mostrar por qué no hubo match
+                        matches_por_valor = [mov for mov in banco_rows if float(mov.valor_real_extraido or mov.valor_banco) == valor_total]
+                        matches_por_fecha = [mov for mov in banco_rows if str(mov.fecha) == str(fecha_pago)]
+                        
+                        if matches_por_valor and not matches_por_fecha:
+                            resultado_operacion["mensaje"] = f"Valor coincide (${valor_total:,.0f}) pero no la fecha ({fecha_pago})"
+                        elif matches_por_fecha and not matches_por_valor:
+                            resultado_operacion["mensaje"] = f"Fecha coincide ({fecha_pago}) pero no el valor (${valor_total:,.0f})"
+                        elif not matches_por_valor and not matches_por_fecha:
+                            resultado_operacion["mensaje"] = f"No hay coincidencias de valor ni fecha"
+                        else:
+                            resultado_operacion["mensaje"] = "No se encontró match exacto en banco"
+                        
+                        # Log para diagnóstico
+                        logger.info(f"❌ SIN MATCH: {grupo} | Pago=${valor_total:,.0f} en {fecha_pago} | Matches valor:{len(matches_por_valor)} fecha:{len(matches_por_fecha)}")
+                        
+                        mensaje_sin_match = resultado_operacion["mensaje"]
+                        yield f"data: {json.dumps({'tipo': 'info', 'mensaje': f'❌ SIN MATCH: {grupo} - {mensaje_sin_match}', 'porcentaje': porcentaje_actual})}\n\n"
 
-                # Actualizar contadores
-                resumen["total_procesados"] = procesadas
-                resumen["referencias_unicas_utilizadas"] = len(referencias_usadas)
+                resultados.append(resultado_operacion)
 
-            # 4. FASE: Finalización
-            yield f"data: {json.dumps(convertir_decimales_a_float({'tipo': 'fase', 'mensaje': '🏁 Finalizando conciliación y generando reporte...', 'porcentaje': 95}))}\n\n"
+            # Finalización
+            yield f"data: {json.dumps({'tipo': 'fase', 'mensaje': '🏁 Finalizando conciliación y generando reporte...', 'porcentaje': 100})}\n\n"
             await asyncio.sleep(0.1)
 
-            # Enviar resultado final
-            resultado_final = {
-                "resumen": resumen,
-                "resultados": resultados,
-                "referencias_usadas": list(referencias_usadas),
-                "fecha_conciliacion": datetime.now().isoformat()
-            }
-
-            # Convertir todos los Decimal a float antes de serializar
-            resultado_final_serializable = convertir_decimales_a_float(resultado_final)
-
-            mensaje_completado = f"✅ Conciliación completada exitosamente. {resumen['conciliado_exacto']} referencias conciliadas de {resumen['total_procesados']} procesadas ({resumen['sin_match']} sin match)"
-            resultado_json = {
-                'tipo': 'completado', 
-                'mensaje': mensaje_completado, 
-                'porcentaje': 100, 
-                'resultado': resultado_final_serializable
-            }
-            yield f"data: {json.dumps(resultado_json)}\n\n"
+            # Devuelve todos los pagos pendientes con resultado de la operación
+            yield f"data: {json.dumps({'tipo': 'completado', 'pagos_resultado': resultados, 'timestamp': datetime.now().isoformat()})}\n\n"
 
         except Exception as e:
             error_msg = f"💥 Error crítico en conciliación: {str(e)}"
-            error_json = {'tipo': 'error', 'mensaje': error_msg, 'porcentaje': 0}
-            yield f"data: {json.dumps(convertir_decimales_a_float(error_json))}\n\n"
-            
+            yield f"data: {json.dumps({'tipo': 'error', 'mensaje': error_msg, 'porcentaje': 0})}\n\n"
+
     return StreamingResponse(
         generar_progreso(),
         media_type="text/event-stream",
@@ -1075,7 +1111,7 @@ async def conciliacion_automatica_fallback():
             "total_movimientos_banco": len(banco_rows),
             "total_pagos_conductores": len(pagos_rows),
             "total_procesados": 0,
-            "conciliado_exacto": 0,
+            "conciliado_automatico": 0,
             "conciliado_aproximado": 0,
             "sin_match": 0,
         }
@@ -1093,14 +1129,14 @@ async def conciliacion_automatica_fallback():
 
             if match:
                 # ✅ Conciliado exitosamente
-                resumen["conciliado_exacto"] += 1
+                resumen["conciliado_automatico"] += 1
                 referencias_usadas.add(referencia)
 
                 resultados.append({
                     "referencia_pago": referencia,
                     "valor_banco": match.valor_banco,
                     "fecha_banco": str(match.fecha),
-                    "estado_match": "conciliado_exacto",
+                    "estado_match": "conciliado_automatico",
                     "confianza": 100,
                     "observaciones": f"Match exacto por referencia {referencia}",
                     "diferencia_valor": abs(match.valor_banco - valor_total),
@@ -1125,7 +1161,7 @@ async def conciliacion_automatica_fallback():
 
                     update_mov = f"""
                         UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
-                        SET estado_conciliacion = 'conciliado_exacto',
+                        SET estado_conciliacion = 'conciliado_automatico',
                             referencia_pago_asociada = '{referencia}',
                             confianza_match = 100,
                             conciliado_en = CURRENT_TIMESTAMP()
@@ -1172,7 +1208,7 @@ async def conciliacion_automatica_fallback():
 
 class EstadoConciliacion(str):
     PENDIENTE = "pendiente"
-    CONCILIADO_EXACTO = "conciliado_exacto"
+    conciliado_automatico = "conciliado_automatico"
     CONCILIADO_APROXIMADO = "conciliado_aproximado"
     CONCILIADO_MANUAL = "conciliado_manual"
     RECHAZADO = "rechazado"
@@ -1182,7 +1218,7 @@ class EstadoConciliacion(str):
     def es_estado_final(cls, estado: str) -> bool:
         """Verifica si un estado es final (no se puede modificar)"""
         return estado.lower() in {
-            cls.CONCILIADO_EXACTO,
+            cls.conciliado_automatico,
             cls.CONCILIADO_APROXIMADO,
             cls.CONCILIADO_MANUAL,
             cls.RECHAZADO
@@ -1222,6 +1258,57 @@ class ConciliacionManual(BaseModel):
             and bool(self.usuario_id)
         )
 
+class EstadoConciliacion(str):
+    PENDIENTE = "pendiente"
+    conciliado_automatico = "conciliado_automatico"
+    CONCILIADO_APROXIMADO = "conciliado_aproximado"
+    CONCILIADO_MANUAL = "conciliado_manual"
+    RECHAZADO = "rechazado"
+    ERROR = "error"
+
+    @classmethod
+    def es_estado_final(cls, estado: str) -> bool:
+        """Verifica si un estado es final (no se puede modificar)"""
+        return estado.lower() in {
+            cls.conciliado_automatico,
+            cls.CONCILIADO_APROXIMADO,
+            cls.CONCILIADO_MANUAL,
+            cls.RECHAZADO
+        }
+
+class PagoConciliacion(BaseModel):
+    """Modelo para el pago a conciliar"""
+    referencia_pago: str
+    valor: float
+    fecha_pago: date
+    tipo: str
+    estado_actual: str
+    id_banco_asociado: Optional[str]
+    conciliado_por: Optional[str]
+    conciliado_en: Optional[datetime]
+    observaciones: Optional[str]
+
+    def validar_cambio_estado(self, nuevo_estado: str) -> bool:
+        """Valida si se puede cambiar al nuevo estado"""
+        if EstadoConciliacion.es_estado_final(self.estado_actual):
+            return False
+        return True
+
+class ConciliacionManual(BaseModel):
+    referencia_pago: str
+    id_banco: str
+    usuario: str
+    observaciones: Optional[str] = "Conciliado manualmente"
+
+    def validar(self) -> bool:
+        """Valida que los datos de conciliación manual sean correctos"""
+        return (
+            self.estado in {
+                EstadoConciliacion.CONCILIADO_MANUAL,
+                EstadoConciliacion.RECHAZADO
+            }
+            and bool(self.usuario_id)
+        )
 
 @router.post("/liquidar-cliente")
 async def liquidar_entregas(cliente: str, usuario_id: str):
@@ -1237,7 +1324,7 @@ async def liquidar_entregas(cliente: str, usuario_id: str):
             SELECT 
                 COUNT(*) as total_entregas,
                 COUNTIF(bm.estado_conciliacion IN 
-                    ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')
+                    ('conciliado_automatico', 'conciliado_aproximado', 'conciliado_manual')
                 ) as entregas_conciliadas
             FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
             LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos` bm
@@ -1285,7 +1372,7 @@ async def liquidar_entregas(cliente: str, usuario_id: str):
             ON bm.referencia_pago_asociada = pc.referencia_pago
             WHERE pc.cliente = @cliente
             AND pc.estado = 'aprobado'
-            AND bm.estado_conciliacion IN ('conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual')
+            AND bm.estado_conciliacion IN ('conciliado_automatico', 'conciliado_aproximado', 'conciliado_manual')
         )
         """
 
@@ -1467,7 +1554,7 @@ async def diagnostico_avanzado():
             SELECT 
                 COUNT(*) as total,
                 COUNTIF(estado_conciliacion IN (
-                    'conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual'
+                    'conciliado_automatico', 'conciliado_aproximado', 'conciliado_manual'
                 )) as conciliados,
                 COUNTIF(estado_conciliacion = 'rechazado') as rechazados,
                 COUNTIF(estado_conciliacion IN ('pendiente', 'pendiente_conciliacion')) as pendientes,
@@ -1499,7 +1586,7 @@ async def diagnostico_avanzado():
         SELECT 
             COUNT(*) as total,
             COUNTIF(estado_conciliacion IN (
-                'conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual'
+                'conciliado_automatico', 'conciliado_aproximado', 'conciliado_manual'
             )) as conciliados,
             COUNTIF(estado_conciliacion = 'pendiente') as pendientes,
             COUNTIF(referencia_pago_asociada IS NOT NULL) as con_referencia,
@@ -1560,13 +1647,13 @@ async def diagnostico_avanzado():
                
                 -- Estados inconsistentes
                 COUNTIF(pc.estado_conciliacion IN (
-                    'conciliado_exacto', 'conciliado_aproximado', 'conciliado_manual'
+                    'conciliado_automatico', 'conciliado_aproximado', 'conciliado_manual'
                 ) AND pc.id_banco_asociado IS NULL) as estados_inconsistentes,
                 
                 -- Valores inconsistentes
                 COUNTIF(ABS(COALESCE(pc.valor_total_consignacion, pc.valor) - bm.valor_banco) > 100
                        AND pc.estado_conciliacion IN (
-                           'conciliado_exacto', 'conciliado_aproximado'
+                           'conciliado_automatico', 'conciliado_aproximado'
                        )) as valores_inconsistentes
                
             FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
@@ -1962,7 +2049,7 @@ def obtener_resumen_conciliacion():
         SELECT
             COUNT(*) as conciliados_movimientos
         FROM `datos-clientes-441216.Conciliaciones.banco_movimientos`
-        WHERE estado_conciliacion IN ('conciliado_exacto','conciliado_automatico','conciliado_manual')
+        WHERE estado_conciliacion IN ('conciliado_automatico','conciliado_automatico','conciliado_manual')
         """        
         query_pendientes_banco = """
         SELECT 
@@ -3025,6 +3112,446 @@ def get_nivel_match(porcentaje: float) -> str:
         return "⚫ Muy Bajo"
 
 
+# ========== ENDPOINT PARA REVERTIR CONCILIACIONES AUTOMÁTICAS ==========
 
 
 
+@router.post("/revertir-conciliaciones-automaticas")
+async def revertir_conciliaciones_automaticas():
+    """
+    Revierte las conciliaciones automáticas realizadas el 2025-09-02.
+    
+    - Busca registros con fecha_conciliacion = '2025-09-02' en pagosconductor (estado 'conciliado_automatico')
+    - Busca registros con conciliado_en = '2025-09-02' en banco_movimientos (estado 'conciliado_automatico' o 'conciliado_exacto')
+    - Revierte el estado a 'pendiente_conciliacion' y 'pendiente' respectivamente
+    - Limpia los campos relacionados con la conciliación
+    - Exporta registros afectados a CSV antes de actualizar
+    """
+    try:
+        import os
+        import csv
+        
+        client = get_bigquery_client()
+        
+        # Fecha específica para buscar conciliaciones del 2025-09-02
+        fecha_objetivo = "2025-09-02"
+        usuario_id = "sistema"
+        
+        logger.info(f"🔄 Iniciando reversión de conciliaciones del {fecha_objetivo}")
+        
+        # 1. Consultar y exportar registros de pagosconductor que serán afectados
+        query_pagos_afectados = f"""
+            SELECT *
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            WHERE estado_conciliacion = 'conciliado_automatico'
+              AND DATE(fecha_conciliacion) = @fecha_objetivo
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("fecha_objetivo", "DATE", fecha_objetivo)
+            ]
+        )
+        
+        registros_pagos = list(client.query(query_pagos_afectados, job_config=job_config).result())
+        
+        logger.info(f"📊 Registros encontrados en pagosconductor: {len(registros_pagos)}")
+        
+        # 2. Consultar y exportar registros de banco_movimientos que serán afectados
+        query_banco_afectados = f"""
+            SELECT *
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
+            WHERE estado_conciliacion IN ('conciliado_automatico', 'conciliado_exacto')
+              AND DATE(conciliado_en) = @fecha_objetivo
+        """
+        
+        registros_banco = list(client.query(query_banco_afectados, job_config=job_config).result())
+        
+        logger.info(f"📊 Registros encontrados en banco_movimientos: {len(registros_banco)}")
+        
+        if len(registros_pagos) == 0 and len(registros_banco) == 0:
+            return {
+                "status": "info",
+                "mensaje": f"No se encontraron conciliaciones para revertir del {fecha_objetivo}",
+                "pagos_afectados": 0,
+                "movimientos_afectados": 0,
+                "fecha_objetivo": fecha_objetivo,
+                "ejecutado_por": usuario_id,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        # 3. 📄 EXPORTAR REGISTROS A CSV ANTES DE LA REVERSIÓN
+        timestamp_export = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        archivos_exportados = []
+        
+        # Crear directorio de exportaciones si no existe
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        export_dir = os.path.join(project_root, "exportaciones")
+        os.makedirs(export_dir, exist_ok=True)
+        
+        logger.info(f"📁 Directorio de exportación: {export_dir}")
+        
+        # Exportar registros de pagosconductor
+        if registros_pagos:
+            filename_pagos = f"reversion_pagosconductor_{fecha_objetivo.replace('-', '')}_{timestamp_export}.csv"
+            filepath_pagos = os.path.join(export_dir, filename_pagos)
+            
+            fieldnames = list(registros_pagos[0].keys()) if registros_pagos else []
+            
+            with open(filepath_pagos, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                
+                for registro in registros_pagos:
+                    # Convertir valores especiales para CSV
+                    row_data = {}
+                    for key, value in registro.items():
+                        if value is None:
+                            row_data[key] = ""
+                        elif isinstance(value, (datetime, date)):
+                            row_data[key] = str(value)
+                        else:
+                            row_data[key] = value
+                    writer.writerow(row_data)
+            
+            archivos_exportados.append({
+                "tabla": "pagosconductor",
+                "archivo": filename_pagos,
+                "ruta": filepath_pagos,
+                "registros": len(registros_pagos)
+            })
+            logger.info(f"✅ Exportados {len(registros_pagos)} registros de pagosconductor a: {filename_pagos}")
+        
+        # Exportar registros de banco_movimientos
+        if registros_banco:
+            filename_banco = f"reversion_banco_movimientos_{fecha_objetivo.replace('-', '')}_{timestamp_export}.csv"
+            filepath_banco = os.path.join(export_dir, filename_banco)
+            
+            fieldnames = list(registros_banco[0].keys()) if registros_banco else []
+            
+            with open(filepath_banco, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                
+                for registro in registros_banco:
+                    # Convertir valores especiales para CSV
+                    row_data = {}
+                    for key, value in registro.items():
+                        if value is None:
+                            row_data[key] = ""
+                        elif isinstance(value, (datetime, date)):
+                            row_data[key] = str(value)
+                        else:
+                            row_data[key] = value
+                    writer.writerow(row_data)
+            
+            archivos_exportados.append({
+                "tabla": "banco_movimientos",
+                "archivo": filename_banco,
+                "ruta": filepath_banco,
+                "registros": len(registros_banco)
+            })
+            logger.info(f"✅ Exportados {len(registros_banco)} registros de banco_movimientos a: {filename_banco}")
+        
+        # 4. Actualizar tabla pagosconductor
+        logger.info("🔄 Actualizando registros en pagosconductor...")
+        query_update_pagos = f"""
+            UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            SET 
+                estado_conciliacion = 'pendiente_conciliacion',
+                conciliado = NULL,
+                fecha_conciliacion = NULL,
+                id_banco_asociado = NULL,
+                confianza_conciliacion = NULL,
+                observaciones_conciliacion = NULL
+            WHERE estado_conciliacion = 'conciliado_automatico'
+              AND DATE(fecha_conciliacion) = @fecha_objetivo
+        """
+        
+        job_update_pagos = client.query(query_update_pagos, job_config=job_config)
+        result_pagos = job_update_pagos.result()
+        pagos_actualizados = job_update_pagos.num_dml_affected_rows
+        
+        logger.info(f"✅ Pagos conductor actualizados: {pagos_actualizados}")
+        
+        # 5. Actualizar tabla banco_movimientos
+        logger.info("🔄 Actualizando registros en banco_movimientos...")
+        query_update_banco = f"""
+            UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.banco_movimientos`
+            SET 
+                estado_conciliacion = 'pendiente',
+                confianza_match = NULL,
+                observaciones = NULL,
+                conciliado_en = NULL,
+                conciliado_por = NULL,
+                referencia_pago_asociada = NULL,
+                match_manual = NULL
+            WHERE estado_conciliacion IN ('conciliado_automatico', 'conciliado_exacto')
+              AND DATE(conciliado_en) = @fecha_objetivo
+        """
+        
+        job_update_banco = client.query(query_update_banco, job_config=job_config)
+        result_banco = job_update_banco.result()
+        movimientos_actualizados = job_update_banco.num_dml_affected_rows
+        
+        logger.info(f"✅ Movimientos bancarios actualizados: {movimientos_actualizados}")
+        
+        # 6. Generar reporte final
+        total_revertidos = pagos_actualizados + movimientos_actualizados
+        
+        mensaje_resultado = (
+            f"✅ Reversión completada exitosamente\n"
+            f"📅 Fecha objetivo: {fecha_objetivo}\n"
+            f"👤 Ejecutado por: {usuario_id}\n"
+            f"📊 Resultados:\n"
+            f"  - Pagos conductor revertidos: {pagos_actualizados}\n"
+            f"  - Movimientos bancarios revertidos: {movimientos_actualizados}\n"
+            f"  - Total registros revertidos: {total_revertidos}\n"
+            f"� Archivos CSV exportados: {len(archivos_exportados)}\n"
+            f"�🔄 Los registros han vuelto a estado pendiente para nueva conciliación"
+        )
+        
+        logger.info(mensaje_resultado)
+        
+        return {
+            "status": "success",
+            "mensaje": f"Reversión de conciliaciones del {fecha_objetivo} completada exitosamente",
+            "detalle": {
+                "fecha_objetivo": fecha_objetivo,
+                "pagos_revertidos": pagos_actualizados,
+                "movimientos_revertidos": movimientos_actualizados,
+                "total_revertidos": total_revertidos,
+                "registros_encontrados": {
+                    "pagosconductor": len(registros_pagos),
+                    "banco_movimientos": len(registros_banco)
+                }
+            },
+            "archivos_exportados": archivos_exportados,
+            "directorio_exportacion": export_dir,
+            "ejecutado_por": usuario_id,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error revirtiendo conciliaciones del {fecha_objetivo}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno revirtiendo conciliaciones del {fecha_objetivo}: {str(e)}"
+        )
+
+
+@router.get("/consultas")
+async def consultas():
+    try:
+        import csv
+        import os
+        
+        client = get_bigquery_client()
+        
+        logger.info("Iniciando eliminación de registros por tracking number específico")
+        
+        # Lista específica de tracking numbers a eliminar
+        tracking_numbers = [
+            "4894664786128080"
+        ]
+        
+        logger.info(f"🎯 Tracking numbers objetivo para eliminación: {tracking_numbers}")
+        
+        # 1. Verificar registros en pagosconductor que serán eliminados (TODAS LAS COLUMNAS)
+        query_verificar_pagos = f"""
+        SELECT *
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        WHERE tracking IN UNNEST(@tracking_numbers)
+        """
+        
+        job_config_verificar = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("tracking_numbers", "STRING", tracking_numbers)
+            ]
+        )
+        
+        registros_pagos = list(client.query(query_verificar_pagos, job_config=job_config_verificar).result())
+        
+        logger.info(f"📋 Registros encontrados en pagosconductor: {len(registros_pagos)}")
+        for registro in registros_pagos:
+            logger.info(f"  - Tracking: {registro['tracking']}, Referencia: {registro['referencia_pago']}, Correo: {registro['correo']}")
+        
+        # 2. Verificar registros en guias_liquidacion que serán eliminados (TODAS LAS COLUMNAS)
+        query_verificar_liquidacion = f"""
+        SELECT *
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion`
+        WHERE tracking_number IN UNNEST(@tracking_numbers)
+        """
+        
+        registros_liquidacion = list(client.query(query_verificar_liquidacion, job_config=job_config_verificar).result())
+        
+        logger.info(f"📋 Registros encontrados en guias_liquidacion: {len(registros_liquidacion)}")
+        for registro in registros_liquidacion:
+            logger.info(f"  - Tracking: {registro['tracking_number']}, Conductor: {registro['conductor_email']}, Estado: {registro['estado_liquidacion']}")
+        
+        if len(registros_pagos) == 0 and len(registros_liquidacion) == 0:
+            logger.warning("⚠️ No se encontraron registros para eliminar con los tracking numbers especificados")
+            return {
+                "mensaje": "No se encontraron registros para eliminar con los tracking numbers especificados",
+                "tracking_numbers_buscados": tracking_numbers,
+                "registros_pagos_encontrados": 0,
+                "registros_liquidacion_encontrados": 0,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        # 📄 EXPORTAR REGISTROS COMO CSV ANTES DE ELIMINAR
+        timestamp_export = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        archivos_exportados = []
+        
+        # Crear directorio de exportaciones si no existe (ruta relativa al proyecto)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        export_dir = os.path.join(project_root, "exportaciones")
+        os.makedirs(export_dir, exist_ok=True)
+        
+        logger.info(f"📁 Directorio de exportación: {export_dir}")
+        
+        # Exportar registros de pagosconductor
+        if registros_pagos:
+            filename_pagos = f"registros_eliminados_pagosconductor_{timestamp_export}.csv"
+            filepath_pagos = os.path.join(export_dir, filename_pagos)
+            
+            # Obtener todas las columnas dinámicamente del primer registro
+            if len(registros_pagos) > 0:
+                fieldnames = list(registros_pagos[0].keys())
+                
+                with open(filepath_pagos, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    writer.writeheader()
+                    
+                    for registro in registros_pagos:
+                        # Convertir el registro a diccionario y manejar valores nulos/fechas
+                        row_data = {}
+                        for field in fieldnames:
+                            valor = registro[field]
+                            if valor is None:
+                                row_data[field] = ''
+                            elif hasattr(valor, 'isoformat'):  # Es una fecha/datetime
+                                row_data[field] = valor.isoformat()
+                            else:
+                                row_data[field] = str(valor)
+                        writer.writerow(row_data)
+            
+            archivos_exportados.append({
+                "tabla": "pagosconductor",
+                "archivo": filename_pagos,
+                "ruta": filepath_pagos,
+                "registros": len(registros_pagos),
+                "columnas_exportadas": len(fieldnames) if registros_pagos else 0
+            })
+            logger.info(f"✅ Exportados {len(registros_pagos)} registros de pagosconductor con {len(fieldnames)} columnas a: {filename_pagos}")
+        
+        # Exportar registros de guias_liquidacion
+        if registros_liquidacion:
+            filename_liquidacion = f"registros_eliminados_guias_liquidacion_{timestamp_export}.csv"
+            filepath_liquidacion = os.path.join(export_dir, filename_liquidacion)
+            
+            # Obtener todas las columnas dinámicamente del primer registro
+            if len(registros_liquidacion) > 0:
+                fieldnames = list(registros_liquidacion[0].keys())
+                
+                with open(filepath_liquidacion, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    writer.writeheader()
+                    
+                    for registro in registros_liquidacion:
+                        # Convertir el registro a diccionario y manejar valores nulos/fechas
+                        row_data = {}
+                        for field in fieldnames:
+                            valor = registro[field]
+                            if valor is None:
+                                row_data[field] = ''
+                            elif hasattr(valor, 'isoformat'):  # Es una fecha/datetime
+                                row_data[field] = valor.isoformat()
+                            else:
+                                row_data[field] = str(valor)
+                        writer.writerow(row_data)
+            
+            archivos_exportados.append({
+                "tabla": "guias_liquidacion",
+                "archivo": filename_liquidacion,
+                "ruta": filepath_liquidacion,
+                "registros": len(registros_liquidacion),
+                "columnas_exportadas": len(fieldnames) if registros_liquidacion else 0
+            })
+            logger.info(f"✅ Exportados {len(registros_liquidacion)} registros de guias_liquidacion con {len(fieldnames)} columnas a: {filename_liquidacion}")
+        
+        logger.info(f"📁 Archivos CSV exportados exitosamente en: {export_dir}")
+        
+        # 3. Eliminar registros de pagosconductor
+        logger.info("🗑️ Eliminando registros de pagosconductor...")
+        query_delete_pagos = f"""
+        DELETE FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        WHERE tracking IN UNNEST(@tracking_numbers)
+        """
+        
+        delete_job_pagos = client.query(query_delete_pagos, job_config=job_config_verificar)
+        delete_job_pagos.result()  # Esperar a que termine
+        registros_pagos_eliminados = delete_job_pagos.num_dml_affected_rows
+        
+        logger.info(f"✅ Registros eliminados de pagosconductor: {registros_pagos_eliminados}")
+        
+        # 4. Eliminar registros de guias_liquidacion
+        logger.info("🗑️ Eliminando registros de guias_liquidacion...")
+        query_delete_liquidacion = f"""
+        DELETE FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion`
+        WHERE tracking_number IN UNNEST(@tracking_numbers)
+        """
+        
+        delete_job_liquidacion = client.query(query_delete_liquidacion, job_config=job_config_verificar)
+        delete_job_liquidacion.result()  # Esperar a que termine
+        registros_liquidacion_eliminados = delete_job_liquidacion.num_dml_affected_rows
+        
+        logger.info(f"✅ Registros eliminados de guias_liquidacion: {registros_liquidacion_eliminados}")
+        
+        # 5. Generar reporte final
+        total_eliminados = registros_pagos_eliminados + registros_liquidacion_eliminados
+        
+        mensaje_resultado = (
+            f"✅ Eliminación completada exitosamente\n"
+            f"🎯 Tracking numbers procesados: {len(tracking_numbers)}\n"
+            f"📊 Resultados:\n"
+            f"  - pagosconductor eliminados: {registros_pagos_eliminados}\n"
+            f"  - guias_liquidacion eliminados: {registros_liquidacion_eliminados}\n"
+            f"  - Total registros eliminados: {total_eliminados}\n"
+            f"📁 Archivos CSV exportados: {len(archivos_exportados)}"
+        )
+        
+        logger.info(mensaje_resultado)
+        
+        return {
+            "mensaje": f"Eliminación completada exitosamente. {total_eliminados} registros eliminados",
+            "operacion": "DELETE por tracking numbers específicos con exportación CSV",
+            "tracking_numbers_objetivo": tracking_numbers,
+            "registros_pagos_encontrados": len(registros_pagos),
+            "registros_liquidacion_encontrados": len(registros_liquidacion),
+            "registros_pagos_eliminados": registros_pagos_eliminados,
+            "registros_liquidacion_eliminados": registros_liquidacion_eliminados,
+            "total_eliminados": total_eliminados,
+            "archivos_exportados": archivos_exportados,
+            "directorio_exportacion": export_dir,
+            "tablas_afectadas": {
+                "pagosconductor": {
+                    "campo_filtro": "tracking",
+                    "registros_eliminados": registros_pagos_eliminados
+                },
+                "guias_liquidacion": {
+                    "campo_filtro": "tracking_number", 
+                    "registros_eliminados": registros_liquidacion_eliminados
+                }
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error ejecutando actualización específica: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error ejecutando actualización específica: {str(e)}"
+        )

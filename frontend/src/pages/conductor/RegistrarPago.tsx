@@ -118,6 +118,9 @@ export default function RegistrarPago() {
   const [usarBonos, setUsarBonos] = useState<boolean>(false);
   const [bonoSeleccionado, setBonoSeleccionado] = useState<string | null>(null);
 
+  // Estado para controlar si la fecha fue extraída por OCR
+  const [fechaExtraidaPorOCR, setFechaExtraidaPorOCR] = useState<boolean>(false);
+
   // Calcular el monto de bonos a usar basado en el bono seleccionado
   const montoBonosUsar = usarBonos && bonoSeleccionado 
     ? bonosDisponibles.find(b => b.id === bonoSeleccionado)?.saldo_disponible || 0
@@ -294,6 +297,7 @@ export default function RegistrarPago() {
     setArchivo(file);
     setValidacionIA(null);
     setCalidadOCR(0);
+    setFechaExtraidaPorOCR(false); // Reset cuando se selecciona nuevo archivo
     
     if (!file) return;
 
@@ -302,7 +306,7 @@ export default function RegistrarPago() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
+      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -332,6 +336,11 @@ export default function RegistrarPago() {
         };
 
         setDatosManuales(datosLimpios);
+
+        // Marcar si se extrajo fecha por OCR
+        if (data.fecha && data.fecha.trim() !== "") {
+          setFechaExtraidaPorOCR(true);
+        }
 
         if (result.validacion_ia) {
           setValidacionIA(result.validacion_ia);
@@ -431,9 +440,14 @@ export default function RegistrarPago() {
       }
       if (typeof val !== "string" || val.trim() === "") {
         alert(`El campo "${key}" es obligatorio`);
-
         return;
       }
+    }
+
+    // Validación específica para tipo de pago
+    if (!datosManuales.tipo || datosManuales.tipo.trim() === "") {
+      alert("Debe seleccionar un tipo de pago antes de agregar el comprobante.");
+      return;
     }
 
     if (!archivo) {
@@ -475,6 +489,7 @@ export default function RegistrarPago() {
     setArchivo(null);
     setValidacionIA(null);
     setCalidadOCR(0);
+    setFechaExtraidaPorOCR(false); // Reset del estado de fecha extraída por OCR
   };
 
   const eliminarPago = (referencia: string) => {
@@ -545,7 +560,7 @@ export default function RegistrarPago() {
         }
       }
       // Enviar al backend
-      const response = await fetch("https://api.x-cargo.co/pagos/registrar-conductor", {
+      const response = await fetch("http://127.0.0.1:8000/pagos/registrar-conductor", {
         method: "POST",
         body: formData,
         headers: {
@@ -654,7 +669,7 @@ export default function RegistrarPago() {
       formData.append('sobrante', totales.sobrante.toString());
 
       // Enviar al backend
-      const response = await fetch('https://api.x-cargo.co/pagos/registrar-conductor', {
+      const response = await fetch('http://127.0.0.1:8000/pagos/registrar-conductor', {
         method: 'POST',
         body: formData,
         headers: {
@@ -691,7 +706,7 @@ export default function RegistrarPago() {
   useEffect(() => {
     const cargarBonos = async () => {
       try {
-        const response = await fetch('https://api.x-cargo.co/pagos/bonos-disponibles', {
+        const response = await fetch('http://127.0.0.1:8000/pagos/bonos-disponibles', {
           headers: {
             'Authorization': `Bearer ${getToken()}`
           }
@@ -1247,7 +1262,27 @@ export default function RegistrarPago() {
                 ["tipo", "Tipo de pago", ""],
               ].map(([key, label, placeholder]) => (
                 <div className="input-group" key={key}>
-                  <label>{label}</label>
+                  <label>
+                    {label}
+                    {key === "fecha" && fechaExtraidaPorOCR && (
+                      <span style={{ 
+                        color: "#059669", 
+                        fontSize: "0.8rem", 
+                        marginLeft: "0.5rem" 
+                      }}>
+                        (Extraída por OCR)
+                      </span>
+                    )}
+                    {key === "valor" && datosManuales.valor !== "" && (
+                      <span style={{ 
+                        color: "#059669", 
+                        fontSize: "0.8rem", 
+                        marginLeft: "0.5rem" 
+                      }}>
+                        (Extraído por OCR)
+                      </span>
+                    )}
+                  </label>
                   {key === "tipo" ? (
                     <select
                       value={datosManuales.tipo}
@@ -1278,8 +1313,27 @@ export default function RegistrarPago() {
                       }
                       placeholder={placeholder}
                       required
-                      readOnly={key === "valor" && datosManuales.valor !== ""}
-
+                      readOnly={
+                        (key === "valor" && datosManuales.valor !== "") || 
+                        (key === "fecha" && fechaExtraidaPorOCR)
+                      }
+                      style={{
+                        backgroundColor: (
+                          (key === "fecha" && fechaExtraidaPorOCR) || 
+                          (key === "valor" && datosManuales.valor !== "")
+                        ) ? "#f3f4f6" : "white",
+                        cursor: (
+                          (key === "fecha" && fechaExtraidaPorOCR) || 
+                          (key === "valor" && datosManuales.valor !== "")
+                        ) ? "not-allowed" : "text"
+                      }}
+                      title={
+                        key === "fecha" && fechaExtraidaPorOCR 
+                          ? "Fecha extraída automáticamente por OCR - No editable" 
+                          : key === "valor" && datosManuales.valor !== ""
+                          ? "Valor extraído automáticamente por OCR - No editable"
+                          : ""
+                      }
                     />
                   )}
                 </div>
@@ -1300,14 +1354,33 @@ export default function RegistrarPago() {
               type="button"
               className="boton-registrar"
               onClick={agregarPago}
-              disabled={!validacionPago?.valido || analizando}
+              disabled={
+                !validacionPago?.valido || 
+                analizando || 
+                !datosManuales.tipo || 
+                datosManuales.tipo.trim() === ""
+              }
               style={{
-                backgroundColor: validacionPago?.valido ? "#3b82f6" : "#6b7280",
-                opacity: validacionPago?.valido && !analizando ? 1 : 0.6,
+                backgroundColor: (
+                  validacionPago?.valido && 
+                  datosManuales.tipo && 
+                  datosManuales.tipo.trim() !== ""
+                ) ? "#3b82f6" : "#6b7280",
+                opacity: (
+                  validacionPago?.valido && 
+                  !analizando && 
+                  datosManuales.tipo && 
+                  datosManuales.tipo.trim() !== ""
+                ) ? 1 : 0.6,
                 margin: "1rem 0"
               }}
             >
-              {validacionPago?.valido ? '✅ Agregar comprobante' : '❌ Comprobante inválido'}
+              {!datosManuales.tipo || datosManuales.tipo.trim() === "" 
+                ? '⚠️ Selecciona tipo de pago'
+                : validacionPago?.valido 
+                  ? '✅ Agregar comprobante' 
+                  : '❌ Comprobante inválido'
+              }
             </button>
           </form>
         </div>

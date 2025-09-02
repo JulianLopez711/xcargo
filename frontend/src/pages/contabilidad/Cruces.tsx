@@ -162,7 +162,7 @@ interface LoadingProgress {
 
 const Cruces: React.FC = () => {
   // ✅ CONFIGURACIÓN DE API - Usar servidor local para desarrollo
-  const API_BASE_URL = 'https://api.x-cargo.co';
+  const API_BASE_URL = 'http://127.0.0.1:8000';
   const [transaccionesSeleccionadas, setTransaccionesSeleccionadas] = useState<string[]>([]);
   const [pendientesPorConciliar, setPendientesPorConciliar] = useState<ResultadoConciliacion[]>([]);
   const [mostrarPendientesManual, setMostrarPendientesManual] = useState(false);
@@ -179,6 +179,7 @@ const Cruces: React.FC = () => {
   const [cargandoPendientes, setCargandoPendientes] = useState(false);
   const [exportandoTablas, setExportandoTablas] = useState(false);
   const [reviertendoConciliaciones, setReviertendoConciliaciones] = useState(false);
+  const [ejecutandoConsultas, setEjecutandoConsultas] = useState(false);
   const [error, setError] = useState<string>("");
   
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -238,7 +239,7 @@ const cargarPendientesPorConciliar = async (pagina: number = 1, resetearDatos: b
     
     // 🚀 QUITAR LIMITACIONES - CARGAR TODOS LOS REGISTROS
     // Usar un límite muy alto para obtener todos los registros de una vez
-    const url = `https://api.x-cargo.co/pagos/pendientes-contabilidad?estado=pendiente_conciliacion&limit=10000&offset=0`;
+    const url = `http://127.0.0.1:8000/pagos/pendientes-contabilidad?estado=pendiente_conciliacion&limit=10000&offset=0`;
     
     console.log(`🔍 Cargando TODOS los pendientes sin limitaciones:`, url);
     
@@ -298,32 +299,27 @@ const cargarPendientesPorConciliar = async (pagina: number = 1, resetearDatos: b
       console.log(`📅 Último registro: ${todosLosPendientesOrdenados[todosLosPendientesOrdenados.length - 1].referencia_pago} - ${todosLosPendientesOrdenados[todosLosPendientesOrdenados.length - 1].fecha_pago}`);
     }
 
-    // 🔥 ELIMINAR DUPLICADOS POR REFERENCIA_PAGO (por si acaso)
-    const registrosUnicos = todosLosPendientesOrdenados.filter((registro: any, index: number, array: any[]) => 
-      array.findIndex((r: any) => r.referencia_pago === registro.referencia_pago) === index
-    );
+    // 🔥 CONSERVAR TODOS LOS REGISTROS - NO ELIMINAR DUPLICADOS
+    // Los pagos pueden tener la misma referencia pero diferentes valores y fechas
+    console.log(`✅ Conservando todos los registros sin eliminar duplicados: ${todosLosPendientesOrdenados.length} registros`);
 
-    if (registrosUnicos.length !== todosLosPendientesOrdenados.length) {
-      console.log(`⚠️ Se eliminaron ${todosLosPendientesOrdenados.length - registrosUnicos.length} duplicados`);
-    }
-
-    // Actualizar el estado con todos los registros ordenados y únicos
-    setPendientesPorConciliar(registrosUnicos);
+    // Actualizar el estado con todos los registros ordenados (sin filtrar duplicados)
+    setPendientesPorConciliar(todosLosPendientesOrdenados);
 
     // Actualizar información de paginación con todos los datos
     const nuevaPaginacion = {
       pagina_actual: 1, // Siempre página 1 porque cargamos todo
       total_paginas: 1, // Solo una página porque tenemos todos los datos
-      total_registros: registrosUnicos.length, // Total real
-      registros_por_pagina: registrosUnicos.length, // Todos en una "página"
+      total_registros: todosLosPendientesOrdenados.length, // Total real
+      registros_por_pagina: todosLosPendientesOrdenados.length, // Todos en una "página"
       tiene_siguiente: false, // No hay más páginas
       tiene_anterior: false // No hay páginas anteriores
     };
     
     setPaginacionPendientes(nuevaPaginacion);
 
-    console.log(`✅ TODOS LOS REGISTROS CARGADOS Y LISTOS: ${registrosUnicos.length} registros únicos`);
-    console.log(`🎯 La paginación local manejará la visualización de ${registrosUnicos.length} registros`);
+    console.log(`✅ TODOS LOS REGISTROS CARGADOS Y LISTOS: ${todosLosPendientesOrdenados.length} registros`);
+    console.log(`🎯 La paginación local manejará la visualización de ${todosLosPendientesOrdenados.length} registros`);
     
   } catch (error) {
     console.error("❌ Error al cargar pendientes:", error);
@@ -356,7 +352,7 @@ const cargarDetallePago = async (
   }
 ) => {
   try {
-    let url = `https://api.x-cargo.co/pagos/detalles-pago`;
+    let url = `http://127.0.0.1:8000/pagos/detalles-pago`;
     const params = new URLSearchParams();
 
     // Priorizar id_transaccion si está presente
@@ -447,7 +443,7 @@ const verDetallesPago = async (referenciaPago: string, filtros?: {
 }) => {
   try {
     // Construir la URL base
-    let url = `https://api.x-cargo.co/pagos/detalles-pago-cruces/${referenciaPago}`;
+    let url = `http://127.0.0.1:8000/pagos/detalles-pago-cruces/${referenciaPago}`;
     
     // Construir parámetros de consulta si se proporcionan filtros
     const params = new URLSearchParams();
@@ -499,7 +495,7 @@ const verComprobantePendiente = async (pago: any) => {
     }
 
     // Construir URL base del endpoint /pagos/imagenes-pago
-    let url = `https://api.x-cargo.co/pagos/imagenes-pago/${referencia}`;
+    let url = `http://127.0.0.1:8000/pagos/imagenes-pago/${referencia}`;
     
     // Construir parámetros de consulta
     const params = new URLSearchParams();
@@ -833,11 +829,11 @@ const limpiarSelecciones = () => {
     }
   };
 
-  // 🔄 FUNCIÓN PARA REVERTIR CONCILIACIONES AUTOMÁTICAS
+  // 🔄 FUNCIÓN PARA REVERTIR CONCILIACIONES AUTOMÁTICAS - SIMPLIFICADA
   const revertirConciliacionesAutomaticas = async () => {
     try {
       setReviertendoConciliaciones(true);
-      setMensaje("🔄 Iniciando reversión de conciliaciones automáticas...");
+      console.log("🔄 Iniciando reversión de conciliaciones automáticas...");
       
       const response = await fetch(
         `${API_BASE_URL}/conciliacion/revertir-conciliaciones-automaticas`,
@@ -851,45 +847,74 @@ const limpiarSelecciones = () => {
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error("❌ Error del servidor:", errorText);
+        return;
+      }
+
+      const data = await response.json();
+      console.log("✅ Respuesta del endpoint revertir-conciliaciones-automaticas:", data);
+      
+      // Recargar estadísticas sin mostrar mensajes complicados
+      cargarEstadisticas();
+      
+    } catch (err: any) {
+      console.error("❌ Error ejecutando reversión:", err);
+    } finally {
+      setReviertendoConciliaciones(false);
+    }
+  };
+
+  // 📊 FUNCIÓN PARA EJECUTAR CONSULTAS - GENÉRICA
+  const ejecutarConsultas = async () => {
+    try {
+      setEjecutandoConsultas(true);
+      setMensaje("🔄 Ejecutando consulta...");
+      
+      const response = await fetch(
+        `${API_BASE_URL}/conciliacion/consultas`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
         throw new Error(`Error del servidor: ${errorText}`);
       }
 
       const data = await response.json();
       
-      // Mostrar resultado detallado
-      if (data.status === "success") {
-        setMensaje(
-          `✅ Reversión completada: ${data.detalle.pagos_revertidos} pagos y ${data.detalle.movimientos_revertidos} movimientos bancarios revertidos desde 2025-08-27`
-        );
-        
-        console.log("🔄 Detalles de reversión:", data.detalle);
-        
-        // Recargar estadísticas
-        cargarEstadisticas();
-        
-        // Limpiar mensaje después de 10 segundos
-        setTimeout(() => {
-          setMensaje("");
-        }, 10000);
-      } else {
-        setMensaje(`ℹ️ ${data.mensaje}`);
-        setTimeout(() => {
-          setMensaje("");
-        }, 8000);
-      }
+      // Mostrar resultado genérico de éxito
+      console.log("✅ Respuesta completa del endpoint:", data);
       
-    } catch (err: any) {
-      console.error("❌ Error revirtiendo conciliaciones:", err);
-      setMensaje(`❌ Error en reversión: ${err.message}`);
+      // Mensaje genérico de éxito
+      setMensaje(
+        `✅ Consulta ejecutada exitosamente!\n` +
+        `� Operación completada correctamente\n` +
+        `⏰ Timestamp: ${data.timestamp || new Date().toISOString()}`
+      );
       
-      // Limpiar mensaje de error después de 6 segundos
+      // Limpiar mensaje después de 8 segundos
       setTimeout(() => {
         setMensaje("");
-      }, 6000);
+      }, 8000);
+      
+    } catch (err: any) {
+      console.error("❌ Error ejecutando consultas:", err);
+      setMensaje(`❌ Error en consulta: ${err.message}`);
+      
+      // Limpiar mensaje de error después de 8 segundos
+      setTimeout(() => {
+        setMensaje("");
+      }, 8000);
     } finally {
-      setReviertendoConciliaciones(false);
+      setEjecutandoConsultas(false);
     }
   };
+
 // ✅ NUEVA FUNCIÓN PARA CARGAR PAGOS PENDIENTES DE CONCILIAR
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1222,40 +1247,49 @@ const limpiarSelecciones = () => {
     
     
     try {
-      console.log("🔍 Todos los datos recibidos para la tabla:", data.resultados);
-      const dataConvertida: ResumenConciliacion = {
-        resumen: {
-          total_movimientos_banco: data.resumen.total_movimientos_banco ?? 0,
-          total_pagos_conductores: data.resumen.total_pagos_iniciales ?? 0,
-          conciliado_exacto: data.resumen.conciliado_exacto ?? 0,
-          conciliado_aproximado: data.resumen.conciliado_aproximado ?? 0,
-          multiple_match: 0,
-          diferencia_valor: 0,
-          diferencia_fecha: 0,
-          sin_match: data.resumen.sin_match ?? 0,
-        },
-        resultados: data.resultados ?? [],
-        fecha_conciliacion: data.fecha_conciliacion ?? "",
-      };
-
-     
-      setResultadoConciliacion(dataConvertida);
-
-      const totalConciliados = dataConvertida.resumen.conciliado_exacto + dataConvertida.resumen.conciliado_aproximado;
-      const porcentajeConciliado = dataConvertida.resumen.total_movimientos_banco > 0
-        ? Math.round((totalConciliados / dataConvertida.resumen.total_movimientos_banco) * 100)
+      console.log("🔍 Datos de conciliación recibidos:", data.resultados);
+      
+      // 🔥 PROCESAR DATOS PERO NO MOSTRAR LA TABLA DE RESULTADOS
+      const totalConciliados = (data.resumen?.conciliado_exacto ?? 0) + (data.resumen?.conciliado_aproximado ?? 0);
+      const totalProcesados = data.resumen?.total_procesados ?? 0;
+      const sinMatch = data.resumen?.sin_match ?? 0;
+      
+      const porcentajeConciliado = totalProcesados > 0
+        ? Math.round((totalConciliados / totalProcesados) * 100)
         : 0;
 
       const mensajeResultado = `✅ Conciliación completada. ` +
-        `Procesados: ${data.resumen.total_procesados ?? 0} movimientos. ` +
+        `Procesados: ${totalProcesados} movimientos. ` +
         `Conciliados: ${totalConciliados} (${porcentajeConciliado}%). ` +
-        `Referencias únicas usadas: ${data.resumen.referencias_unicas_utilizadas ?? 0}.`;
+        `Sin match: ${sinMatch}.`;
 
+      console.log("📊 Resumen de conciliación:", {
+        totalProcesados,
+        totalConciliados,
+        sinMatch,
+        porcentajeConciliado
+      });
 
       setMensaje(mensajeResultado);
 
-      // Recargar estadísticas
+      // 🔥 RECARGAR ESTADÍSTICAS PRIMERO
       cargarEstadisticas();
+      
+      // 🔥 DESPUÉS DE LA CONCILIACIÓN, ABRIR AUTOMÁTICAMENTE LA TABLA DE CONCILIACIÓN MANUAL
+      setTimeout(() => {
+        console.log("🔄 Abriendo automáticamente tabla de conciliación manual para continuar el flujo...");
+        setMostrarPendientesManual(true);
+        
+        // Cargar pendientes automáticamente si no están cargados
+        if (pendientesPorConciliar.length === 0) {
+          cargarPendientesPorConciliar(1, true);
+        }
+        
+        // Limpiar mensaje después de mostrar la tabla
+        setTimeout(() => {
+          setMensaje("");
+        }, 5000);
+      }, 1500); // Pequeña pausa para que se vean las estadísticas actualizadas
       
     } catch (error) {
       console.error("❌ Error procesando resultado:", error);
@@ -2042,7 +2076,8 @@ useEffect(() => {
           >
             📝 Conciliación Manual
           </button>
-          {/*
+          
+          {/* BOTONES COMENTADOS PARA VERSIÓN LIVE 
           <button
             className="boton-conciliar boton-animado"
             style={{ background: "#10b981", color: "#fff", minWidth: 180, fontWeight: 600, fontSize: 15, padding: '0.7em 1.5em', borderRadius: 10, transition: 'transform 0.1s, box-shadow 0.1s' }}
@@ -2053,8 +2088,6 @@ useEffect(() => {
               ? "📤 Exportando..."
               : "📊 Exportar Tablas"}
           </button>
-          */}
-          {/*
           <button
             className="boton-conciliar boton-animado"
             style={{ background: "#8b5cf6", color: "#fff", minWidth: 180, fontWeight: 600, fontSize: 15, padding: '0.7em 1.5em', borderRadius: 10, transition: 'transform 0.1s, box-shadow 0.1s' }}
@@ -2063,9 +2096,19 @@ useEffect(() => {
           >
             {reviertendoConciliaciones
               ? "🔄 Revirtiendo..."
-              : "� "}
+              : "🔄"}
           </button>
-          */}
+          <button
+            className="boton-conciliar boton-animado"
+            style={{ background: "#3b82f6", color: "#fff", minWidth: 180, fontWeight: 600, fontSize: 15, padding: '0.7em 1.5em', borderRadius: 10, transition: 'transform 0.1s, box-shadow 0.1s' }}
+            onClick={ejecutarConsultas}
+            disabled={ejecutandoConsultas || procesandoConciliacion}
+          >
+            {ejecutandoConsultas
+              ? "🔄 Consultando..."
+              : "👁‍🗨"}
+          </button>
+          FIN BOTONES COMENTADOS */}
         </div>
         <style>{`
           .boton-animado:hover:not(:disabled), .boton-animado:focus:not(:disabled) {
