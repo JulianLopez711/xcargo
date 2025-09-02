@@ -210,7 +210,7 @@ export default function PagosContabilidad() {
         fechaHasta: fechaHasta ? formatearFechaParaServidor(fechaHasta) : 'No especificada'
       });
 
-      const response = await fetch(`https://api.x-cargo.co/pagos/pendientes-contabilidad?${params.toString()}`, {
+      const response = await fetch(`http://127.0.0.1:8000/pagos/pendientes-contabilidad?${params.toString()}`, {
         headers: {
           Authorization: `Bearer ${getToken()}`
         }
@@ -457,7 +457,7 @@ const descargarInformeCompleto = async () => {
       params_string: params.toString()
     });
 
-    const response = await fetch(`https://api.x-cargo.co/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
+    const response = await fetch(`http://127.0.0.1:8000/pagos/exportar-pendientes-contabilidad?${params.toString()}`, {
       headers: {
         Authorization: `Bearer ${getToken()}`
       }
@@ -538,7 +538,7 @@ const verImagen = async (src: string, referenciaPago?: string, correo?: string, 
         console.log(`🔍 Buscando imágenes por Id_Transaccion: ${idTransaccion}`);
       }
       
-      const url = `https://api.x-cargo.co/pagos/imagenes-pago/${referenciaPago}${params.toString() ? '?' + params.toString() : ''}`;
+      const url = `http://127.0.0.1:8000/pagos/imagenes-pago/${referenciaPago}${params.toString() ? '?' + params.toString() : ''}`;
       console.log(`📡 URL de búsqueda: ${url}`);
       
       const response = await fetch(url, {
@@ -595,13 +595,13 @@ const verDetallesPago = async ({
     let url = "";
     // Si el pago tiene id_transaccion, solo enviar ese parámetro
     if (id_transaccion !== undefined && id_transaccion !== null) {
-      url = `https://api.x-cargo.co/pagos/detalles-pago?id_transaccion=${id_transaccion}`;
+      url = `http://127.0.0.1:8000/pagos/detalles-pago?id_transaccion=${id_transaccion}`;
     } else {
       const params = new URLSearchParams();
       if (correo) params.append("correo", correo);
       if (fecha_pago) params.append("fecha_pago", fecha_pago);
       if (valor !== undefined) params.append("valor", valor.toString());
-      url = `https://api.x-cargo.co/pagos/detalles-pago/${referencia_pago}?${params.toString()}`;
+      url = `http://127.0.0.1:8000/pagos/detalles-pago/${referencia_pago}?${params.toString()}`;
     }
 
     const response = await fetch(url);
@@ -640,7 +640,7 @@ const verDetallesGuias = async ({
     if (valor_pagado !== undefined) params.append("valor_pagado", valor_pagado.toString()); // ← Añade esto
 
     const response = await fetch(
-      `https://api.x-cargo.co/pagos/detalles-guias?${params.toString()}`,
+      `http://127.0.0.1:8000/pagos/detalles-guias?${params.toString()}`,
       {
         headers: { Authorization: `Bearer ${getToken()}` }
       }
@@ -727,7 +727,7 @@ const confirmarRechazo = async () => {
       });
     }
 
-    const response = await fetch("https://api.x-cargo.co/pagos/rechazar-pago", {
+    const response = await fetch("http://127.0.0.1:8000/pagos/rechazar-pago", {
       method: "POST",
       headers: { 
         "Content-Type": "application/json",
@@ -862,7 +862,7 @@ function parseFechaLocal(fechaStr: string) {
       const params = new URLSearchParams();
       params.append('referencia', referenciaPago);
       
-      const url = `https://api.x-cargo.co/conciliacion/transacciones-bancarias-disponibles?${params.toString()}`;
+      const url = `http://127.0.0.1:8000/conciliacion/transacciones-bancarias-disponibles?${params.toString()}`;
       
       const response = await fetch(url, {
         headers: {
@@ -1317,17 +1317,6 @@ function parseFechaLocal(fechaStr: string) {
                         gap: "4px",
                         maxWidth: "200px"
                       }}>
-                        {/* Encabezado con total de movimientos */}
-                        <div style={{
-                          fontSize: "0.7rem",
-                          fontWeight: "600",
-                          color: "#495057",
-                          marginBottom: "4px",
-                          textAlign: "center"
-                        }}>
-                          🏦 {p.num_movimientos_banco || 0} Movimiento{(p.num_movimientos_banco || 0) > 1 ? 's' : ''} Bancario{(p.num_movimientos_banco || 0) > 1 ? 's' : ''}
-                        </div>
-                        
                         {/* Lista de movimientos individuales */}
                         <div style={{
                           maxHeight: "120px",
@@ -1340,37 +1329,40 @@ function parseFechaLocal(fechaStr: string) {
                             <div
                               key={idx}
                               style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                padding: "6px 8px",
-                                borderRadius: "6px",
-                                fontSize: "0.7rem",
-                                fontWeight: "500",
+                                padding: "8px 10px",
+                                borderRadius: "8px",
+                                fontSize: "0.75rem",
                                 backgroundColor: "#d4edda",
                                 color: "#155724",
                                 border: "1px solid #c3e6cb",
-                                gap: "2px"
+                                lineHeight: "1.4"
                               }}
                             >
                               {/* ID del movimiento */}
                               <div style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                fontSize: "0.65rem"
+                                fontSize: "0.7rem",
+                                fontWeight: "600",
+                                marginBottom: "3px"
                               }}>
-                                <span style={{ fontWeight: "600" }}>ID: {movimiento.id}</span>
-                                <span style={{ color: "#6c757d" }}>{movimiento.fecha}</span>
+                                {movimiento.id}
+                              </div>
+                              
+                              {/* Fecha del movimiento */}
+                              <div style={{
+                                fontSize: "0.65rem",
+                                color: "#6c757d",
+                                marginBottom: "3px"
+                              }}>
+                                {movimiento.fecha}
                               </div>
                               
                               {/* Valor del movimiento */}
                               <div style={{
                                 fontSize: "0.7rem",
                                 color: "#155724",
-                                fontWeight: "600",
-                                textAlign: "center"
+                                fontWeight: "600"
                               }}>
-                                💰 ${movimiento.valor?.toLocaleString() || 'N/A'}
+                                ${movimiento.valor?.toLocaleString() || 'N/A'}
                               </div>
                             </div>
                           ))}
@@ -1389,45 +1381,46 @@ function parseFechaLocal(fechaStr: string) {
                             color: "#0056b3",
                             textAlign: "center"
                           }}>
-                            💰 Total: ${p.total_valor_movimientos_banco.toLocaleString()}
+                            Total: ${p.total_valor_movimientos_banco.toLocaleString()}
                           </div>
                         )}
                       </div>
                     ) : p.id_banco_asociado ? (
-                      // Fallback para formato anterior
+                      // Fallback para formato anterior - SIN EMOJI NI TEXTO ADICIONAL
                       <div style={{
-                        display: "inline-flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        padding: "8px 12px",
-                        borderRadius: "12px",
+                        padding: "8px 10px",
+                        borderRadius: "8px",
                         fontSize: "0.75rem",
-                        fontWeight: "500",
                         backgroundColor: "#d4edda",
                         color: "#155724",
                         border: "1px solid #c3e6cb",
-                        minWidth: "120px",
-                        gap: "2px"
+                        lineHeight: "1.4"
                       }}>
                         <div style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "4px",
-                          fontSize: "0.75rem"
+                          fontSize: "0.7rem",
+                          fontWeight: "600",
+                          marginBottom: "3px"
                         }}>
-                          🏦 {p.id_banco_asociado}
+                          {p.id_banco_asociado}
                         </div>
+                        
+                        {p.fecha_movimiento_banco && (
+                          <div style={{
+                            fontSize: "0.65rem",
+                            color: "#6c757d",
+                            marginBottom: "3px"
+                          }}>
+                            {p.fecha_movimiento_banco}
+                          </div>
+                        )}
                         
                         {p.valor_banco_asociado && (
                           <div style={{
                             fontSize: "0.7rem",
                             color: "#155724",
-                            fontWeight: "600",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "2px"
+                            fontWeight: "600"
                           }}>
-                            💰 ${p.valor_banco_asociado.toLocaleString()}
+                            ${p.valor_banco_asociado.toLocaleString()}
                           </div>
                         )}
                       </div>
@@ -1443,7 +1436,7 @@ function parseFechaLocal(fechaStr: string) {
                         color: "#6c757d",
                         border: "1px solid #e9ecef"
                       }}>
-                        - Sin ID -
+                        Sin ID
                       </span>
                     )}
                   </td>

@@ -221,7 +221,7 @@ export default function RegistrarPagoSupervisor() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
+      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -339,58 +339,92 @@ export default function RegistrarPagoSupervisor() {
     );
   };
 
-  // Función principal de registro - ADAPTADA PARA SUPERVISOR
+  // Función de registro de pagos (unificada para enviar todos los comprobantes y guías en un solo request)
   const registrarTodosLosPagos = async () => {
     const totales = calcularTotales();
-
+    
     if (totales.faltante > 0) {
-      alert(`Faltan ${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
+      alert(`Faltan $${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
       return;
     }
-
+    
     setCargando(true);
-
+    
     try {
+      const usuario = JSON.parse(localStorage.getItem("user")!);
+      const correo = usuario.email;
       const token = user?.token || localStorage.getItem("token") || "";
-      // Enviar todas las guías seleccionadas con todos los datos del pago (igual que conductor)
       const formData = new FormData();
-      // Usar el primer comprobante y datos de pago (puedes adaptar si quieres uno por guía)
-      const p = pagosCargados[0];
-      formData.append("correo", supervisor?.email || user?.email || "");
-      formData.append("valor_pago_str", parseValorMonetario(p.datos.valor).toString());
-      formData.append("fecha_pago", p.datos.fecha);
-      formData.append("hora_pago", normalizarHoraParaEnvio(p.datos.hora));
-      formData.append("tipo", p.datos.tipo);
-      formData.append("entidad", p.datos.entidad);
-      formData.append("referencia", p.datos.referencia);
-      formData.append("comprobante", p.archivo);
-      // Adjuntar todas las guías seleccionadas, cada una con los datos del pago
+
+      // Adjuntar todos los comprobantes
+      pagosCargados.forEach((pago, idx) => {
+        formData.append(`comprobante_${idx}`, pago.archivo);
+      });
+
+      // Para compatibilidad, también enviar el primer comprobante como 'comprobante'
+      if (pagosCargados[0]) {
+        formData.append("comprobante", pagosCargados[0].archivo);
+      }
+
+      // 🔥 LÓGICA SIMPLIFICADA ADAPTADA: Combinar guías con datos de pagos
       let guiasConPagos: any[] = [];
-      guias.forEach((guia) => {
-        guiasConPagos.push({
-          ...guia,
-          ...p.datos
+      pagosCargados.forEach((pago) => {
+        guias.forEach((guia) => {
+          guiasConPagos.push({
+            ...guia,
+            ...pago.datos
+          });
         });
       });
+
+      formData.append("correo", correo);
+      formData.append("valor_pago_str", totales.totalPagosEfectivo.toString());
+      formData.append("fecha_pago", pagosCargados[0]?.datos.fecha || "");
+      formData.append("hora_pago", normalizarHoraParaEnvio(pagosCargados[0]?.datos.hora || ""));
+      formData.append("tipo", pagosCargados[0]?.datos.tipo || "");
+      formData.append("entidad", pagosCargados[0]?.datos.entidad || "");
+      formData.append("referencia", pagosCargados[0]?.datos.referencia || "");
       formData.append("guias", JSON.stringify(guiasConPagos));
-      // Endpoint
-      const endpoint = "https://api.x-cargo.co/pagos/registrar-conductor";
-      const response = await fetch(endpoint, {
+
+      // LOG: Mostrar el contenido del FormData antes de enviar
+      console.log("==== ENVÍO DE PAGO SUPERVISOR ====");
+      for (let pair of formData.entries()) {
+        if (pair[0] === "guias") {
+          try {
+            const guiasLog = JSON.parse(pair[1] as string);
+            console.log("Referencias de guías cargadas:", guiasLog.map((g: any) => g.referencia));
+            console.log("Trackings de guías cargadas:", guiasLog.map((g: any) => g.tracking));
+            console.log("Total guías procesadas:", guiasLog.length);
+          } catch (e) {
+            console.log("No se pudo parsear guias para log");
+          }
+        } else if (pair[1] instanceof File) {
+          console.log(pair[0], "[Archivo]", (pair[1] as File).name);
+        } else {
+          console.log(pair[0], pair[1]);
+        }
+      }
+
+      // Enviar al backend
+      const response = await fetch("http://127.0.0.1:8000/pagos/registrar-conductor", {
         method: "POST",
         headers: {
           'Authorization': `Bearer ${token}`,
         },
         body: formData,
       });
+      
       const result = await response.json();
+      
       if (!response.ok) {
         console.error("❌ Error response:", result);
         throw new Error(result.detail || result.message || `Error ${response.status}: ${response.statusText}`);
       }
+      
       console.log("✅ Pago registrado exitosamente:", result);
 
-      const mensajeExito = `✅ Pago registrado exitosamente: ${pagosCargados.length} comprobante(s) por ${totales.totalPagosEfectivo.toLocaleString()}.`;
-
+      const mensajeExito = `✅ Pago registrado exitosamente: ${pagosCargados.length} comprobante(s) por $${totales.totalPagosEfectivo.toLocaleString()}.`;
+      
       alert(mensajeExito);
       navigate("/supervisor/guias-pendientes");
 
@@ -556,11 +590,12 @@ export default function RegistrarPagoSupervisor() {
         </div>
       )}
 
-      {/* Formulario de comprobante */}
-      <div className="seccion-comprobante">
-        <h3>📄 Comprobante de Pago</h3>
-        
-        <form className="formulario-pago" onSubmit={(e) => e.preventDefault()}>
+      {/* Formulario de comprobante - Solo mostrar si falta dinero por cubrir */}
+      {totales.faltante > 0 && (
+        <div className="seccion-comprobante">
+          <h3>📄 Comprobante de Pago</h3>
+          
+          <form className="formulario-pago" onSubmit={(e) => e.preventDefault()}>
           <div className="input-group">
             <label>Comprobante de pago</label>
             <input
@@ -659,8 +694,8 @@ export default function RegistrarPagoSupervisor() {
                     }
                     placeholder={placeholder}
                     required
-                    readOnly={key === "valor" && datosManuales.valor.trim() !== ""}
-                    style={key === "valor" && datosManuales.valor.trim() !== "" ? {
+                    readOnly={(key === "valor" && datosManuales.valor.trim() !== "") || (key === "fecha" && datosManuales.fecha.trim() !== "")}
+                    style={(key === "valor" && datosManuales.valor.trim() !== "") || (key === "fecha" && datosManuales.fecha.trim() !== "") ? {
                       backgroundColor: "#f3f4f6",
                       cursor: "not-allowed",
                       opacity: 0.7
@@ -680,25 +715,43 @@ export default function RegistrarPagoSupervisor() {
             />
           )}
 
-          {/* Botón para agregar pago individual */}
-          {/* Botón para agregar pago individual */}
+          {/* Botón para agregar pago individual - CON VALIDACIÓN ESTRICTA */}
           <button
             type="button"
             className="boton-registrar"
             onClick={agregarPago}
-            disabled={!validacionPago?.valido || analizando || !datosManuales.tipo.trim()}
+            disabled={
+              !validacionPago?.valido || 
+              analizando || 
+              !datosManuales.tipo.trim() ||
+              !["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo.trim())
+            }
             style={{
-              backgroundColor: (validacionPago?.valido && datosManuales.tipo.trim()) ? "#3b82f6" : "#6b7280",
-              opacity: (validacionPago?.valido && !analizando && datosManuales.tipo.trim()) ? 1 : 0.6,
+              backgroundColor: (
+                validacionPago?.valido && 
+                datosManuales.tipo.trim() && 
+                ["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo.trim())
+              ) ? "#3b82f6" : "#6b7280",
+              opacity: (
+                validacionPago?.valido && 
+                !analizando && 
+                datosManuales.tipo.trim() &&
+                ["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo.trim())
+              ) ? 1 : 0.6,
               margin: "1rem 0"
             }}
           >
-            {!datosManuales.tipo.trim() ? '❌ Selecciona tipo de pago' : 
-             !validacionPago?.valido ? '❌ Comprobante inválido' : 
-             '✅ Agregar comprobante'}
+            {!datosManuales.tipo.trim() ? 
+              '❌ Selecciona tipo de pago válido' : 
+              !["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo.trim()) ?
+              '❌ Tipo de pago inválido' :
+              !validacionPago?.valido ? 
+              '❌ Comprobante inválido' : 
+              '✅ Agregar comprobante'}
           </button>
         </form>
       </div>
+      )}
 
       {/* Mensaje de estado */}
       {!puedeProcessarPago() && (

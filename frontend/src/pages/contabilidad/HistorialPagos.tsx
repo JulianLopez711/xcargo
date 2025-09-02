@@ -3,35 +3,24 @@ import { saveAs } from "file-saver";
 import "../../styles/contabilidad/HistorialPagos.css";
 
 interface PagoHistorial {
-  referencia_pago: string;
+  referencia: string;
   valor: number | undefined;
+  valor_total_consignacion: number | undefined;
   fecha: string;
-  entidad: string;
-  estado_conciliacion: string; // Unificado con PagosContabilidad
+  estado_conciliacion: string;
   tipo: string;
-  imagen?: string;
-  novedades?: string;
-  num_guias: number;
-  correo_conductor: string;
-  correo?: string; // Para mostrar el correo de pagosconductor
-  fecha_creacion?: string;
-  fecha_modificacion?: string;
-  modificado_por?: string;
-  tracking?: string;
-  fecha_registro?: string;
-  creado_por?: string;
-  carrier?: string;
+  entidad: string;
+  cantidad_tracking: number;
+  tracking: string;
+  comprobante: string;
+  cliente: string;
+  id_transaccion: string;
 }
 
 interface FiltrosHistorial {
   estado: string;
-  desde: string;
-  hasta: string;
   referencia: string;
-  conductor: string;
-  entidad: string;
-  carrier?: string;
-  tracking?: string;
+  tracking: string;
 }
 
 interface EstadisticasHistorial {
@@ -48,20 +37,14 @@ export default function HistorialPagos() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string>("");
   const [estadisticas, setEstadisticas] = useState<EstadisticasHistorial | null>(null);
-  const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
   const [paginaActual, setPaginaActual] = useState(1);
   const [totalPaginas, setTotalPaginas] = useState(1);
   const [limite] = useState(0); // 0 = TODOS los registros sin límite
   
   const [filtros, setFiltros] = useState<FiltrosHistorial>({
     estado: "",
-    desde: "",
-    hasta: "",
     referencia: "",
-    conductor: "",
-    entidad: "",
-    tracking: "",
-    carrier: ""
+    tracking: ""
   });
 
   const obtenerHistorial = async (pagina = 1, nuevosFiltros?: FiltrosHistorial) => {
@@ -70,15 +53,7 @@ export default function HistorialPagos() {
     
     const filtrosAUsar = nuevosFiltros || filtros;
     try {
-      // Construir parámetros de consulta
-      const params = new URLSearchParams();
-      if (filtrosAUsar.estado) params.append("estado", filtrosAUsar.estado);
-      if (filtrosAUsar.desde) params.append("desde", filtrosAUsar.desde);
-      if (filtrosAUsar.hasta) params.append("hasta", filtrosAUsar.hasta);
-      // No enviar referencia, entidad ni tracking como filtro a la API, se filtra visualmente
-      params.append("limite", limite.toString());
-
-      const url = `https://api.x-cargo.co/pagos/historial?${params.toString()}`;
+      const url = `http://127.0.0.1:8000/pagos/historial-2`;
 
       const response = await fetch(url, {
         method: 'GET',
@@ -95,33 +70,34 @@ export default function HistorialPagos() {
       const data = await response.json();
 
       if (data && data.historial && Array.isArray(data.historial)) {
-          let historialFiltrado = filtrarPorConductorYEntidad(data.historial, filtrosAUsar).map((pago: any) => ({
-            ...pago,
-            estado_conciliacion: pago.estado_conciliacion || pago.estado // fallback para compatibilidad
-          }));
+        let historialFiltrado = data.historial.map((pago: any) => ({
+          ...pago,
+          estado_conciliacion: pago.estado_conciliacion || pago.estado // fallback para compatibilidad
+        }));
+
+        // Filtro visual por estado si aplica
+        if (filtrosAUsar.estado && filtrosAUsar.estado.trim() !== "") {
+          historialFiltrado = historialFiltrado.filter((pago: PagoHistorial) =>
+            pago.estado_conciliacion === filtrosAUsar.estado
+          );
+        }
+
         // Filtro visual por referencia si aplica
         if (filtrosAUsar.referencia && filtrosAUsar.referencia.trim() !== "") {
           const referenciaFiltro = filtrosAUsar.referencia.trim().toLowerCase();
-          historialFiltrado = historialFiltrado.filter(pago =>
-            (pago.referencia_pago || "").toLowerCase().includes(referenciaFiltro)
+          historialFiltrado = historialFiltrado.filter((pago: PagoHistorial) =>
+            (pago.referencia || "").toLowerCase().includes(referenciaFiltro)
           );
         }
-        // Filtro visual por tracking si aplica
-      // Filtro visual por tracking si aplica
-      if (filtrosAUsar.tracking && filtrosAUsar.tracking.trim() !== "") {
-        const trackingFiltro = filtrosAUsar.tracking.trim().toLowerCase();
-        historialFiltrado = historialFiltrado.filter(pago =>
-          (pago.tracking || "").toLowerCase().includes(trackingFiltro)
-        );
-      }
 
-        // Filtro visual por carrier (nombre) si aplica
-        if (filtrosAUsar.carrier && filtrosAUsar.carrier.trim() !== "") {
-          const carrierFiltro = filtrosAUsar.carrier.trim().toLowerCase();
-          historialFiltrado = historialFiltrado.filter(pago =>
-            (pago.carrier || "").toLowerCase().includes(carrierFiltro)
+        // Filtro visual por tracking si aplica
+        if (filtrosAUsar.tracking && filtrosAUsar.tracking.trim() !== "") {
+          const trackingFiltro = filtrosAUsar.tracking.trim().toLowerCase();
+          historialFiltrado = historialFiltrado.filter((pago: PagoHistorial) =>
+            (pago.tracking || "").toLowerCase().includes(trackingFiltro)
           );
         }
+
         setPagos(historialFiltrado);
         calcularEstadisticas(historialFiltrado);
         
@@ -129,13 +105,11 @@ export default function HistorialPagos() {
         if (limite === 0) {
           setTotalPaginas(1);
           setPaginaActual(1);
-
         } else {
           // Paginación simulada en frontend (para límites > 0)
           const totalRegistros = historialFiltrado.length;
           setTotalPaginas(Math.ceil(totalRegistros / limite));
           setPaginaActual(pagina);
-
         }
       } else {
         console.error(`❌ [HISTORIAL] Datos inválidos:`, data);
@@ -166,24 +140,17 @@ export default function HistorialPagos() {
     }
   };
 
-  const filtrarPorConductorYEntidad = (historial: PagoHistorial[], filtrosActivos: FiltrosHistorial): PagoHistorial[] => {
-    return historial.filter(pago => {
-      const cumpleConductor = !filtrosActivos.conductor || 
-        pago.correo_conductor.toLowerCase().includes(filtrosActivos.conductor.toLowerCase());
-      const cumpleEntidad = !filtrosActivos.entidad || 
-        pago.entidad.toLowerCase().includes(filtrosActivos.entidad.toLowerCase());
-      
-      return cumpleConductor && cumpleEntidad;
-    });
-  };
-
   const calcularEstadisticas = (historial: PagoHistorial[]) => {
     if (historial.length === 0) {
       setEstadisticas(null);
       return;
     }
 
-    const totalValor = historial.reduce((sum, pago) => sum + (pago.valor || 0), 0);
+    // Aplicar lógica de valor: usar valor_total_consignacion si valor es 0
+    const totalValor = historial.reduce((sum, pago) => {
+      const valorFinal = (pago.valor === 0 || !pago.valor) ? (pago.valor_total_consignacion || 0) : pago.valor;
+      return sum + valorFinal;
+    }, 0);
     const valorPromedio = totalValor / historial.length;
 
     // Estadísticas por estado
@@ -192,27 +159,20 @@ export default function HistorialPagos() {
       porEstado[pago.estado_conciliacion] = (porEstado[pago.estado_conciliacion] || 0) + 1;
     });
 
-    // Estadísticas por entidad
+    // Estadísticas por tipo
     const porEntidad: { [entidad: string]: number } = {};
     historial.forEach(pago => {
-      porEntidad[pago.entidad] = (porEntidad[pago.entidad] || 0) + 1;
-    });
-
-    // Conductor más activo
-    const conductorCount: { [conductor: string]: number } = {};
-    historial.forEach(pago => {
-      conductorCount[pago.correo_conductor] = (conductorCount[pago.correo_conductor] || 0) + 1;
+      if (pago.tipo) {
+        porEntidad[pago.tipo] = (porEntidad[pago.tipo] || 0) + 1;
+      }
     });
     
-    const conductorMasActivo = Object.entries(conductorCount)
-      .sort(([,a], [,b]) => b - a)[0]?.[0] || "N/A";
-
     setEstadisticas({
       total_pagos: historial.length,
       total_valor: totalValor,
       por_estado: porEstado,
       por_entidad: porEntidad,
-      conductor_mas_activo: conductorMasActivo,
+      conductor_mas_activo: "N/A",
       valor_promedio: valorPromedio
     });
   };
@@ -229,12 +189,7 @@ export default function HistorialPagos() {
   const limpiarFiltros = () => {
     const filtrosVacios: FiltrosHistorial = {
       estado: "",
-      desde: "",
-      hasta: "",
       referencia: "",
-      conductor: "",
-      entidad: "",
-      carrier: "",
       tracking: ""
     };
     setFiltros(filtrosVacios);
@@ -247,10 +202,11 @@ export default function HistorialPagos() {
       return;
     }
 
-    const encabezado = "Referencia,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier\n";
-    const filas = pagosPaginados.map(pago => 
-      `"${pago.referencia_pago}",${pago.valor},"${pago.fecha}","${pago.estado_conciliacion}","${pago.entidad}","${pago.tipo}","${pago.correo_conductor}",${pago.num_guias},"${pago.tracking || ''}","${pago.imagen || ''}","${pago.carrier || ''}"`
-    ).join("\n");
+    const encabezado = "Referencia,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier,ID_Transaccion\n";
+    const filas = pagosPaginados.map(pago => {
+      const valorFinal = (pago.valor === 0 || !pago.valor) ? (pago.valor_total_consignacion || 0) : pago.valor;
+      return `"${pago.referencia}",${valorFinal},"${pago.fecha || ''}","${pago.estado_conciliacion}","${pago.entidad || ''}","${pago.tipo}","${pago.cliente}",${pago.cantidad_tracking},"${pago.tracking}","${pago.comprobante}","N/A","${pago.id_transaccion}"`;
+    }).join("\n");
 
     const blob = new Blob([encabezado + filas], {
       type: "text/csv;charset=utf-8;",
@@ -260,13 +216,20 @@ export default function HistorialPagos() {
     saveAs(blob, `historial-pagos-${fechaHoy}.csv`);
   };
 
-  const verImagen = (src: string) => {
-    if (!src) {
-      alert("No hay comprobante disponible");
-      return;
-    }
-    setImagenSeleccionada(src);
+  // Función para obtener el valor final aplicando la lógica solicitada
+  const obtenerValorFinal = (pago: PagoHistorial): number => {
+    return (pago.valor === 0 || !pago.valor) ? (pago.valor_total_consignacion || 0) : pago.valor;
   };
+
+  // Mostrar cada TN (tracking) en su propia fila
+  const pagosExpandido = pagos.flatMap(pago => {
+    if (pago.tracking && pago.tracking.includes(',')) {
+      // Si tracking es una lista separada por coma
+      return pago.tracking.split(',').map(trk => ({ ...pago, tracking: trk.trim() }));
+    }
+    return [pago];
+  });
+
   const getEstadoColor = (estado: string): string => {
     // Validar que estado existe y es string
     if (!estado || typeof estado !== 'string') {
@@ -311,21 +274,6 @@ export default function HistorialPagos() {
       .map(p => p.estado_conciliacion)
       .filter(estado => estado !== null && estado !== undefined && estado !== '')
   )).sort();
-  // Mantener entidadesUnicas por si se quiere volver a mostrar el filtro
-  const entidadesUnicas = Array.from(new Set(
-    pagos
-      .map(p => p.entidad)
-      .filter(entidad => entidad !== null && entidad !== undefined && entidad !== '')
-  )).sort();
-
-  // Mostrar cada TN (tracking) en su propia fila
-  const pagosExpandido = pagos.flatMap(pago => {
-    if (pago.tracking && pago.tracking.includes(',')) {
-      // Si tracking es una lista separada por coma
-      return pago.tracking.split(',').map(trk => ({ ...pago, tracking: trk.trim() }));
-    }
-    return [pago];
-  });
 
   // Paginación de datos - solo aplicar si hay límite
   const pagosPaginados = limite > 0 
@@ -376,10 +324,10 @@ export default function HistorialPagos() {
           </div>
           
           <div className="stat-card">
-            <div className="stat-icon purple">👤</div>
+            <div className="stat-icon purple">�</div>
             <div className="stat-content">
-              <div className="stat-number">{estadisticas.conductor_mas_activo.split('@')[0]}</div>
-              <div className="stat-label">Conductor Más Activo</div>
+              <div className="stat-number">Simplificado</div>
+              <div className="stat-label">Datos Básicos</div>
             </div>
           </div>
         </div>
@@ -403,35 +351,6 @@ export default function HistorialPagos() {
               ))}
             </select>
           </div>
-          {/* Filtro de entidad oculto, dejarlo en el DOM pero con display:none por si se quiere volver a mostrar */}
-          <div className="filtro-grupo" style={{display:'none'}}>
-            <label>Entidad:</label>
-            <select 
-              value={filtros.entidad} 
-              onChange={(e) => setFiltros({...filtros, entidad: e.target.value})}
-            >
-              <option value="">Todas las entidades</option>
-              {entidadesUnicas.map(entidad => (
-                <option key={entidad} value={entidad}>{entidad}</option>
-              ))}
-            </select>
-          </div>
-          <div className="filtro-grupo">
-            <label>Fecha desde:</label>
-            <input
-              type="date"
-              value={filtros.desde}
-              onChange={(e) => setFiltros({...filtros, desde: e.target.value})}
-            />
-          </div>
-          <div className="filtro-grupo">
-            <label>Fecha hasta:</label>
-            <input
-              type="date"
-              value={filtros.hasta}
-              onChange={(e) => setFiltros({...filtros, hasta: e.target.value})}
-            />
-          </div>
           <div className="filtro-grupo">
             <label>Referencia:</label>
             <input
@@ -448,15 +367,6 @@ export default function HistorialPagos() {
               placeholder="Buscar tracking..."
               value={filtros.tracking || ""}
               onChange={e => setFiltros({...filtros, tracking: e.target.value})}
-            />
-          </div>
-          <div className="filtro-grupo">
-            <label>Carrier:</label>
-            <input
-              type="text"
-              placeholder="Buscar carrier..."
-              value={filtros.carrier || ""}
-              onChange={e => setFiltros({...filtros, carrier: e.target.value})}
             />
           </div>
         </div>
@@ -514,100 +424,93 @@ export default function HistorialPagos() {
           </div>
         ) : (
           <>
-            <table className="historial-tabla" style={{minWidth: '1200px'}}>
+            <table className="historial-tabla" style={{minWidth: '1400px'}}>
               <thead>
                 <tr>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>ID</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>REFERENCIA</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>VALOR</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>FECHA</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>ESTADO</th>
-                  {/* Columna entidad oculta */}
-                  <th style={{display:'none', position:'sticky', top:0, background:'#fff', zIndex:2}}>Entidad</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>TIPO</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>GUÍAS</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Referencia</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Valor</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Fecha</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Estado</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Entidad</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Tipo</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Conductor</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Guías</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>TN</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>COMPROBANTE</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>CARRIER</th>
-                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Correo</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Comprobante</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Carrier</th>
                 </tr>
               </thead>
               <tbody>
-                {pagosPaginados.map((pago, idx) => (
-                  <tr key={`${pago.referencia_pago}-${pago.fecha}-${pago.correo_conductor}-${idx}`} className={`fila-${pago.estado_conciliacion?.toLowerCase()}`}>
-                    <td>{inicio + idx + 1}</td>
-                    <td className="referencia-cell">
-                      <span className="referencia-text">{pago.referencia_pago}</span>
-                      {pago.fecha_creacion && (
-                        <small className="fecha-creacion">
-                          Creado: {new Date(pago.fecha_creacion).toLocaleDateString('es-ES')}
-                        </small>
-                      )}
-                    </td>
-                    <td className="valor-cell">
-                      <span className="valor-principal">
-                        {formatearMoneda(pago.valor)}
-                      </span>
-                    </td>
-                    <td>
-                      {/^\d{4}-\d{2}-\d{2}$/.test(pago.fecha)
-                        ? pago.fecha
-                        : new Date(pago.fecha).toLocaleDateString('es-ES')}
-                    </td>
-                    <td className="estado-cell">
-                      <span 
-                        className="estado-badge"
-                        style={{ 
-                          backgroundColor: getEstadoColor(pago.estado_conciliacion) + '20',
-                          color: getEstadoColor(pago.estado_conciliacion),
-                          border: `1px solid ${getEstadoColor(pago.estado_conciliacion)}40`
-                        }}
-                      >
-                        {getEstadoTexto(pago.estado_conciliacion)}
-                      </span>
-                    </td>
-                    {/* Columna entidad oculta */}
-                    <td className="entidad-cell" style={{display:'none'}}>
-                      <span className="entidad-badge">{pago.entidad}</span>
-                    </td>
-                    <td className="tipo-cell">
-                      <span className="tipo-badge">{pago.tipo}</span>
-                    </td>
-                    <td className="guias-cell">
-                      <span className="numero-guias">{pago.num_guias}</span>
-                      {pago.num_guias > 1 && <small>guías</small>}
-                    </td>
-                    {/* Nueva columna TN (tracking) */}
-                    <td className="tracking-cell">
-                      {pago.tracking ? (
-                        <span title={pago.tracking}>{pago.tracking}</span>
-                      ) : (
-                        <span className="sin-tracking">-</span>
-                      )}
-                    </td>
-                    <td className="comprobante-cell">
-                      <button
-                        onClick={() => pago.imagen && verImagen(pago.imagen)}
-                        className="btn-ver-comprobante"
-                        disabled={!pago.imagen}
-                      >
-                        {pago.imagen ? '👁️ Ver' : '❌ Sin comprobante'}
-                      </button>
-                    </td>
-                    <td className="carrier-cell">
-                      {pago.carrier && pago.carrier !== 'N/A' ? (
-                        <span className="carrier-text" title={pago.carrier}>
-                          {pago.carrier}
+                {pagosPaginados.map((pago, idx) => {
+                  const valorFinal = obtenerValorFinal(pago);
+                  return (
+                    <tr key={`${pago.referencia}-${pago.tracking}-${idx}`} className={`fila-${pago.estado_conciliacion?.toLowerCase()}`}>
+                      <td className="referencia-cell">
+                        <span className="referencia-text">{pago.referencia}</span>
+                      </td>
+                      <td className="valor-cell">
+                        <span className="valor-principal">
+                          {formatearMoneda(valorFinal)}
                         </span>
-                      ) : (
-                        <span className="sin-carrier">-</span>
-                      )}
-                    </td>
-                    <td className="correo-cell">
-                      <span className="correo-text">{pago.creado_por || '-'}</span>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="fecha-cell">
+                        <span className="fecha-text">
+                          {pago.fecha ? new Date(pago.fecha).toLocaleDateString('es-CO') : '-'}
+                        </span>
+                      </td>
+                      <td className="estado-cell">
+                        <span 
+                          className="estado-badge"
+                          style={{ 
+                            backgroundColor: getEstadoColor(pago.estado_conciliacion) + '20',
+                            color: getEstadoColor(pago.estado_conciliacion),
+                            border: `1px solid ${getEstadoColor(pago.estado_conciliacion)}40`
+                          }}
+                        >
+                          {getEstadoTexto(pago.estado_conciliacion)}
+                        </span>
+                      </td>
+                      <td className="entidad-cell">
+                        <span className="entidad-text">{pago.entidad || '-'}</span>
+                      </td>
+                      <td className="tipo-cell">
+                        <span className="tipo-text">{pago.tipo || '-'}</span>
+                      </td>
+                      <td className="conductor-cell">
+                        <span className="conductor-text">{pago.cliente || '-'}</span>
+                      </td>
+                      <td className="guias-cell">
+                        <span className="guias-count">
+                          {pago.cantidad_tracking || 0}
+                        </span>
+                      </td>
+                      <td className="tracking-cell">
+                        {pago.tracking ? (
+                          <span title={pago.tracking}>{pago.tracking}</span>
+                        ) : (
+                          <span className="sin-tracking">-</span>
+                        )}
+                      </td>
+                      <td className="comprobante-cell">
+                        {pago.comprobante ? (
+                          <a 
+                            href={pago.comprobante} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="comprobante-link"
+                          >
+                            📎 Ver
+                          </a>
+                        ) : (
+                          <span className="sin-comprobante">-</span>
+                        )}
+                      </td>
+                      <td className="carrier-cell">
+                        <span className="carrier-text">N/A</span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
 
@@ -639,46 +542,6 @@ export default function HistorialPagos() {
           </>
         )}
       </div>
-
-      {/* Modal de Imagen */}
-      {imagenSeleccionada && (
-        <div className="modal-overlay" onClick={() => setImagenSeleccionada(null)}>
-          <div className="modal-content modal-imagen" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>🖼️ Comprobante de Pago</h3>
-              <button
-                onClick={() => setImagenSeleccionada(null)}
-                className="btn-cerrar-modal"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="modal-body imagen-container">
-              <img 
-                src={imagenSeleccionada} 
-                alt="Comprobante de pago" 
-                className="comprobante-imagen"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = '/placeholder-comprobante.png';
-                }}
-              />
-            </div>
-            <div className="modal-footer">
-              <a 
-                href={imagenSeleccionada} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="btn-descargar"
-              >
-                📥 Descargar
-              </a>
-              <button onClick={() => setImagenSeleccionada(null)} className="btn-cerrar">
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
