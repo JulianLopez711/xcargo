@@ -1966,7 +1966,7 @@ def obtener_pagos_pendientes_contabilidad(
 def obtener_historial_pagos_simplificado():
     """
     Endpoint que trae todos los pagos de la tabla pagosconductor con campos específicos:
-    - referencia, valor, valor_total_consignacion, fecha, estado_conciliacion, tipo, 
+    - referencia, referencia_pago, valor, valor_total_consignacion, fecha, estado_conciliacion, tipo, 
     - cantidad de tracking por referencia, tracking, comprobante, cliente, Id_Transaccion
     """
     try:
@@ -1985,17 +1985,22 @@ def obtener_historial_pagos_simplificado():
         )
         SELECT 
             pc.referencia,
+            pc.referencia_pago,
             pc.valor,
             pc.valor_total_consignacion,
             DATE(pc.fecha) AS fecha,
             pc.estado_conciliacion,
             pc.tipo,
             pc.entidad,
+            
+            -- Cantidad de tracking por referencia
             COALESCE(tc.cantidad_tracking, 0) as cantidad_tracking,
+            
             pc.tracking,
             pc.comprobante,
             pc.cliente,
             pc.Id_Transaccion
+            
         FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
         LEFT JOIN tracking_counts tc ON pc.referencia = tc.referencia
         ORDER BY pc.creado_en DESC
@@ -2005,9 +2010,11 @@ def obtener_historial_pagos_simplificado():
         results = client.query(query).result()
         
         historial = []
+        
         for row in results:
             registro = {
                 "referencia": row.referencia or "",
+                "referencia_pago": row.referencia_pago or "",
                 "valor": float(row.valor) if row.valor is not None else 0.0,
                 "valor_total_consignacion": float(row.valor_total_consignacion) if row.valor_total_consignacion is not None else 0.0,
                 "fecha": row.fecha or "",
@@ -2029,6 +2036,7 @@ def obtener_historial_pagos_simplificado():
             "total_registros": len(historial),
             "columnas": [
                 "referencia",
+                "referencia_pago",
                 "valor",
                 "valor_total_consignacion",
                 "fecha",
