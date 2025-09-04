@@ -214,10 +214,10 @@ export default function HistorialPagos() {
       return;
     }
 
-    const encabezado = "Referencia,Referencia_Pago,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier,ID_Transaccion\n";
+    const encabezado = "Referencia,Referencia_Pago,Valor,Valor_Total_Consignacion,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier,ID_Transaccion\n";
     const filas = pagosPaginados.map(pago => {
       const valorFinal = (pago.valor === 0 || !pago.valor) ? (pago.valor_total_consignacion || 0) : pago.valor;
-      return `"${pago.referencia}","${pago.referencia_pago || ''}",${valorFinal},"${pago.fecha || ''}","${pago.estado_conciliacion}","${pago.entidad || ''}","${pago.tipo}","${pago.cliente}",${pago.cantidad_tracking},"${pago.tracking}","${pago.comprobante}","N/A","${pago.id_transaccion}"`;
+      return `"${pago.referencia}","${pago.referencia_pago || ''}",${valorFinal},${pago.valor_total_consignacion || 0},"${pago.fecha || ''}","${pago.estado_conciliacion}","${pago.entidad || ''}","${pago.tipo}","${pago.cliente}",${pago.cantidad_tracking},"${pago.tracking}","${pago.comprobante}","N/A","${pago.id_transaccion}"`;
     }).join("\n");
 
     const blob = new Blob([encabezado + filas], {
@@ -451,6 +451,7 @@ export default function HistorialPagos() {
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Referencia</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Ref. Pago</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Valor</th>
+                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Valor Total Consignación</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Fecha</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Estado</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Entidad</th>
@@ -478,6 +479,11 @@ export default function HistorialPagos() {
                           {formatearMoneda(valorFinal)}
                         </span>
                       </td>
+                       <td className="valor-total-consignacion-cell">
+                         <span className="valor-total-consignacion-text">
+                           {formatearMoneda(pago.valor_total_consignacion)}
+                         </span>
+                       </td>
                       <td className="fecha-cell">
                         <span className="fecha-text">
                           {pago.fecha ? new Date(pago.fecha).toLocaleDateString('es-CO') : '-'}
