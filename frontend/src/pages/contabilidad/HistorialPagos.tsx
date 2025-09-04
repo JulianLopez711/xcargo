@@ -4,6 +4,7 @@ import "../../styles/contabilidad/HistorialPagos.css";
 
 interface PagoHistorial {
   referencia: string;
+  referencia_pago: string;
   valor: number | undefined;
   valor_total_consignacion: number | undefined;
   fecha: string;
@@ -20,6 +21,7 @@ interface PagoHistorial {
 interface FiltrosHistorial {
   estado: string;
   referencia: string;
+  referencia_pago: string;
   tracking: string;
 }
 
@@ -44,6 +46,7 @@ export default function HistorialPagos() {
   const [filtros, setFiltros] = useState<FiltrosHistorial>({
     estado: "",
     referencia: "",
+    referencia_pago: "",
     tracking: ""
   });
 
@@ -87,6 +90,14 @@ export default function HistorialPagos() {
           const referenciaFiltro = filtrosAUsar.referencia.trim().toLowerCase();
           historialFiltrado = historialFiltrado.filter((pago: PagoHistorial) =>
             (pago.referencia || "").toLowerCase().includes(referenciaFiltro)
+          );
+        }
+
+        // Filtro visual por referencia_pago si aplica
+        if (filtrosAUsar.referencia_pago && filtrosAUsar.referencia_pago.trim() !== "") {
+          const referenciaPagoFiltro = filtrosAUsar.referencia_pago.trim().toLowerCase();
+          historialFiltrado = historialFiltrado.filter((pago: PagoHistorial) =>
+            (pago.referencia_pago || "").toLowerCase().includes(referenciaPagoFiltro)
           );
         }
 
@@ -190,6 +201,7 @@ export default function HistorialPagos() {
     const filtrosVacios: FiltrosHistorial = {
       estado: "",
       referencia: "",
+      referencia_pago: "",
       tracking: ""
     };
     setFiltros(filtrosVacios);
@@ -202,10 +214,10 @@ export default function HistorialPagos() {
       return;
     }
 
-    const encabezado = "Referencia,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier,ID_Transaccion\n";
+    const encabezado = "Referencia,Referencia_Pago,Valor,Fecha,Estado,Entidad,Tipo,Conductor,Guias,TN,Comprobante,Carrier,ID_Transaccion\n";
     const filas = pagosPaginados.map(pago => {
       const valorFinal = (pago.valor === 0 || !pago.valor) ? (pago.valor_total_consignacion || 0) : pago.valor;
-      return `"${pago.referencia}",${valorFinal},"${pago.fecha || ''}","${pago.estado_conciliacion}","${pago.entidad || ''}","${pago.tipo}","${pago.cliente}",${pago.cantidad_tracking},"${pago.tracking}","${pago.comprobante}","N/A","${pago.id_transaccion}"`;
+      return `"${pago.referencia}","${pago.referencia_pago || ''}",${valorFinal},"${pago.fecha || ''}","${pago.estado_conciliacion}","${pago.entidad || ''}","${pago.tipo}","${pago.cliente}",${pago.cantidad_tracking},"${pago.tracking}","${pago.comprobante}","N/A","${pago.id_transaccion}"`;
     }).join("\n");
 
     const blob = new Blob([encabezado + filas], {
@@ -361,6 +373,15 @@ export default function HistorialPagos() {
             />
           </div>
           <div className="filtro-grupo">
+            <label>Ref. Pago:</label>
+            <input
+              type="text"
+              placeholder="PAGO123..."
+              value={filtros.referencia_pago}
+              onChange={(e) => setFiltros({...filtros, referencia_pago: e.target.value})}
+            />
+          </div>
+          <div className="filtro-grupo">
             <label>TN:</label>
             <input
               type="text"
@@ -424,10 +445,11 @@ export default function HistorialPagos() {
           </div>
         ) : (
           <>
-            <table className="historial-tabla" style={{minWidth: '1400px'}}>
+            <table className="historial-tabla" style={{minWidth: '1500px'}}>
               <thead>
                 <tr>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Referencia</th>
+                  <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Ref. Pago</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Valor</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Fecha</th>
                   <th style={{position:'sticky', top:0, background:'#fff', zIndex:2}}>Estado</th>
@@ -447,6 +469,9 @@ export default function HistorialPagos() {
                     <tr key={`${pago.referencia}-${pago.tracking}-${idx}`} className={`fila-${pago.estado_conciliacion?.toLowerCase()}`}>
                       <td className="referencia-cell">
                         <span className="referencia-text">{pago.referencia}</span>
+                      </td>
+                      <td className="referencia-pago-cell">
+                        <span className="referencia-pago-text">{pago.referencia_pago || '-'}</span>
                       </td>
                       <td className="valor-cell">
                         <span className="valor-principal">
