@@ -101,8 +101,8 @@ export default function PagosContabilidad() {
   const [refPagoSeleccionada, setRefPagoSeleccionada] = useState("");
   
   // 🔥 NUEVO: Estado para transacciones bancarias
-  const [transaccionesBancarias, setTransaccionesBancarias] = useState<{[key: string]: any[]}>({});
-  const [cargandoTransacciones, setCargandoTransacciones] = useState<{[key: string]: boolean}>({});
+  const [transaccionesBancarias] = useState<{[key: string]: any[]}>({});
+  const [] = useState<{[key: string]: boolean}>({});
   
   const [imagenSeleccionada, setImagenSeleccionada] = useState<string | null>(null);
   const [imagenesCarrusel, setImagenesCarrusel] = useState<string[]>([]);
@@ -621,65 +621,6 @@ const verDetallesPago = async ({
   }
 };
 
-const verDetallesGuias = async ({
-  referencia_pago,
-  id_transaccion,
-  fecha_pago,
-  valor_pagado
-}: {
-  referencia_pago?: string;
-  id_transaccion?: number;
-  fecha_pago?: string;
-  valor_pagado?: number;
-}) => {
-  try {
-    const params = new URLSearchParams();
-    if (referencia_pago) params.append("referencia_pago", referencia_pago);
-    if (id_transaccion) params.append("id_transaccion", id_transaccion.toString());
-    if (fecha_pago) params.append("fecha_pago", fecha_pago);           // ← Añade esto
-    if (valor_pagado !== undefined) params.append("valor_pagado", valor_pagado.toString()); // ← Añade esto
-
-    const response = await fetch(
-      `https://api.x-cargo.co/pagos/detalles-guias?${params.toString()}`,
-      {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`Error ${response.status}: ${response.statusText}`);
-    }
-
-
-    const data = await response.json();
-    // Mapea los datos recibidos al formato esperado por el modal
-    const detalles = (data.guias || []).map((g: any) => ({
-      tracking: g.tracking,
-      referencia: g.pago_referencia,
-      valor: g.valor_pagado ?? g.valor_guia,
-      cliente: g.cliente,
-      carrier: g.carrier,
-      tipo: g.metodo_pago,
-      fecha_pago: g.fecha_pago,
-      hora_pago: "",
-      estado: g.estado_liquidacion,
-      novedades: "",
-      comprobante: "",
-      valor_guia: g.valor_guia,
-      valor_cod: g.valor_cod,
-      valor_total_consignacion_pc: g.valor_total_consignacion_pc,
-      valor_guia_gl: g.valor_guia_gl,      // <-- Nuevo
-      valor_guia_cod: g.valor_guia_cod     // <-- Nuevo
-
-    }));
-    setDetalleTracking(detalles);
-    setModalDetallesVisible(true);
-
-  } catch (err: any) {
-    console.error("Error cargando detalles de guías:", err);
-    alert(`Error al cargar detalles de guías: ${err.message}`);
-  }
-};
 
 const confirmarRechazo = async () => {
   console.log("🔄 Iniciando proceso de rechazo...", {
@@ -848,63 +789,8 @@ function parseFechaLocal(fechaStr: string) {
   };
 
   // 🔥 NUEVA FUNCIÓN PARA OBTENER TRANSACCIONES BANCARIAS ASOCIADAS
-  const obtenerTransaccionesBancarias = async (referenciaPago: string, idTransaccion?: number) => {
-    const key = idTransaccion ? `tx_${idTransaccion}` : referenciaPago;
-    
-    // Si ya tenemos las transacciones cargadas, no volver a cargar
-    if (transaccionesBancarias[key]) {
-      return transaccionesBancarias[key];
-    }
-    
-    setCargandoTransacciones(prev => ({ ...prev, [key]: true }));
-    
-    try {
-      const params = new URLSearchParams();
-      params.append('referencia', referenciaPago);
-      
-      const url = `https://api.x-cargo.co/conciliacion/transacciones-bancarias-disponibles?${params.toString()}`;
-      
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${getToken()}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const transacciones = data.transacciones || [];
-      
-      // Guardar en el estado
-      setTransaccionesBancarias(prev => ({ ...prev, [key]: transacciones }));
-      
-      return transacciones;
-    } catch (error) {
-      console.error('Error obteniendo transacciones bancarias:', error);
-      return [];
-    } finally {
-      setCargandoTransacciones(prev => ({ ...prev, [key]: false }));
-    }
-  };
 
   // 🔥 FUNCIÓN PARA MANEJAR CLIC EN TRANSACCIONES BANCARIAS
-  const toggleTransaccionesBancarias = async (referenciaPago: string, idTransaccion?: number) => {
-    const key = idTransaccion ? `tx_${idTransaccion}` : referenciaPago;
-    
-    if (transaccionesBancarias[key]) {
-      // Si ya están cargadas, las ocultamos
-      setTransaccionesBancarias(prev => {
-        const newState = { ...prev };
-        delete newState[key];
-        return newState;
-      });
-    } else {
-      // Si no están cargadas, las cargamos
-      await obtenerTransaccionesBancarias(referenciaPago, idTransaccion);
-    }
-  };
 
   function limpiarValorMoneda(valor: string) {
     return valor.replace(/[^\d.]/g, "").replace(/(\..*)\./g, '$1');
