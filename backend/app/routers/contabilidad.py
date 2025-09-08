@@ -576,18 +576,21 @@ async def conciliacion_mensual(
         soportes_aprobados = 0
         try:
             query_soportes_aprobados = f"""
-                SELECT 
-                    COUNT(*) AS total
-                FROM ( 
-                SELECT referencia_pago, correo
-                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-                WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
-                    AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
-                    AND correo IS NOT NULL AND referencia_pago IS NOT NULL
-                    AND SAFE_CAST(valor AS FLOAT64) > 0
-                    AND (novedades IS NULL OR novedades = '')
-                GROUP BY referencia_pago, correo
+            SELECT 
+                COUNT(*) AS total
+            FROM ( 
+            SELECT referencia_pago, correo
+            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+            WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
+                AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
+                AND correo IS NOT NULL AND referencia_pago IS NOT NULL
+                AND (
+                    (valor_total_consignacion IS NOT NULL AND SAFE_CAST(valor_total_consignacion AS FLOAT64) > 0)
+                OR (valor IS NOT NULL AND SAFE_CAST(valor AS FLOAT64) > 0)
                 )
+                AND (novedades IS NULL OR novedades = '')
+            GROUP BY referencia_pago, correo
+            )
             """
             row = next(client.query(query_soportes_aprobados, job_config=job_config).result())
             soportes_aprobados = int(row["total"] or 0)
@@ -704,14 +707,24 @@ async def conciliacion_mensual(
         # 3. Soportes conciliados
         ejecutar_y_cargar(
             f"""
-            SELECT DATE(fecha_pago) AS fecha, COUNT(DISTINCT referencia_pago) AS soportes_conciliados
-            FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
-            WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
-                AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
-                AND referencia_pago IS NOT NULL
-                AND correo IS NOT NULL
-                AND SAFE_CAST(valor AS FLOAT64) > 0
-                AND (novedades IS NULL OR novedades = '')
+            SELECT fecha, COUNT(*) AS soportes_conciliados
+            FROM (
+                SELECT 
+                    DATE(fecha_pago) AS fecha,
+                    referencia_pago,
+                    correo
+                FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+                WHERE DATE(fecha_pago) BETWEEN @fecha_inicio AND @fecha_fin
+                    AND estado_conciliacion IN ('conciliado_manual', 'conciliado_automatico')
+                    AND referencia_pago IS NOT NULL
+                    AND correo IS NOT NULL
+                    AND (
+                        (valor_total_consignacion IS NOT NULL AND SAFE_CAST(valor_total_consignacion AS FLOAT64) > 0)
+                    OR (valor IS NOT NULL AND SAFE_CAST(valor AS FLOAT64) > 0)
+                    )
+                    AND (novedades IS NULL OR novedades = '')
+                GROUP BY fecha, referencia_pago, correo
+            )
             GROUP BY fecha
             """, "soportes_conciliados"
         )
