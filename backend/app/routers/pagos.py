@@ -154,13 +154,27 @@ async def registrar_pago_conductor(
     # Obtener todos los archivos enviados como comprobante_0, comprobante_1, ...
     form = await request.form()
     archivos = []
+    tipos_individuales = []
+    
     for key in form.keys():
         if key.startswith("comprobante_"):
             archivos.append(form[key])
+        elif key.startswith("tipo_comprobante_"):
+            # Capturar tipos individuales enviados desde el frontend
+            tipos_individuales.append(form[key])
+    
     # Si no hay múltiples, usar el comprobante único (para compatibilidad)
     if not archivos and comprobante is not None:
         archivos = [comprobante]
+    
     logger.info(f"Total comprobantes recibidos: {len(archivos)}")
+    logger.info(f"Tipos individuales recibidos: {tipos_individuales}")
+    
+    # 🔥 LOG DETALLADO PARA DEBUGGING
+    logger.info("🔍 ANÁLISIS DE TIPOS RECIBIDOS EN BACKEND:")
+    for idx, tipo_individual in enumerate(tipos_individuales):
+        logger.info(f"   - tipo_comprobante_{idx}: {tipo_individual}")
+    logger.info(f"   - Tipo principal (compatibilidad): {tipo}")
 
     # Obtener el nuevo Id_Transaccion autoincrementable SOLO UNA VEZ POR LOTE (request)
     # Todas las guías asociadas en este request compartirán el mismo Id_Transaccion
@@ -401,13 +415,17 @@ async def registrar_pago_conductor(
             # Asociar comprobante por índice (si hay suficientes, si no usar el primero)
             comprobante_url_asociado = comprobante_urls[i] if i < len(comprobante_urls) else (comprobante_urls[0] if comprobante_urls else None)
             
+            # 🔥 NUEVO: Usar tipo individual para cada comprobante
+            tipo_individual = tipos_individuales[i] if i < len(tipos_individuales) else tipo
+            logger.info(f"🎯 Asignando tipo individual para guía {i}: {tipo_individual}")
+            
             fila = {
                 "referencia": referencia_value,  # Referencia individual de la guía
                 "valor": valor_soporte_individual,  # 🔥 CAMBIO 2: Valor del soporte individual
                 "fecha": fecha_pago,
                 "entidad": entidad,
                 "estado": "pagado",
-                "tipo": tipo,
+                "tipo": tipo_individual,  # 🔥 CAMBIO 4: Usar tipo individual por comprobante
                 "comprobante": comprobante_url_asociado,
                 "novedades": "",
                 "creado_en": creado_en,
@@ -925,64 +943,68 @@ def obtener_detalles_pago(
     estado_conciliacion: str = Query(None, description="Filtrar por estado de conciliación (opcional)"),
 ):
     """
-    Obtiene los detalles de un pago específico incluyendo todas las guías asociadas.
-    ✅ CORREGIDO: Elimina duplicados de guías cuando hay agrupación por Id_Transaccion
-    ✅ NUEVO: Soporte para búsqueda por Id_Transaccion en pagos agrupados
+    Obtiene apariciones ÚNICAS del campo tracking para un pago seleccionado.
+    - Si tiene Id_Transaccion: busca por Id_Transaccion únicamente
+    - Si NO tiene Id_Transaccion: usa valor, fecha, correo y estado para ser específico
+    - Solo trae valor_guia de la tabla guias_liquidacion (sin COD_pendientes_v1)
     """
     try:
         client = get_bigquery_client()
         
-        # 🔥 LÓGICA MEJORADA: Priorizar Id_Transaccion si se proporciona
         condiciones = []
         query_params = []
         
         if id_transaccion is not None:
-            # Búsqueda por Id_Transaccion (para pagos agrupados)
-            logger.info(f"🔍 Buscando detalles por Id_Transaccion: {id_transaccion}")
+            # Caso 1: Pago con Id_Transaccion - buscar solo por este campo
+            logger.info(f"🔍 Buscando trackings únicos por Id_Transaccion: {id_transaccion}")
             condiciones.append("pc.Id_Transaccion = @id_transaccion")
             query_params.append(
                 bigquery.ScalarQueryParameter("id_transaccion", "INTEGER", id_transaccion)
             )
         else:
-            # Búsqueda tradicional por referencia_pago
-            logger.info(f"🔍 Buscando detalles por referencia_pago: {referencia_pago}")
+            # Caso 2: Pago sin Id_Transaccion - usar valor, fecha, correo y estado para ser específico
+            logger.info(f"🔍 Buscando trackings únicos por criterios específicos: referencia={referencia_pago}")
+            
+            # Referencia de pago es obligatoria en este caso
+            if not referencia_pago:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="referencia_pago es requerida cuando no se proporciona id_transaccion"
+                )
+            
             condiciones.append("pc.referencia_pago = @referencia_pago")
             query_params.append(
                 bigquery.ScalarQueryParameter("referencia_pago", "STRING", referencia_pago)
             )
-        
-        # Agregar filtros adicionales opcionales
-        if correo:
-            condiciones.append("pc.correo = @correo")
-            query_params.append(bigquery.ScalarQueryParameter("correo", "STRING", correo))
-        if fecha_pago:
-            condiciones.append("pc.fecha_pago = @fecha_pago")
-            query_params.append(bigquery.ScalarQueryParameter("fecha_pago", "DATE", fecha_pago))
-        if hora_pago:
-            condiciones.append("pc.hora_pago = @hora_pago")
-            query_params.append(bigquery.ScalarQueryParameter("hora_pago", "TIME", hora_pago))
-        if valor is not None:
-            condiciones.append("pc.valor_total_consignacion = @valor")
-            query_params.append(bigquery.ScalarQueryParameter("valor", "FLOAT64", valor))
-        if estado_conciliacion:
-            condiciones.append("pc.estado_conciliacion = @estado_conciliacion")
-            query_params.append(bigquery.ScalarQueryParameter("estado_conciliacion", "STRING", estado_conciliacion))
+            
+            # Agregar filtros adicionales para ser específico cuando no hay Id_Transaccion
+            if correo:
+                condiciones.append("pc.correo = @correo")
+                query_params.append(bigquery.ScalarQueryParameter("correo", "STRING", correo))
+            if fecha_pago:
+                condiciones.append("pc.fecha_pago = @fecha_pago")
+                query_params.append(bigquery.ScalarQueryParameter("fecha_pago", "DATE", fecha_pago))
+            if valor is not None:
+                condiciones.append("pc.valor_total_consignacion = @valor")
+                query_params.append(bigquery.ScalarQueryParameter("valor", "FLOAT64", valor))
+            if estado_conciliacion:
+                condiciones.append("pc.estado_conciliacion = @estado_conciliacion")
+                query_params.append(bigquery.ScalarQueryParameter("estado_conciliacion", "STRING", estado_conciliacion))
         
         where_clause = "WHERE " + " AND ".join(condiciones)
         
-        # 🔥 CONSULTA CORREGIDA: Usar DISTINCT para eliminar duplicados
+        # 🔥 CONSULTA OPTIMIZADA: Solo guias_liquidacion, trackings únicos
         query = f"""
         SELECT DISTINCT
+            pc.tracking,
             pc.referencia_pago,
             pc.referencia,
-            pc.tracking,
             pc.valor as valor,
             pc.valor_total_consignacion as valor_total_consignacion_pc,
-            cod.Valor as valor_guia_cod,
-            gl.valor_guia as valor_guia_gl,
+            gl.valor_guia as valor_guia,  -- Solo valor_guia de guias_liquidacion
             pc.correo,
             pc.cliente,
-            COALESCE(cod.Carrier, gl.carrier, 'N/A') as carrier,
+            gl.carrier as carrier,  -- Solo carrier de guias_liquidacion
             pc.tipo,
             pc.fecha_pago,
             pc.hora_pago,
@@ -990,38 +1012,32 @@ def obtener_detalles_pago(
             pc.novedades,
             pc.Id_Transaccion,
             pc.comprobante,
-
-            pc.creado_en  -- 🔥 AGREGADO: Incluir en SELECT para poder usar en ORDER BY
+            pc.creado_en
         FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor` pc
-        LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.COD_pendientes_v1` cod 
-            ON pc.tracking = cod.tracking_number
         LEFT JOIN `{PROJECT_ID}.{DATASET_CONCILIACIONES}.guias_liquidacion` gl 
             ON pc.tracking = gl.tracking_number
         {where_clause}
-        ORDER BY pc.creado_en ASC
+        ORDER BY pc.tracking, pc.creado_en ASC
         """
         
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
         results = client.query(query, job_config=job_config).result()
         
         detalles = []
-        referencias_encontradas = set()  # 🔥 Para tracking de referencias únicas
+        trackings_unicos = set()  # Para garantizar trackings únicos
         
         for row in results:
-            # 🔥 VERIFICACIÓN ADICIONAL: Solo agregar si el tracking/referencia no se ha visto antes
-            tracking_key = f"{row.tracking}_{row.referencia_pago}_{row.Id_Transaccion}"
-            
-            if tracking_key not in referencias_encontradas:
-                referencias_encontradas.add(tracking_key)
+            # Solo agregar si el tracking no se ha visto antes
+            if row.tracking and row.tracking not in trackings_unicos:
+                trackings_unicos.add(row.tracking)
                 
                 detalle = {
                     "tracking": row.tracking or "N/A",
                     "referencia": row.referencia_pago,
-                    "referencia_individual": row.referencia or "N/A",  # 🔥 NUEVA: referencia individual
+                    "referencia_individual": row.referencia or "N/A",
                     "valor": float(row.valor) if row.valor else 0.0,
                     "valor_total_consignacion_pc": float(row.valor_total_consignacion_pc) if row.valor_total_consignacion_pc else 0.0,
-                    "valor_guia_cod": float(row.valor_guia_cod) if row.valor_guia_cod else 0.0,
-                    "valor_guia_gl": float(row.valor_guia_gl) if row.valor_guia_gl else 0.0,
+                    "valor_guia": float(row.valor_guia) if row.valor_guia else 0.0,  # Solo valor_guia
                     "correo": row.correo or "N/A",
                     "cliente": row.cliente or "N/A",
                     "carrier": row.carrier or "N/A",
@@ -1032,12 +1048,11 @@ def obtener_detalles_pago(
                     "novedades": row.novedades or "",
                     "comprobante": row.comprobante or "",
                     "id_transaccion": row.Id_Transaccion or "N/A",
-                    
                 }
                 detalles.append(detalle)
         
         if not detalles:
-            error_msg = f"No se encontraron detalles para "
+            error_msg = f"No se encontraron trackings únicos para "
             if id_transaccion:
                 error_msg += f"Id_Transaccion: {id_transaccion}"
             else:
@@ -1045,11 +1060,11 @@ def obtener_detalles_pago(
             
             raise HTTPException(status_code=404, detail=error_msg)
         
-        # 🔥 LOGGING MEJORADO
+        # Logging de resultados
         if id_transaccion:
-            logger.info(f"📋 Found {len(detalles)} unique details for Id_Transaccion {id_transaccion}")
+            logger.info(f"📋 Found {len(detalles)} unique trackings for Id_Transaccion {id_transaccion}")
         else:
-            logger.info(f"📋 Found {len(detalles)} unique details for referencia {referencia_pago}")
+            logger.info(f"📋 Found {len(detalles)} unique trackings for referencia {referencia_pago}")
         
         return {
             "detalles": detalles,
@@ -1068,26 +1083,6 @@ def obtener_detalles_pago(
             status_code=500,
             detail=f"Error interno del servidor: {str(e)}"
         )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 @router.get("/detalles-guias")
@@ -1958,6 +1953,158 @@ def obtener_pagos_pendientes_contabilidad(
                 "status": "error",
                 "timestamp": datetime.now().isoformat()
             }
+        )
+
+# 🔥 NUEVO ENDPOINT: Verificación de referencias Nequi
+@router.post("/verificar-referencia-nequi")
+async def verificar_referencia_nequi(
+    referencia: str = Form(..., description="Referencia extraída del comprobante"),
+    tipo: str = Form(..., description="Tipo de pago detectado por OCR")
+):
+    """
+    Verifica si una referencia de pago Nequi ya existe en la base de datos.
+    Solo se ejecuta si el tipo detectado es 'Nequi'.
+    
+    Retorna:
+    - permitir_registro: bool - Si se puede proceder con el registro
+    - mensaje: str - Mensaje explicativo
+    - referencia_existente: dict - Datos del pago existente si se encuentra
+    """
+    try:
+        client = get_bigquery_client()
+        
+        # Validar que el tipo sea Nequi
+        if not tipo or tipo.strip().lower() != 'nequi':
+            return {
+                "permitir_registro": True,
+                "mensaje": "✅ Verificación no requerida: El tipo de pago no es Nequi",
+                "tipo_detectado": tipo,
+                "referencia_verificada": referencia,
+                "requiere_verificacion": False
+            }
+        
+        # Limpiar y validar referencia
+        referencia_limpia = referencia.strip()
+        if not referencia_limpia:
+            raise HTTPException(
+                status_code=400,
+                detail="❌ Referencia vacía o inválida"
+            )
+        
+        logger.info(f"🔍 Verificando referencia Nequi: {referencia_limpia}")
+        
+        # 🔥 CONSULTA: Buscar en campos 'referencia' y 'referencia_pago' de pagosconductor
+        query_verificacion = f"""
+        SELECT 
+            referencia,
+            referencia_pago,
+            valor,
+            valor_total_consignacion,
+            fecha_pago,
+            hora_pago,
+            correo,
+            tipo,
+            entidad,
+            estado_conciliacion,
+            tracking,
+            cliente,
+            comprobante,
+            creado_en,
+            Id_Transaccion
+        FROM `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        WHERE (
+            LOWER(TRIM(referencia)) = LOWER(@referencia_buscar) 
+            OR LOWER(TRIM(referencia_pago)) = LOWER(@referencia_buscar)
+        )
+        AND LOWER(TRIM(tipo)) = 'nequi'
+        ORDER BY creado_en DESC
+        LIMIT 5
+        """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("referencia_buscar", "STRING", referencia_limpia.lower())
+            ]
+        )
+        
+        resultado = client.query(query_verificacion, job_config=job_config).result()
+        pagos_existentes = list(resultado)
+        
+        if not pagos_existentes:
+            # No se encontraron referencias duplicadas
+            logger.info(f"✅ Referencia Nequi no duplicada: {referencia_limpia}")
+            return {
+                "permitir_registro": True,
+                "mensaje": "✅ Referencia Nequi válida: No se encontraron duplicados en la base de datos",
+                "tipo_detectado": tipo,
+                "referencia_verificada": referencia_limpia,
+                "requiere_verificacion": True,
+                "referencias_existentes": []
+            }
+        else:
+            # Se encontraron referencias duplicadas
+            logger.warning(f"⚠️ Referencia Nequi duplicada encontrada: {referencia_limpia}")
+            
+            # Formatear datos de pagos existentes
+            referencias_existentes = []
+            for pago in pagos_existentes:
+                referencias_existentes.append({
+                    "referencia": pago.referencia,
+                    "referencia_pago": pago.referencia_pago,
+                    "valor": float(pago.valor) if pago.valor else 0.0,
+                    "valor_total_consignacion": float(pago.valor_total_consignacion) if pago.valor_total_consignacion else 0.0,
+                    "fecha_pago": pago.fecha_pago.isoformat() if pago.fecha_pago else None,
+                    "hora_pago": str(pago.hora_pago) if pago.hora_pago else None,
+                    "correo": pago.correo or "",
+                    "tipo": pago.tipo or "",
+                    "entidad": pago.entidad or "",
+                    "estado_conciliacion": pago.estado_conciliacion or "",
+                    "tracking": pago.tracking or "",
+                    "cliente": pago.cliente or "",
+                    "comprobante": pago.comprobante or "",
+                    "creado_en": pago.creado_en.isoformat() if pago.creado_en else None,
+                    "Id_Transaccion": pago.Id_Transaccion
+                })
+            
+            # Determinar mensaje según cantidad de duplicados
+            total_duplicados = len(referencias_existentes)
+            if total_duplicados == 1:
+                pago_existente = referencias_existentes[0]
+                mensaje_detalle = (
+                    f"❌ REFERENCIA NEQUI DUPLICADA:\n\n"
+                    f"Esta referencia ya existe en la base de datos:\n"
+                    f"• Referencia: {pago_existente['referencia']}\n"
+                    f"• Valor: ${pago_existente['valor_total_consignacion']:,.2f}\n"
+                    f"• Fecha: {pago_existente['fecha_pago']}\n"
+                    f"• Conductor: {pago_existente['correo']}\n"
+                    f"• Estado: {pago_existente['estado_conciliacion']}\n\n"
+                    f"No se puede registrar un pago Nequi con referencia duplicada."
+                )
+            else:
+                mensaje_detalle = (
+                    f"❌ REFERENCIA NEQUI DUPLICADA:\n\n"
+                    f"Esta referencia aparece {total_duplicados} veces en la base de datos.\n"
+                    f"No se puede registrar un pago Nequi con referencia duplicada.\n\n"
+                    f"Revise los pagos existentes en la respuesta."
+                )
+            
+            return {
+                "permitir_registro": False,
+                "mensaje": mensaje_detalle,
+                "tipo_detectado": tipo,
+                "referencia_verificada": referencia_limpia,
+                "requiere_verificacion": True,
+                "total_duplicados": total_duplicados,
+                "referencias_existentes": referencias_existentes
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error en verificación de referencia Nequi: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno verificando referencia: {str(e)}"
         )
 
 # Reportes ---

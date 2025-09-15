@@ -13,9 +13,22 @@ import cv2
 import numpy as np
 import pytesseract
 import easyocr
-from datetime import datetime
+from datetime import dateti                    📋 REGLAS ESPECÍFICAS PARA EXTRACCIÓN DE "referencia":
 
-# Importar el validador IA
+                    Para NEQUI:
+                    - BUSCAR PRIMERO: referencias que empiecen con "M" (ejemplo: M12345678, M987654)
+                    - Si no existe, usar: "REFERENCIA:", "ID NEQUI:", "CÓDIGO:", "AUTORIZACIÓN:"
+
+                    Para TRANSFERENCIA:
+                    - BUSCAR PRIMERO: referencias con múltiples ceros al inicio (ejemplo: 000009200, 000012345)
+                    - Si no existe, usar: "CUS:", "CUD:", "REFERENCIA:", "AUTORIZACIÓN:"
+
+                    Para CONSIGNACION:
+                    - PRIORIDAD ABSOLUTA: número después de "APRO:" o "APROB:"
+                    - EJEMPLO DE LA IMAGEN ADJUNTA: "APRO: 080386" → referencia = "080386"
+                    - Si no hay APRO, usar: "RECIBO:", "RRN:", "TERMINAL:"
+                    
+                    IMPORTANTE: Para consignaciones con Redeban/Corresponsal, SIEMPRE usar el valor después de "APRO:" como referencia principal. Importar el validador IA
 try:
     from app.services.ai.ai_ocr_validator import validar_comprobante_ia
 except ImportError:
@@ -31,7 +44,6 @@ except ImportError:
             'datos_corregidos': None,
             'validaciones': {}
         })()
-
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,7 +57,7 @@ reader = easyocr.Reader(['es'], gpu=False)
 
 class EnhancedOCRExtractor:
     """
-    🎯 Extractor OCR mejorado con GPT-4o y reglas de identificación específicas
+    🎯 Extractor OCR mejorado con múltiples engines y validación IA
     """
     
     def __init__(self):
@@ -56,7 +68,7 @@ class EnhancedOCRExtractor:
             "tamaño_archivo_minimo": 10000,  # bytes
             "contraste_minimo": 0.3
         }
-        logger.info("🤖 EnhancedOCRExtractor inicializado con GPT-4o")
+        logger.info("🤖 EnhancedOCRExtractor inicializado")
     
     async def extraer_datos_pago_inteligente(
         self, 
@@ -65,7 +77,7 @@ class EnhancedOCRExtractor:
         engines_preferidos: List[str] = None
     ) -> Dict[str, Any]:
         """
-        🎯 FUNCIÓN PRINCIPAL: Extracción inteligente con GPT-4o y reglas específicas
+        🎯 FUNCIÓN PRINCIPAL: Extracción inteligente con múltiples engines
         
         Args:
             file: Archivo de imagen subido
@@ -130,8 +142,7 @@ class EnhancedOCRExtractor:
             }
             
             logger.info(f"✅ Extracción completada - Tiempo: {tiempo_total:.2f}s, "
-                       f"Engine ganador: {respuesta_final['estadisticas']['engine_ganador']}, "
-                       f"Tipo: {datos_finales.get('tipo_comprobante', 'no_determinado')}")
+                       f"Engine ganador: {respuesta_final['estadisticas']['engine_ganador']}")
             
             return respuesta_final
             
@@ -312,31 +323,41 @@ class EnhancedOCRExtractor:
         return resultados
     
     async def _extraer_con_openai(self, contents: bytes) -> Dict[str, Any]:
-        """Extracción usando OpenAI GPT-4o Vision API con reglas mejoradas"""
+        """Extracción usando OpenAI Vision API"""
         try:
             # Convertir imagen a base64
             import base64
             image_base64 = base64.b64encode(contents).decode('utf-8')
             
-            # Prompt mejorado con GPT-4o y reglas específicas de identificación
+            # Prompt mejorado para OpenAI
             prompt = """
-                    Eres un experto analista de comprobantes de pago colombianos con IA GPT-4o para identificación precisa.
+                    Eres un experto en análisis y extracción de datos de comprobantes de pago colombianos.
+
+                    Tu tarea es analizar cuidadosamente la imagen y extraer **solo los datos financieros más relevantes** en formato JSON, siguiendo las **reglas estrictas de validación** que se describen a continuación.
 
                     EXTRAE EXCLUSIVAMENTE los siguientes campos en formato JSON:
 
                     ```json
                     {
-                    "valor": "solo números enteros, sin decimales ni símbolos (ej: 294990, 156000)",
-                    "fecha": "formato YYYY-MM-DD si encuentras fecha válida",
-                    "hora": "formato HH:MM:SS en notación 24h si encuentras hora",
-                    "entidad": "nombre exacto de la entidad emisora",
-                    "referencia": "número de referencia/autorización más relevante",
-                    "estado": "estado de la transacción si está visible",
-                    "descripcion": "concepto o tipo de movimiento si está presente",
-                    "tipo_comprobante": "nequi, transferencia o consignacion"
+                    "valor": "solo números, sin símbolos ni comas (ej: 586600, 156000), debes ignorar todo lo que venga despues de la coma y evitar errores de redondeo",
+                    que se detecte un valor superior al real",
+                    "fecha": "formato YYYY-MM-DD si encuentras fecha",
+                    "hora": "formato HH:MM:SS en notación 24h si encuentras hora (convierte de a. m. / p. m. si es necesario)",
+                    "entidad": "nombre exacto de la entidad emisora del comprobante (ej: Nequi, Bancolombia, Daviplata, etc.)",
+                    "referencia": "número de referencia/autorización/recibo/aprobación más relevante y completo",
+                    "estado": "estado de la transacción si está visible; si no se encuentra, usar null",
+                    "descripcion": "concepto o tipo de movimiento si está presente (por ejemplo: DEPOSITO, TRANSFERENCIA, PAGO, RECARGA, etc.)",
+                    "tipo_comprobante": "nequi, transferencia o consignacion — obligatorio y debe cumplir reglas exactas"
                     }
+                    
+                    REGLAS PARA valor:
+                    - Al momento de extraer debes ser termianantemente esctricto para tomar únicamente el valor antes de la coma.
+                    - Aunque sean montos pequeños debes priorizar que el valor tomado ignore lo que venga después de la coma.
 
-                    🎯 REGLAS INFALIBLES PARA IDENTIFICACIÓN (APLICAR EN ORDEN DE PRIORIDAD):
+                    REGLAS PARA entidad:
+                    - Cuando identifiques en la imagen texto como "CORRESPONSAL BANCOLOMBIA" o "Redeban" entonces el campo entidad debe ser estrictamente 'BANCOLOMBIA'.
+
+                    🎯 REGLAS INFALIBLES PARA tipo_comprobante (APLICAR EN ORDEN DE PRIORIDAD):
 
                     REGLA 1 - NEQUI (MÁXIMA PRIORIDAD):
                     ✅ Si encuentras una referencia que EMPIEZA con "M" (ejemplo: M12345678, M987654321)
@@ -355,46 +376,35 @@ class EnhancedOCRExtractor:
                     ✅ Si menciona "DEPOSITO", "efectivo", "corresponsal", "terminal"
                     → AUTOMÁTICAMENTE tipo_comprobante = "consignacion"
 
-                    📋 REGLAS ESPECÍFICAS PARA EXTRACCIÓN DE "referencia":
+                    IMPORTANTE: Aplicar PRIMERO las reglas de referencia (M..., 000..., APRO:), luego confirmar con evidencia visual.
+                    Solo valores permitidos: "nequi", "transferencia", "consignacion"
+                    
 
-                    Para NEQUI:
-                    - BUSCAR PRIMERO: referencias que empiecen con "M" (ejemplo: M12345678, M987654)
-                    - Si no existe, usar: "REFERENCIA:", "ID NEQUI:", "CÓDIGO:", "AUTORIZACIÓN:"
+                    REGLAS PARA CAMPO "referencia":
+                    - Usa campos explícitos como "No. de comprobante", "REFERENCIA", "AUTORIZACIÓN", "APRO", etc.
+                    - Cuando la imagen de comprobante tenga algún texto como: "Redeban", "Corresponsal Bancolombia", en este tipo de comprobantes solo debe usarse lo que venga después de "APRO:" para usarlo como referencia de pago.                    
+                    - Cuando en la imagen del comprobante de pago se encuentre el campo de "APRO" debes utitlizar obligatoriamente este valor.
+                    - EjEMPLO: “... RECIBO: 152960 RRN: 163968 APRO: 520584 VALOR $ 72.425 ...” debes responder solo 520584 como referencia.
+                    - Si hay varios, elige el más largo o más relevante.
+                    - Si no existe ninguno, usa null.
+                    
 
-                    Para TRANSFERENCIA:
-                    - BUSCAR PRIMERO: referencias con múltiples ceros al inicio (ejemplo: 000009200, 000012345)
-                    - Si no existe, usar: "CUS:", "CUD:", "REFERENCIA:", "AUTORIZACIÓN:"
-
-                    Para CONSIGNACION:
-                    - PRIORIDAD ABSOLUTA: número después de "APRO:" o "APROB:"
-                    - EJEMPLO: "APRO: 080386" → referencia = "080386"
-                    - Si no hay APRO, usar: "RECIBO:", "RRN:", "TERMINAL:"
-
-                    💰 EXTRACCIÓN DE VALOR:
-                    - OBLIGATORIO: Solo números enteros antes de la coma/punto decimal
-                    - "$ 294.990" → "294990" 
-                    - "$72.425,50" → "72425"  
-                    - Ignorar completamente decimales para evitar errores de redondeo
-
-                    🏦 EXTRACCIÓN DE ENTIDAD:
-                    - "Redeban" o "Corresponsal Bancolombia" → entidad = "BANCOLOMBIA"
-                    - Usar nombres oficiales exactos: Nequi, Bancolombia, Davivienda, etc.
-
-                    📅 EXTRACCIÓN DE FECHA/HORA:
-                    - Convertir "JUL 07 2025 11:11:31" → fecha = "2025-07-07", hora = "11:11:31"
-                    - Convertir formatos DD/MM/YYYY a YYYY-MM-DD
-                    - Convertir a.m./p.m. a formato 24h
-
-                    ⚡ VALIDACIÓN FINAL:
-                    1. Aplicar PRIMERO las reglas de referencia (M..., 000..., APRO:)
-                    2. Confirmar con evidencia visual y textual
-                    3. Solo usar exactamente: "nequi", "transferencia", "consignacion"
-                    4. JSON sintácticamente perfecto, sin texto adicional
-                    5. Campos no encontrados = null (sin comillas)
+                    REGLAS ADICIONALES:
+                    - Solo se permiten únicamente tres tipos de comprobantes: "nequi", "transferencia", "consignacion".
+                    - Si no encuentras un campo, usa null (sin comillas).
+                    - Fuerza tu modelo para ignorar completamente cualquier número después de la coma en el campo "valor".
+                    - El JSON debe estar completo, limpio y sintácticamente válido.
+                    - No incluyas texto adicional, solo el JSON.
+                    - Corrige automáticamente formatos como "$ 156.000" → "156000"
+                    - Corrige automáticamente formatos como "$ 156.000,00" → "156000"
+                    - Corrige automáticamente formatos como "$ 156,000.00" → "156000"
+                    - Convierte fechas y horas a los formatos requeridos.
                     """
+                    
+
 
             response = client.chat.completions.create(
-                model="gpt-4o",  # Usar GPT-4o (la versión más actual)
+                model="gpt-4o",  # Usar GPT-4 con visión
                 messages=[
                     {
                         "role": "user",
@@ -410,8 +420,8 @@ class EnhancedOCRExtractor:
                         ]
                     }
                 ],
-                max_tokens=600,  # Aumentado para respuestas más detalladas
-                temperature=0.05  # Muy baja temperatura para máxima precisión
+                max_tokens=500,
+                temperature=0.1  # Baja temperatura para mayor precisión
             )
             
             respuesta = response.choices[0].message.content.strip()
@@ -424,20 +434,15 @@ class EnhancedOCRExtractor:
             
             datos = json.loads(respuesta)
             
-            # Log de la clasificación para debugging
-            tipo_detectado = datos.get('tipo_comprobante', 'no_determinado')
-            referencia = datos.get('referencia', 'no_encontrada')
-            logger.info(f"🎯 GPT-4o clasificó como: {tipo_detectado}, referencia: {referencia}")
-            
             return {
                 "datos": datos,
-                "confianza": 95,  # GPT-4o es muy preciso
+                "confianza": 90,  # OpenAI tiende a ser muy preciso
                 "texto_completo": respuesta,
-                "engine": "openai_gpt4o"
+                "engine": "openai"
             }
             
         except json.JSONDecodeError as e:
-            logger.error(f"GPT-4o retornó JSON inválido: {respuesta}")
+            logger.error(f"OpenAI retornó JSON inválido: {respuesta}")
             return {
                 "error": f"JSON inválido: {str(e)}",
                 "datos": {},
@@ -445,7 +450,7 @@ class EnhancedOCRExtractor:
                 "respuesta_cruda": respuesta if 'respuesta' in locals() else ""
             }
         except Exception as e:
-            logger.error(f"Error con GPT-4o: {e}")
+            logger.error(f"Error con OpenAI: {e}")
             return {
                 "error": str(e),
                 "datos": {},
@@ -459,8 +464,8 @@ class EnhancedOCRExtractor:
             resultados = reader.readtext(contents, detail=0, paragraph=True)
             texto_completo = "\n".join(resultados)
             
-            # Extraer datos usando regex y patrones mejorados
-            datos_extraidos = self._extraer_datos_con_patrones_mejorados(texto_completo)
+            # Extraer datos usando regex y patrones
+            datos_extraidos = self._extraer_datos_con_patrones(texto_completo)
             
             return {
                 "datos": datos_extraidos,
@@ -487,8 +492,8 @@ class EnhancedOCRExtractor:
             config = '--oem 3 --psm 6 -l spa'
             texto_completo = pytesseract.image_to_string(image, config=config)
             
-            # Extraer datos usando patrones mejorados
-            datos_extraidos = self._extraer_datos_con_patrones_mejorados(texto_completo)
+            # Extraer datos usando patrones
+            datos_extraidos = self._extraer_datos_con_patrones(texto_completo)
             
             return {
                 "datos": datos_extraidos,
@@ -505,154 +510,103 @@ class EnhancedOCRExtractor:
                 "confianza": 0
             }
     
-    def _extraer_datos_con_patrones_mejorados(self, texto: str) -> Dict[str, Any]:
-        """Extrae datos usando regex y patrones mejorados con las nuevas reglas"""
+    def _extraer_datos_con_patrones(self, texto: str) -> Dict[str, Any]:
+        """Extrae datos usando regex y patrones de texto"""
         datos = {}
         texto_lower = texto.lower()
         
-        # 1. Extraer referencia y determinar tipo basado en las nuevas reglas
-        tipo_comprobante = self._determinar_tipo_por_referencia(texto)
-        if tipo_comprobante:
-            datos["tipo_comprobante"] = tipo_comprobante
-        
-        # 2. Extraer referencia según el tipo
-        referencia = self._extraer_referencia_por_tipo(texto, tipo_comprobante)
-        if referencia:
-            datos["referencia"] = referencia
-        
-        # 3. Patrones para extraer valor (solo números enteros)
+        # Patrones para extraer valor
         patrones_valor = [
-            r'VALOR\s*\$\s*([\d,.]+)',  # VALOR $ 294.990
-            r'\$\s*([\d,.]+)',  # $294.990
-            r'valor.*?([\d,.]+)',  # valor: 294990
-            r'total.*?([\d,.]+)',  # total: 294990
-            r'monto.*?([\d,.]+)',  # monto: 294990
+            r'\$\s*([0-9,.]+)',  # $150,000
+            r'valor.*?([0-9,.]+)',  # valor: 150,000
+            r'total.*?([0-9,.]+)',  # total: 150,000
+            r'monto.*?([0-9,.]+)',  # monto: 150,000
+            r'([0-9]{1,3}(?:,?[0-9]{3})*(?:\.[0-9]{2})?)',
+            r' \b\d{1,3}(?:\.\d{3})*(?=,)|\b\d+(?=,)'  # números con formato
         ]
         
         for patron in patrones_valor:
             match = re.search(patron, texto, re.IGNORECASE)
             if match:
-                valor_str = match.group(1)
-                # Remover puntos y comas, tomar solo la parte entera
-                valor_limpio = re.sub(r'[.,].*$', '', valor_str.replace('.', '').replace(',', ''))
-                if valor_limpio.isdigit() and int(valor_limpio) > 1000:
-                    datos["valor"] = valor_limpio
+                valor = match.group(1).replace(',', '').replace('.', '')
+                if valor.isdigit() and int(valor) > 1000:  # Valor razonable
+                    datos["valor"] = valor
                     break
         
-        # 4. Patrones para fecha
+        # Patrones para fecha
         patrones_fecha = [
-            r'JUL (\d{2}) (\d{4})',  # JUL 07 2025
-            r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})',  # DD/MM/YYYY
-            r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})',  # YYYY-MM-DD
+            r'(\d{1,2}[/-]\d{1,2}[/-]\d{4})',  # DD/MM/YYYY o DD-MM-YYYY
+            r'(\d{4}[/-]\d{1,2}[/-]\d{1,2})',  # YYYY-MM-DD
         ]
         
         for patron in patrones_fecha:
             match = re.search(patron, texto)
             if match:
-                if "JUL" in patron:
-                    day, year = match.groups()
-                    datos["fecha"] = f"{year}-07-{day.zfill(2)}"
-                else:
-                    # Lógica para otros formatos de fecha
-                    partes = match.groups()
+                fecha = match.group(1)
+                # Convertir a formato estándar si es necesario
+                if '/' in fecha:
+                    partes = fecha.split('/')
                     if len(partes[2]) == 4:  # DD/MM/YYYY
                         datos["fecha"] = f"{partes[2]}-{partes[1].zfill(2)}-{partes[0].zfill(2)}"
-                    else:  # YYYY-MM-DD
-                        datos["fecha"] = f"{partes[0]}-{partes[1].zfill(2)}-{partes[2].zfill(2)}"
+                    else:  # YYYY/MM/DD
+                        datos["fecha"] = fecha.replace('/', '-')
+                else:
+                    datos["fecha"] = fecha
                 break
         
-        # 5. Patrones para hora
-        patron_hora = r'(\d{1,2}):(\d{2}):(\d{2})'
+        # Patrones para hora
+        patron_hora = r'(\d{1,2}:\d{2}(?::\d{2})?)'
         match = re.search(patron_hora, texto)
         if match:
-            hora = f"{match.group(1).zfill(2)}:{match.group(2)}:{match.group(3)}"
+            hora = match.group(1)
+            if len(hora.split(':')) == 2:  # HH:MM
+                hora += ":00"  # Agregar segundos
             datos["hora"] = hora
         
-        # 6. Detectar entidad bancaria
-        if "redeban" in texto_lower or "corresponsal bancolombia" in texto_lower:
-            datos["entidad"] = "BANCOLOMBIA"
-        elif "nequi" in texto_lower:
-            datos["entidad"] = "NEQUI"
-        elif any(banco in texto_lower for banco in ["daviplata", "davivienda"]):
-            datos["entidad"] = "DAVIVIENDA"
-        elif "pse" in texto_lower:
-            datos["entidad"] = "PSE"
+        # Detectar entidad bancaria
+        entidades = {
+            "nequi": ["nequi"],
+            "bancolombia": ["bancolombia", "banco colombia"],
+            "pse": ["pse", "pagos seguros"],
+            "daviplata": ["daviplata", "davivienda"],
+            "banco_bogota": ["banco de bogota", "banco bogota"],
+            "bbva": ["bbva"],
+            "efecty": ["efecty"]
+        }
         
-        # 7. Detectar descripción
-        if "deposito" in texto_lower:
-            datos["descripcion"] = "DEPOSITO"
-        elif "transferencia" in texto_lower:
-            datos["descripcion"] = "TRANSFERENCIA"
-        elif "pago" in texto_lower:
-            datos["descripcion"] = "PAGO"
+        for entidad, variaciones in entidades.items():
+            for variacion in variaciones:
+                if variacion in texto_lower:
+                    datos["entidad"] = entidad
+                    break
+            if "entidad" in datos:
+                break
+        
+        # Patrones para referencia
+        patrones_referencia = [
+            r'referencia.*?([A-Z0-9]{6,})',
+            r'autorizaci[oó]n.*?([A-Z0-9]{6,})',
+            r'c[oó]digo.*?([A-Z0-9]{6,})',
+            r'([A-Z0-9]{8,15})',  # Secuencia alfanumérica larga
+            r'APRO[: ]+\s*(\d+)'
+        ]
+        
+        for patron in patrones_referencia:
+            match = re.search(patron, texto, re.IGNORECASE)
+            if match:
+                ref = match.group(1)
+                # Verificar que no sea el valor
+                if ref != datos.get("valor"):
+                    datos["referencia"] = ref
+                    break
         
         return datos
     
-    def _determinar_tipo_por_referencia(self, texto: str) -> Optional[str]:
-        """Determina el tipo de comprobante basado en las reglas de referencia"""
-        
-        # Buscar referencias que empiecen con M (Nequi)
-        if re.search(r'\bM\d{6,}', texto, re.IGNORECASE):
-            return "nequi"
-        
-        # Buscar referencias que empiecen con múltiples ceros (Transferencia)
-        if re.search(r'\b0{3,}\d+', texto):
-            return "transferencia"
-        
-        # Buscar APRO o características de consignación
-        if re.search(r'APRO[:\s]*\d+', texto, re.IGNORECASE):
-            return "consignacion"
-        
-        # Buscar indicadores textuales
-        texto_lower = texto.lower()
-        if "redeban" in texto_lower or "corresponsal" in texto_lower:
-            return "consignacion"
-        elif "nequi" in texto_lower:
-            return "nequi"
-        elif "pse" in texto_lower or "cus" in texto_lower:
-            return "transferencia"
-        
-        return None
-    
-    def _extraer_referencia_por_tipo(self, texto: str, tipo: Optional[str]) -> Optional[str]:
-        """Extrae la referencia según el tipo de comprobante"""
-        
-        if tipo == "nequi":
-            # Buscar referencias con M
-            match = re.search(r'\b(M\d{6,})', texto, re.IGNORECASE)
-            if match:
-                return match.group(1)
-                
-        elif tipo == "transferencia":
-            # Buscar referencias con ceros al inicio
-            match = re.search(r'\b(0{3,}\d+)', texto)
-            if match:
-                return match.group(1)
-            # Si no, buscar CUS o CUD
-            match = re.search(r'CU[SD][:\s]*([A-Z0-9]+)', texto, re.IGNORECASE)
-            if match:
-                return match.group(1)
-                
-        elif tipo == "consignacion":
-            # PRIORIDAD: APRO
-            match = re.search(r'APRO[:\s]*(\d+)', texto, re.IGNORECASE)
-            if match:
-                return match.group(1)
-            # Si no, buscar otros patrones
-            for patron in [r'RECIBO[:\s]*(\d+)', r'RRN[:\s]*(\d+)', r'TERMINAL[:\s]*([A-Z0-9]+)']:
-                match = re.search(patron, texto, re.IGNORECASE)
-                if match:
-                    return match.group(1)
-        
-        # Patrón general como fallback
-        match = re.search(r'([A-Z0-9]{6,})', texto)
-        return match.group(1) if match else None
-    
     def _fusionar_resultados_engines(self, resultados: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """Fusiona resultados de múltiples engines eligiendo los mejores campos"""
+        """Fusiona resultados de múltiples engines eligiendo los mejores campos y validando"""
         datos_fusionados = {}
         
-        # Ordenar engines por confianza (GPT-4o primero)
+        # Ordenar engines por confianza
         engines_ordenados = sorted(
             resultados.items(),
             key=lambda x: x[1].get("confianza", 0),
@@ -660,55 +614,70 @@ class EnhancedOCRExtractor:
         )
         
         # Campos importantes con sus pesos
-        campos = ["valor", "fecha", "hora", "entidad", "referencia", "tipo_comprobante", "descripcion", "estado"]
+        campos = ["valor", "fecha", "hora", "entidad", "referencia"]
         
         # Tomar el mejor valor para cada campo
         for campo in campos:
             for engine, resultado in engines_ordenados:
-                if "error" in resultado:
-                    continue
                 datos = resultado.get("datos", {})
                 if campo in datos and datos[campo]:
                     datos_fusionados[campo] = datos[campo]
                     break
-        
-        # Validar todos los datos extraídos
+          # Validar todos los datos extraídos
         datos_validados = self._validar_datos_sin_errores(datos_fusionados)
+        
+        # Registrar diferencias de normalización
+        campos_normalizados = [
+            campo for campo in campos 
+            if campo in datos_fusionados 
+            and campo in datos_validados 
+            and datos_fusionados[campo] != datos_validados[campo]
+        ]
+
+        # Detectar campos inválidos
+        campos_invalidos = [
+            campo for campo in campos
+            if campo in datos_fusionados and not self._es_valor_razonable(campo, datos_fusionados[campo])
+        ]
+        
+        if campos_normalizados:
+            logger.info("ℹ️ Campos normalizados:")
+            for campo in campos_normalizados:
+                logger.info(f"  - {campo}: {datos_fusionados[campo]} → {datos_validados[campo]}")
+        
+        if campos_invalidos:
+            logger.warning(f"❌ Campos inválidos encontrados: {campos_invalidos}")
         
         return datos_validados
     
-    def _validar_datos_sin_errores(self, datos: Dict[str, Any]) -> Dict[str, Any]:
-        """Validación y normalización de los datos extraídos"""
-        datos_validados = datos.copy()
+    def _es_valor_razonable(self, campo: str, valor: Any) -> bool:
+        """Valida que un valor extraído sea razonable"""
+        if not valor:
+            return False
         
-        # Validar hora
-        if 'hora' in datos and datos['hora']:
-            hora = datos['hora'].strip()
-            if re.match(r'\d{1,2}:\d{2}(:\d{2})?', hora):
-                if ':' in hora and len(hora.split(':')) == 2:
-                    hora = f"{hora}:00"
-                datos_validados['hora'] = hora
+        valor_str = str(valor).strip()
         
-        # Validar referencia
-        if 'referencia' in datos and datos['referencia']:
-            ref = str(datos['referencia']).strip().upper()
-            datos_validados['referencia'] = ref
+        if campo == "valor":
+            # Verificar que sea numérico y en rango razonable
+            valor_limpio = valor_str.replace(',', '').replace('.', '')
+            if not valor_limpio.isdigit():
+                return False
+            valor_num = int(valor_limpio)
+            return 1000 <= valor_num <= 500000000  # Entre $1K y $500M
         
-        # Validar tipo_comprobante y mapear para compatibilidad con frontend
-        if 'tipo_comprobante' in datos and datos['tipo_comprobante']:
-            tipo = datos['tipo_comprobante'].lower()
-            if tipo in ['nequi', 'transferencia', 'consignacion']:
-                datos_validados['tipo_comprobante'] = tipo
-                
-                # 🔥 MAPEO PARA FRONTEND: Convertir a formato esperado
-                mapeo_tipos = {
-                    'nequi': 'Nequi',           # Frontend espera 'Nequi' con mayúscula
-                    'transferencia': 'Transferencia',  # Frontend espera 'Transferencia'
-                    'consignacion': 'consignacion'     # Frontend espera 'consignacion'
-                }
-                datos_validados['tipo'] = mapeo_tipos.get(tipo, tipo)
+        elif campo == "fecha":
+            # Verificar formato de fecha básico
+            return bool(re.match(r'\d{4}-\d{1,2}-\d{1,2}', valor_str))
         
-        return datos_validados
+        elif campo == "hora":
+            # Verificar formato de hora básico
+            return bool(re.match(r'\d{1,2}:\d{2}(:\d{2})?', valor_str))
+        
+        elif campo == "referencia":
+            # Verificar longitud mínima
+            return len(valor_str) >= 4
+        
+        return True
     
     def _determinar_engine_ganador(self, resultados: Dict[str, Dict[str, Any]]) -> str:
         """Determina qué engine tuvo el mejor resultado"""
@@ -718,10 +687,6 @@ class EnhancedOCRExtractor:
         for engine, resultado in resultados.items():
             if "error" in resultado:
                 continue
-            
-            # GPT-4o siempre gana si no hay errores
-            if engine == "openai":
-                return "openai_gpt4o"
             
             # Calcular score basado en confianza y campos extraídos
             confianza = resultado.get("confianza", 0)
@@ -736,8 +701,48 @@ class EnhancedOCRExtractor:
         
         return mejor_engine
     
+    def _requiere_mejora_imagen(self, metadata: Dict[str, Any]) -> bool:
+        """Determina si la imagen requiere mejoras para futuras extracciones"""
+        calidad = metadata.get("calidad_score", 100)
+        return calidad < 70
+    
+    def _validar_datos_sin_errores(self, datos: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validación más flexible de los datos extraídos
+        """
+        datos_validados = datos.copy()
+        mensajes_info = []
+
+        # Validar hora
+        if 'hora' in datos and datos['hora']:
+            hora = datos['hora'].strip()
+            if re.match(r'\d{1,2}:\d{2}(:\d{2})?', hora):
+                if ':' in hora and len(hora.split(':')) == 2:
+                    hora = f"{hora}:00"
+                datos_validados['hora'] = hora
+                if hora != datos['hora']:
+                    mensajes_info.append(f"🕒 Hora normalizada: {datos['hora']} → {hora}")
+
+        # Validar referencia
+        if 'referencia' in datos and datos['referencia']:
+            ref = str(datos['referencia']).strip().upper()
+            if re.match(r'[A-Z0-9]{5,}', ref):
+                datos_validados['referencia'] = ref
+                if ref != datos['referencia']:
+                    mensajes_info.append(f"📝 Referencia normalizada: {datos['referencia']} → {ref}")
+
+        # Registrar mensajes informativos
+        if mensajes_info:
+            logger.info("ℹ️ Información de normalización:")
+            for msg in mensajes_info:
+                logger.info(f"  {msg}")
+
+        return datos_validados
+    
     def _formatear_validacion_ia(self, resultado_validacion: Any) -> Optional[Dict[str, Any]]:
-        """Formatea el resultado de validación IA para la respuesta"""
+        """
+        Formatea el resultado de validación IA para la respuesta
+        """
         if not resultado_validacion:
             return None
             
@@ -757,7 +762,9 @@ class EnhancedOCRExtractor:
             return None
 
     async def _extraer_fallback(self, file: UploadFile) -> Optional[Dict[str, Any]]:
-        """Extracción de emergencia usando solo EasyOCR"""
+        """
+        Extracción de emergencia usando solo EasyOCR
+        """
         try:
             # Leer el archivo
             contents = await file.read()
@@ -783,7 +790,7 @@ class EnhancedOCRExtractor:
             texto_completo = " ".join([text[1] for text in result])
             
             # Usar patrones para extraer datos básicos
-            datos = self._extraer_datos_con_patrones_mejorados(texto_completo)
+            datos = self._extraer_datos_con_patrones(texto_completo)
             
             return {
                 "datos": datos,
@@ -796,14 +803,6 @@ class EnhancedOCRExtractor:
             logger.error(f"Error en extracción fallback: {str(e)}")
             return None
 
-    def get_engines_status(self) -> Dict[str, str]:
-        """Retorna el estado de los engines disponibles"""
-        return {
-            "openai_gpt4o": "disponible",
-            "easyocr": "disponible", 
-            "tesseract": "disponible"
-        }
-
 # Crear la instancia global del extractor
 enhanced_extractor = None
 
@@ -812,9 +811,9 @@ def init_extractor():
     global enhanced_extractor
     if enhanced_extractor is None:
         try:
-            logger.info("🚀 Inicializando EnhancedOCRExtractor con GPT-4o...")
+            logger.info("🚀 Inicializando EnhancedOCRExtractor...")
             enhanced_extractor = EnhancedOCRExtractor()
-            logger.info("✅ EnhancedOCRExtractor con GPT-4o inicializado correctamente")
+            logger.info("✅ EnhancedOCRExtractor inicializado correctamente")
             return enhanced_extractor
         except Exception as e:
             logger.error(f"❌ Error inicializando EnhancedOCRExtractor: {e}")
