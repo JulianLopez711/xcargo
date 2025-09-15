@@ -57,11 +57,8 @@ interface DetalleTracking {
   estado: string;
   novedades: string;
   comprobante: string;
-  valor_guia: number;
-  valor_guia_cod?: number;
-  valor_guia_gl?: number; 
+  valor_guia: number;  // Solo valor_guia de guias_liquidacion
   valor_total_consignacion_pc: number;
-
 }
 
 interface PaginacionInfo {
@@ -593,16 +590,20 @@ const verDetallesPago = async ({
 }) => {
   try {
     let url = "";
+    const params = new URLSearchParams();
+    
     // Si el pago tiene id_transaccion, solo enviar ese parámetro
     if (id_transaccion !== undefined && id_transaccion !== null) {
-      url = `http://127.0.0.1:8000/pagos/detalles-pago?id_transaccion=${id_transaccion}`;
+      params.append("id_transaccion", id_transaccion.toString());
     } else {
-      const params = new URLSearchParams();
+      // Para pagos sin Id_Transaccion, usar referencia_pago y filtros adicionales
+      params.append("referencia_pago", referencia_pago);
       if (correo) params.append("correo", correo);
       if (fecha_pago) params.append("fecha_pago", fecha_pago);
       if (valor !== undefined) params.append("valor", valor.toString());
-      url = `http://127.0.0.1:8000/pagos/detalles-pago/${referencia_pago}?${params.toString()}`;
     }
+    
+    url = `http://127.0.0.1:8000/pagos/detalles-pago?${params.toString()}`;
 
     const response = await fetch(url);
 
@@ -1441,6 +1442,46 @@ function parseFechaLocal(fechaStr: string) {
                     )}
                   </td>
                   
+                  {/* 🔥 COLUMNA DE NOVEDADES */}
+                  <td style={{ 
+                    padding: "6px", 
+                    fontSize: "0.85rem",
+                    minWidth: "250px",
+                    maxWidth: "300px",
+                    wordWrap: "break-word",
+                    verticalAlign: "top"
+                  }}>
+                    {p.novedades && p.novedades.trim() ? (
+                      <div style={{
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        backgroundColor: "#fff3cd",
+                        border: "1px solid #ffeaa7",
+                        color: "#856404",
+                        fontSize: "0.75rem",
+                        lineHeight: "1.4",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word"
+                      }}>
+                        {p.novedades}
+                      </div>
+                    ) : (
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "4px 8px",
+                        borderRadius: "12px",
+                        fontSize: "0.75rem",
+                        fontWeight: "500",
+                        backgroundColor: "#f8f9fa",
+                        color: "#6c757d",
+                        border: "1px solid #e9ecef"
+                      }}>
+                        Sin novedades
+                      </span>
+                    )}
+                  </td>
+                  
                   {/* 🔥 MEJORAR BOTÓN DE RECHAZO */}
                   <td>
                     {!(p.estado_conciliacion === "rechazado" ||
@@ -1466,7 +1507,7 @@ function parseFechaLocal(fechaStr: string) {
                 {/* Fila adicional para mostrar transacciones bancarias */}
                 {p.es_grupo_transaccion && p.Id_Transaccion && transaccionesBancarias[String(p.Id_Transaccion)] && (
                   <tr style={{ backgroundColor: "#f8f9fa" }}>
-                    <td colSpan={13} style={{ padding: "12px" }}>
+                    <td colSpan={14} style={{ padding: "12px" }}>
                       <div style={{
                         backgroundColor: "white",
                         border: "1px solid #dee2e6",
@@ -1533,7 +1574,7 @@ function parseFechaLocal(fechaStr: string) {
               ))
             ) : (
               <tr>
-                <td colSpan={13} style={{ textAlign: "center", padding: "1rem" }}>
+                <td colSpan={14} style={{ textAlign: "center", padding: "1rem" }}>
                   {cargando ? "Cargando..." : "No hay pagos registrados."}
                 </td>
               </tr>
@@ -1641,18 +1682,9 @@ function parseFechaLocal(fechaStr: string) {
               <span className="pago-info-value">
                 {
                   (() => {
-                    // Sumar el menor valor distinto de cero de cada guía
+                    // Sumar solo valor_guia de cada guía
                     const total = detalleTracking.reduce((sum, item) => {
-                      const valores = [
-                        item.valor_guia ?? 0,
-                        item.valor_guia_cod ?? 0,
-                        item.valor_total_consignacion_pc ?? 0,
-                        item.valor ?? 0,
-                        item.valor_guia_gl ?? 0,
-                        item.valor_guia_cod ?? 0
-                      ].filter(v => v > 0);
-                      const menor = valores.length > 0 ? Math.min(...valores) : 0;
-                      return sum + menor;
+                      return sum + (item.valor_guia ?? 0);
                     }, 0);
                     return `$${total.toLocaleString('es-ES')}`;
                   })()
@@ -1685,18 +1717,9 @@ function parseFechaLocal(fechaStr: string) {
                     <div className="tracking-valor">
                       {
                         (() => {
-                          // Mostrar el menor valor distinto de cero
-                          const valores = [
-                            item.valor_guia ?? 0,
-                            item.valor_guia_cod ?? 0,
-                            item.valor_total_consignacion_pc ?? 0,
-                            item.valor ?? 0,
-                            item.valor_guia_gl ?? 0,
-                            item.valor_guia_cod ?? 0
-                          ].filter(v => v > 0);
-                          if (valores.length === 0) return "$0";
-                          const menor = Math.min(...valores);
-                          return `$${menor.toLocaleString('es-ES')}`;
+                          // Mostrar solo valor_guia
+                          const valor = item.valor_guia ?? 0;
+                          return `$${valor.toLocaleString('es-ES')}`;
                         })()
                       }
                     </div>
@@ -1715,18 +1738,9 @@ function parseFechaLocal(fechaStr: string) {
                       <span className="pago-info-value">
                         {
                           (() => {
-                            // Mostrar el menor valor distinto de cero
-                            const valores = [
-                              item.valor_guia ?? 0,
-                              item.valor_guia_cod ?? 0,
-                              item.valor_total_consignacion_pc ?? 0,
-                              item.valor ?? 0,
-                              item.valor_guia_gl ?? 0,
-                              item.valor_guia_cod ?? 0
-                            ].filter(v => v > 0);
-                            if (valores.length === 0) return "$0";
-                            const menor = Math.min(...valores);
-                            return `$${menor.toLocaleString('es-ES')}`;
+                            // Mostrar solo valor_guia
+                            const valor = item.valor_guia ?? 0;
+                            return `$${valor.toLocaleString('es-ES')}`;
                           })()
                         }
                       </span>
