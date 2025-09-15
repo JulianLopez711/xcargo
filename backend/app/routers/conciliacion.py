@@ -10,15 +10,53 @@ import asyncio
 
 from decimal import Decimal
 from collections import defaultdict
+
+router = APIRouter(prefix="/conciliacion", tags=["Conciliacion"])
+
+@router.post("/actualizar-estado-pagos-1901")
+async def actualizar_estado_pagos_1901():
+    """
+    Actualiza el campo estado_conciliacion a 'pendiente_conciliacion' para todos los pagos con Id_Transaccion = 1901.
+    """
+    try:
+        client = get_bigquery_client()
+        logger.info("🔄 Actualizando estado_conciliacion a 'pendiente_conciliacion' para pagos con Id_Transaccion = 1901...")
+        query_update_estado = f"""
+        UPDATE `{PROJECT_ID}.{DATASET_CONCILIACIONES}.pagosconductor`
+        SET estado_conciliacion = 'pendiente_conciliacion'
+        WHERE Id_Transaccion = 1901
+        """
+        update_job_estado = client.query(query_update_estado)
+        update_job_estado.result()
+        registros_actualizados = update_job_estado.num_dml_affected_rows
+        logger.info(f"✅ Registros actualizados a pendiente_conciliacion (Id_Transaccion=1901): {registros_actualizados}")
+        return {
+            "mensaje": f"{registros_actualizados} pagos actualizados a pendiente_conciliacion (Id_Transaccion=1901)",
+            "registros_actualizados": registros_actualizados,
+            "Id_Transaccion": 1901,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"❌ Error actualizando estado_conciliacion: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error actualizando estado_conciliacion: {str(e)}"
+        )
+from fastapi import APIRouter, Form, UploadFile, File, HTTPException, Body, Query, Depends,status
+from fastapi.responses import StreamingResponse
+from google.cloud import bigquery
+from typing import List, Dict, Optional, Any, AsyncGenerator
+from pydantic import BaseModel
+from datetime import datetime, date, timedelta
+import logging
 import json
 import asyncio
-import logging
+
+from decimal import Decimal
+from collections import defaultdict
 import os
 import csv
 import io
-import logging
-import json
-import asyncio
 
 def get_bigquery_client() -> bigquery.Client:
     """Obtiene cliente de BigQuery con manejo de errores"""
@@ -41,6 +79,10 @@ def convertir_decimales_a_float(obj):
         return [convertir_decimales_a_float(item) for item in obj]
     else:
         return obj
+
+def json_safe_dumps(obj):
+    """Serializa objetos a JSON de forma segura, convirtiendo Decimals a float"""
+    return json.dumps(convertir_decimales_a_float(obj))
 
 from ..utils.conciliacion_utils import (
     calcular_diferencia_valor,
@@ -732,8 +774,7 @@ def conciliar_pago_automaticamente(
                 bm.fecha,
                 CASE 
                     WHEN LOWER(bm.descripcion) LIKE '%' || @tracking || '%' THEN 100
-                    WHEN ABS(bm.valor_banco - @valor) < 1 THEN 90
-                    WHEN ABS(bm.valor_banco - @valor) <= 100 THEN 80
+                    WHEN bm.valor_banco = @valor THEN 90  -- 🔥 VALOR EXACTO, NO MARGEN
                     ELSE 0
                 END as score_base,
                 CASE
@@ -746,7 +787,7 @@ def conciliar_pago_automaticamente(
             LEFT JOIN `datos-clientes-441216.Conciliaciones.pagosconductor` pc
                 ON bm.referencia_pago_asociada = pc.referencia_pago
             WHERE bm.fecha = @fecha
-              AND ABS(bm.valor_banco - @valor) <= 100
+              AND bm.valor_banco = @valor  -- 🔥 VALOR EXACTO, NO MARGEN
               AND bm.estado_conciliacion = 'pendiente'
               AND pc.referencia_pago IS NULL
         )
@@ -771,12 +812,13 @@ def conciliar_pago_automaticamente(
             )
         ).result())
 
-        # 3. Procesar coincidencias
+        # 3. Procesar coincidencias - SOLO MATCHES EXACTOS
         for mov in movimientos:
             score_total = float(mov.score_total)
             es_match_exacto = score_total >= 90
             
-            if es_match_exacto or score_total >= 80:
+            # 🔥 SOLO CONCILIAR SI ES MATCH EXACTO (score >= 90)
+            if es_match_exacto:
                 # Actualizar movimiento banco
                 query_update_banco = """
                 UPDATE `datos-clientes-441216.Conciliaciones.banco_movimientos`
@@ -791,8 +833,7 @@ def conciliar_pago_automaticamente(
                     query_update_banco,
                     job_config=bigquery.QueryJobConfig(
                         query_parameters=[
-                            bigquery.ScalarQueryParameter("estado", "STRING", 
-                                "conciliado_automatico" if es_match_exacto else "conciliado_aproximado"),
+                            bigquery.ScalarQueryParameter("estado", "STRING", "conciliado_automatico"),
                             bigquery.ScalarQueryParameter("referencia", "STRING", referencia_pago),
                             bigquery.ScalarQueryParameter("id_banco", "STRING", mov.id)
                         ]
@@ -814,8 +855,7 @@ def conciliar_pago_automaticamente(
                     query_update_pago,
                     job_config=bigquery.QueryJobConfig(
                         query_parameters=[
-                            bigquery.ScalarQueryParameter("estado", "STRING", 
-                                "conciliado_automatico" if es_match_exacto else "conciliado_aproximado"),
+                            bigquery.ScalarQueryParameter("estado", "STRING", "conciliado_automatico"),
                             bigquery.ScalarQueryParameter("id_banco", "STRING", mov.id),
                             bigquery.ScalarQueryParameter("id_pago", "STRING", id_pago),
                             bigquery.ScalarQueryParameter("confianza", "FLOAT", score_total)
@@ -860,7 +900,8 @@ async def conciliacion_automatica_mejorada():
                         pc.valor_total_consignacion AS valor_total_consignacion,
                         pc.fecha_pago AS fecha_pago,
                         pc.id_string AS id_string,
-                        pc.Id_Transaccion AS Id_Transaccion
+                        pc.Id_Transaccion AS Id_Transaccion,
+                        pc.correo AS correo
                     )) AS pagos
                 FROM `datos-clientes-441216.Conciliaciones.pagosconductor` pc
                 WHERE pc.fecha_pago >= @fecha_minima_auto
@@ -878,7 +919,7 @@ async def conciliacion_automatica_mejorada():
             for row in pagos_rows:
                 pagos_por_grupo[row.grupo_pago] = row.pagos
 
-            yield f"data: {json.dumps({'tipo': 'info', 'mensaje': f'📊 {sum(len(p) for p in pagos_por_grupo.values())} pagos en {len(pagos_por_grupo)} grupos', 'porcentaje': 20})}\n\n"
+            yield f"data: {json_safe_dumps({'tipo': 'info', 'mensaje': f'📊 {sum(len(p) for p in pagos_por_grupo.values())} pagos en {len(pagos_por_grupo)} grupos', 'porcentaje': 20})}\n\n"
             await asyncio.sleep(0.1)
 
             # 2. Obtener movimientos bancarios pendientes CON VALIDACIÓN DE VALOR EXTRAÍDO
@@ -901,7 +942,7 @@ async def conciliacion_automatica_mejorada():
             """
             banco_rows = list(client.query(query_banco).result())
 
-            yield f"data: {json.dumps({'tipo': 'info', 'mensaje': f'💳 {len(banco_rows)} movimientos bancarios pendientes', 'porcentaje': 40})}\n\n"
+            yield f"data: {json_safe_dumps({'tipo': 'info', 'mensaje': f'💳 {len(banco_rows)} movimientos bancarios pendientes', 'porcentaje': 40})}\n\n"
             await asyncio.sleep(0.1)
 
             resultados = []
@@ -940,7 +981,7 @@ async def conciliacion_automatica_mejorada():
                     # Caso agrupado: SIN MATCH directo
                     resultado_operacion["operacion"] = "sin_match_agrupado"
                     resultado_operacion["mensaje"] = "Pago agrupado (varias referencias), no se concilia automáticamente"
-                    yield f"data: {json.dumps({'tipo': 'info', 'mensaje': f'❌ SIN MATCH AGRUPADO: {grupo}', 'porcentaje': porcentaje_actual})}\n\n"
+                    yield f"data: {json_safe_dumps({'tipo': 'info', 'mensaje': f'❌ SIN MATCH AGRUPADO: {grupo}', 'porcentaje': porcentaje_actual})}\n\n"
                 else:
                     # Caso individual: buscar match exacto en banco usando VALOR EXTRAÍDO DEL ID
                     match = None
@@ -955,7 +996,7 @@ async def conciliacion_automatica_mejorada():
                             # Si hay diferencia significativa, loguear para diagnóstico
                             if diferencia_valores > 1000:  # Diferencia mayor a $1,000
                                 logger.warning(f"⚠️ DISCREPANCIA en {mov.id}: valor_banco=${mov.valor_banco}, valor_extraído=${valor_banco_real}")
-                                yield f"data: {json.dumps({'tipo': 'warning', 'mensaje': f'⚠️ Discrepancia detectada en {mov.id}', 'porcentaje': porcentaje_actual})}\n\n"
+                                yield f"data: {json_safe_dumps({'tipo': 'warning', 'mensaje': f'⚠️ Discrepancia detectada en {mov.id}', 'porcentaje': porcentaje_actual})}\n\n"
                                 # Continuar con la siguiente iteración si hay discrepancia grande
                                 continue
                             
@@ -979,8 +1020,9 @@ async def conciliacion_automatica_mejorada():
                             ref_banco = f"{referencia_pago};{id_transaccion}"
                             logger.info(f"🔗 Actualizando por Id_Transaccion: {id_transaccion}")
                         else:
-                            # ✅ PAGO SIN Id_Transaccion: Usar criterios específicos (referencia + fecha + valor)
+                            # 🔥 PAGO SIN Id_Transaccion: Usar criterios MUY ESPECÍFICOS para evitar afectar otros pagos
                             valor_pago = pagos[0]["valor_total_consignacion"] if pagos[0]["valor_total_consignacion"] else pagos[0]["valor"]
+                            correo_conductor = pagos[0]["correo"]
                             update_pagos_query = f"""
                                 UPDATE `datos-clientes-441216.Conciliaciones.pagosconductor`
                                 SET estado_conciliacion = 'conciliado_automatico',
@@ -989,12 +1031,13 @@ async def conciliacion_automatica_mejorada():
                                     confianza_conciliacion = 100
                                 WHERE referencia_pago = '{referencia_pago}'
                                   AND fecha_pago = '{fecha_pago}'
-                                  AND COALESCE(valor_total_consignacion, valor) = {valor_pago}
+                                  AND correo = '{correo_conductor}'
+                                  AND COALESCE(valor_total_consignacion, CAST(valor AS FLOAT64)) = {valor_pago}
                                   AND Id_Transaccion IS NULL
                                   AND estado_conciliacion = 'pendiente_conciliacion'
                             """
                             ref_banco = referencia_pago
-                            logger.info(f"📄 Actualizando pago individual: {referencia_pago} | {fecha_pago} | ${valor_pago}")
+                            logger.info(f"📄 Actualizando pago individual ESPECÍFICO: {referencia_pago} | {correo_conductor} | {fecha_pago} | ${valor_pago}")
                         
                         client.query(update_pagos_query).result()
                         
@@ -1024,7 +1067,7 @@ async def conciliacion_automatica_mejorada():
                         valor_usado = float(match.valor_real_extraido) if match.valor_real_extraido else float(match.valor_banco)
                         logger.info(f"✅ CONCILIADO: {grupo} | Pago=${valor_total:,.0f} | Banco=${valor_usado:,.0f} | ID={match.id}")
                         
-                        yield f"data: {json.dumps({'tipo': 'exito', 'mensaje': f'✅ CONCILIADO: {grupo} - Pago:${valor_total:,.0f} ↔ Banco:${valor_usado:,.0f}', 'porcentaje': porcentaje_actual})}\n\n"
+                        yield f"data: {json_safe_dumps({'tipo': 'exito', 'mensaje': f'✅ CONCILIADO: {grupo} - Pago:${valor_total:,.0f} ↔ Banco:${valor_usado:,.0f}', 'porcentaje': porcentaje_actual})}\n\n"
                     else:
                         resultado_operacion["operacion"] = "sin_match"
                         
@@ -1045,20 +1088,37 @@ async def conciliacion_automatica_mejorada():
                         logger.info(f"❌ SIN MATCH: {grupo} | Pago=${valor_total:,.0f} en {fecha_pago} | Matches valor:{len(matches_por_valor)} fecha:{len(matches_por_fecha)}")
                         
                         mensaje_sin_match = resultado_operacion["mensaje"]
-                        yield f"data: {json.dumps({'tipo': 'info', 'mensaje': f'❌ SIN MATCH: {grupo} - {mensaje_sin_match}', 'porcentaje': porcentaje_actual})}\n\n"
+                        yield f"data: {json_safe_dumps({'tipo': 'info', 'mensaje': f'❌ SIN MATCH: {grupo} - {mensaje_sin_match}', 'porcentaje': porcentaje_actual})}\n\n"
 
                 resultados.append(resultado_operacion)
 
             # Finalización
-            yield f"data: {json.dumps({'tipo': 'fase', 'mensaje': '🏁 Finalizando conciliación y generando reporte...', 'porcentaje': 100})}\n\n"
+            yield f"data: {json_safe_dumps({'tipo': 'fase', 'mensaje': '🏁 Finalizando conciliación y generando reporte...', 'porcentaje': 100})}\n\n"
             await asyncio.sleep(0.1)
 
+            # Generar resumen para compatibilidad con el frontend
+            resumen = {
+                "total_movimientos_banco": 0,  # Se podría calcular si es necesario
+                "total_pagos_conductores": len(resultados),
+                "conciliado_automatico": len([r for r in resultados if r.get("estado_match") == "conciliado_automatico"]),
+                "conciliado_aproximado": len([r for r in resultados if r.get("estado_match") == "conciliado_aproximado"]),
+                "sin_match": len([r for r in resultados if r.get("estado_match") == "sin_match"]),
+                "total_procesados": len(resultados)
+            }
+
+            # Crear estructura compatible con el frontend
+            resultado_final = {
+                "resumen": resumen,
+                "resultados": resultados,
+                "fecha_conciliacion": datetime.now().isoformat()
+            }
+
             # Devuelve todos los pagos pendientes con resultado de la operación
-            yield f"data: {json.dumps({'tipo': 'completado', 'pagos_resultado': resultados, 'timestamp': datetime.now().isoformat()})}\n\n"
+            yield f"data: {json_safe_dumps({'tipo': 'completado', 'resultado': resultado_final, 'timestamp': datetime.now().isoformat(), 'exitoso': True})}\n\n"
 
         except Exception as e:
             error_msg = f"💥 Error crítico en conciliación: {str(e)}"
-            yield f"data: {json.dumps({'tipo': 'error', 'mensaje': error_msg, 'porcentaje': 0})}\n\n"
+            yield f"data: {json_safe_dumps({'tipo': 'error', 'mensaje': error_msg, 'porcentaje': 0})}\n\n"
 
     return StreamingResponse(
         generar_progreso(),
@@ -1077,7 +1137,8 @@ async def conciliacion_automatica_fallback():
     Endpoint de conciliación automática tradicional como fallback
     """
     client = bigquery.Client()
-    margen_error = 100
+    # 🔥 ELIMINADO MARGEN DE ERROR - SOLO VALORES EXACTOS
+    # margen_error = 100
 
     try:
         print("🚀 Iniciando conciliación automática (fallback)...")
@@ -1120,10 +1181,10 @@ async def conciliacion_automatica_fallback():
             valor_total = sum(pago.valor for pago in pagos)
             fecha_pago = pagos[0].fecha_pago
 
-            # Buscar match exacto
+            # 🔥 BUSCAR MATCH EXACTO - SIN MARGEN DE ERROR
             match = next((
                 movimiento for movimiento in banco_rows
-                if abs(movimiento.valor_banco - valor_total) <= margen_error
+                if movimiento.valor_banco == valor_total  # 🔥 VALOR EXACTO, NO MARGEN
                 and str(movimiento.fecha) == str(fecha_pago)
             ), None)
 
@@ -3354,7 +3415,7 @@ async def consultas():
         
         # Lista específica de tracking numbers a eliminar
         tracking_numbers = [
-            "4894664786128080"
+            "0741337233604322"
         ]
         
         logger.info(f"🎯 Tracking numbers objetivo para eliminación: {tracking_numbers}")

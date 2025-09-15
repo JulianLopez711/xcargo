@@ -1010,7 +1010,9 @@ const limpiarSelecciones = () => {
     }
   };
 
-  // ✅ FUNCIÓN EJECUTAR CONCILIACIÓN CON PROGRESO EN TIEMPO REAL Y FALLBACK
+  // ✅ FUNCIÓN EJECUTAR CONCILIACIÓN CON PROGRESO EN TIEMPO REAL Y FALLBACK SOLO EN ERRORES
+  // 🔥 MEJORA: El fallback solo se ejecuta en caso de errores reales de conectividad,
+  // no cuando la conciliación normal se complete exitosamente
   const ejecutarConciliacion = async () => {
     setProcesandoConciliacion(true);
     setLogsProgreso([]); // Limpiar logs anteriores
@@ -1019,16 +1021,19 @@ const limpiarSelecciones = () => {
     try {
       // Verificar si el navegador soporta EventSource
       if (typeof EventSource !== 'undefined') {
-        
+        console.log("🌐 Usando EventSource para conciliación en tiempo real");
         await ejecutarConciliacionConProgreso();
+        console.log("✅ Conciliación completada exitosamente, no se ejecutará fallback");
       } else {
         console.warn("EventSource no soportado, usando método tradicional");
         await ejecutarConciliacionFallback();
       }
     } catch (err: any) {
-      // Si el error es FALLBACK_NEEDED, usar fallback silenciosamente
+      console.error("❌ Error en conciliación:", err);
+      
+      // Solo usar fallback si hay un error real, no si la conciliación se completó
       if (err.message === "FALLBACK_NEEDED") {
-        
+        console.log("🔄 EventSource falló, intentando fallback...");
         try {
           await ejecutarConciliacionFallback();
         } catch (fallbackErr: any) {
@@ -1037,19 +1042,21 @@ const limpiarSelecciones = () => {
           updateProgress(0, 100, "❌ Error en la conciliación");
         }
       } else {
-        // Para otros errores, mostrar el mensaje
-        console.error("Error en conciliación:", err);
-        try {
-          await ejecutarConciliacionFallback();
-        } catch (fallbackErr: any) {
-          console.error("Error en fallback también:", fallbackErr);
-          setMensaje("❌ Error ejecutando conciliación: " + fallbackErr.message);
-          updateProgress(0, 100, "❌ Error en la conciliación");
-        }
+        // Para otros errores críticos, mostrar el error sin fallback automático
+        console.error("Error crítico en conciliación:", err);
+        setMensaje("❌ Error ejecutando conciliación: " + err.message);
+        updateProgress(0, 100, "❌ Error en la conciliación");
+        
+        // 🚀 NUEVA FUNCIONALIDAD: Abrir automáticamente los pendientes de conciliación
+        console.log("🔧 Abriendo modal de conciliación manual por error...");
+        setTimeout(() => {
+          setMostrarPendientesManual(true);
+          cargarPendientesPorConciliar(1, true); // Cargar pendientes desde el inicio
+        }, 3000); // Esperar 3 segundos después del error
       }
     } finally {
       setTimeout(() => {
-        
+        console.log("🏁 Finalizando proceso de conciliación");
         setProcesandoConciliacion(false);
         setLoadingProgress({
           total: 0,
@@ -1140,11 +1147,40 @@ const limpiarSelecciones = () => {
               case 'completado':
                 updateProgress(100, 100, data.mensaje || "Conciliación completada");
                 
-                
+                console.log("✅ Conciliación completada exitosamente");
+                setMensaje("✅ Conciliación automática completada exitosamente");
                 
                 // Si tiene resultado, procesarlo
                 if (data.resultado) {
                   procesarResultadoConciliacion(data.resultado);
+                  console.log("📊 Resultado procesado, no se ejecutará fallback");
+                  
+                  // Mostrar estadísticas de la conciliación
+                  const resumen = data.resultado.resumen;
+                  if (resumen) {
+                    const mensajeResumen = `🎯 Conciliación completada: ${resumen.conciliado_automatico || 0} automáticos, ${resumen.sin_match || 0} pendientes`;
+                    setMensaje(mensajeResumen);
+                    
+                    // Si hay pagos sin conciliar, sugerir conciliación manual
+                    if (resumen.sin_match > 0) {
+                      setTimeout(() => {
+                        setMensaje(mensajeResumen + " - ¿Deseas revisar los pendientes manualmente?");
+                      }, 3000);
+                    }
+                  }
+                } else if (data.pagos_resultado) {
+                  // Compatibilidad con formato anterior
+                  const resultadoCompatible = {
+                    resumen: {
+                      total_pagos_conductores: data.pagos_resultado.length,
+                      conciliado_automatico: 0,
+                      sin_match: 0
+                    },
+                    resultados: data.pagos_resultado,
+                    fecha_conciliacion: data.timestamp
+                  };
+                  procesarResultadoConciliacion(resultadoCompatible);
+                  console.log("📊 Resultado compatible procesado, no se ejecutará fallback");
                 }
                 
                 resolved = true;
@@ -1153,10 +1189,33 @@ const limpiarSelecciones = () => {
                 break;
                 
               case 'error':
-                console.warn("Error en EventSource, cambiando a método fallback:", data.mensaje);
-                resolved = true;
-                cleanup();
-                reject(new Error("FALLBACK_NEEDED"));
+                console.warn("❌ Error reportado por el servidor:", data.mensaje);
+                // Solo usar fallback si es un error de conectividad o del servidor
+                if (data.mensaje && (
+                  data.mensaje.includes("conexión") || 
+                  data.mensaje.includes("servidor") ||
+                  data.mensaje.includes("timeout") ||
+                  data.mensaje.includes("network")
+                )) {
+                  console.log("🔄 Error de conectividad detectado, activando fallback");
+                  resolved = true;
+                  cleanup();
+                  reject(new Error("FALLBACK_NEEDED"));
+                } else {
+                  // Para errores de lógica de negocio, no usar fallback pero abrir modal
+                  console.log("⚠️ Error de lógica de negocio, abriendo conciliación manual");
+                  setMensaje("❌ " + (data.mensaje || "Error en conciliación"));
+                  
+                  // 🚀 Abrir modal de conciliación manual automáticamente
+                  setTimeout(() => {
+                    setMostrarPendientesManual(true);
+                    cargarPendientesPorConciliar(1, true);
+                  }, 2000);
+                  
+                  resolved = true;
+                  cleanup();
+                  reject(new Error(data.mensaje || "Error en conciliación"));
+                }
                 break;
 
               default:
@@ -1180,22 +1239,38 @@ const limpiarSelecciones = () => {
               errorMessage: parseError?.message || "Error desconocido"
             });
             
-            // Si el error contiene "Decimal", es el problema conocido
+            // Si el error contiene "Decimal", es el problema conocido - no requiere fallback
             if (event.data.includes('Decimal') || parseError?.message?.includes('Decimal')) {
-              
+              console.log("⚠️ Error de formato decimal conocido, continuando sin fallback");
+              return; // Continuar sin activar fallback
             }
             
-            if (!resolved) {
+            // Solo usar fallback para errores críticos de parsing
+            if (!resolved && event.data.length > 0 && !event.data.includes('data:')) {
+              console.log("🔄 Error crítico de parsing, activando fallback");
               resolved = true;
               cleanup();
               reject(new Error("FALLBACK_NEEDED"));
+            } else if (!resolved && parseError?.message?.includes('JSON')) {
+              // Si es un error de JSON pero no crítico, abrir modal de conciliación manual
+              console.log("🔧 Error de JSON, abriendo conciliación manual...");
+              setMensaje("❌ Error de formato en datos, abriendo conciliación manual");
+              setTimeout(() => {
+                setMostrarPendientesManual(true);
+                cargarPendientesPorConciliar(1, true);
+              }, 2000);
+              resolved = true;
+              cleanup();
+              resolve(); // Resolver como exitoso para no activar fallback
             }
           }
         };
 
-        eventSource.onerror = function() {
-          console.warn("Error de conexión EventSource, usando método fallback");
+        eventSource.onerror = function(error) {
+          console.warn("❌ Error de conexión EventSource:", error);
+          // Solo usar fallback para errores de conexión reales
           if (!resolved) {
+            console.log("🔄 Error de conexión detectado, activando fallback");
             resolved = true;
             cleanup();
             reject(new Error("FALLBACK_NEEDED"));
@@ -2108,7 +2183,7 @@ useEffect(() => {
               ? "🔄 Consultando..."
               : "👁‍🗨"}
           </button>
-          FIN BOTONES COMENTADOS */}
+           FIN BOTONES COMENTADOS */}
         </div>
         <style>{`
           .boton-animado:hover:not(:disabled), .boton-animado:focus:not(:disabled) {
@@ -2134,9 +2209,37 @@ useEffect(() => {
               whiteSpace: "pre-line", // Para mostrar saltos de línea en problemas
               maxHeight: "120px",
               overflowY: "auto",
+              position: "relative"
             }}
           >
             {mensaje}
+            
+            {/* 🚀 BOTÓN DE CONCILIACIÓN MANUAL PARA ERRORES */}
+            {mensaje.includes("❌") && !mostrarPendientesManual && (
+              <div style={{ marginTop: "10px", textAlign: "center" }}>
+                <button
+                  className="boton-conciliar boton-animado"
+                  style={{ 
+                    background: "#f59e0b", 
+                    color: "#fff", 
+                    fontSize: "14px", 
+                    padding: "0.5em 1em", 
+                    borderRadius: "6px",
+                    border: "none",
+                    cursor: "pointer",
+                    transition: "all 0.2s"
+                  }}
+                  onClick={() => {
+                    setMostrarPendientesManual(true);
+                    cargarPendientesPorConciliar(1, true);
+                    setMensaje("🔧 Abriendo conciliación manual...");
+                  }}
+                  disabled={procesandoConciliacion || cargandoPendientes}
+                >
+                  🔧 Abrir Conciliación Manual
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
