@@ -594,17 +594,17 @@ const verDetallesPago = async ({
     
     // Si el pago tiene id_transaccion, solo enviar ese parámetro
     if (id_transaccion !== undefined && id_transaccion !== null) {
-      url = `http://127.0.0.1:8000/pagos/detalles-pago?id_transaccion=${id_transaccion}`;
+      url = `https://api.x-cargo.co/pagos/detalles-pago?id_transaccion=${id_transaccion}`;
     } else {
       // Para pagos sin Id_Transaccion, usar referencia_pago y filtros adicionales
       params.append("referencia_pago", referencia_pago);
       if (correo) params.append("correo", correo);
       if (fecha_pago) params.append("fecha_pago", fecha_pago);
       if (valor !== undefined) params.append("valor", valor.toString());
-      url = `http://127.0.0.1:8000/pagos/detalles-pago/${referencia_pago}?${params.toString()}`;
+      url = `https://api.x-cargo.co/pagos/detalles-pago/${referencia_pago}?${params.toString()}`;
     }
     
-    url = `http://127.0.0.1:8000/pagos/detalles-pago?${params.toString()}`;
+    url = `https://api.x-cargo.co/pagos/detalles-pago?${params.toString()}`;
 
     const response = await fetch(url);
 
