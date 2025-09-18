@@ -5,21 +5,6 @@ import "../../styles/conductor/FormularioPagoConductor.css";
 import LoadingSpinner from "../../components/LoadingSpinner";
 import ValidadorPago from "../../components/ValidadorPago";
 
-// Tipos de pago válidos - SOLO estos valores pueden ser enviados al backend
-const TIPOS_PAGO_VALIDOS = ["consignacion", "Nequi", "Transferencia"] as const;
-type TipoPagoValido = typeof TIPOS_PAGO_VALIDOS[number];
-
-// Función para validar si un tipo de pago es válido
-const esTipoPagoValido = (tipo: string): tipo is TipoPagoValido => {
-  return TIPOS_PAGO_VALIDOS.includes(tipo as TipoPagoValido);
-};
-
-// Función para sanitizar el tipo de pago antes del envío
-const sanitizarTipoPago = (tipo: string): TipoPagoValido | "" => {
-  const tipoLimpio = tipo.trim();
-  return esTipoPagoValido(tipoLimpio) ? tipoLimpio : "";
-};
-
 // Tipos de datos específicos para supervisor
 type GuiaPago = { 
   referencia: string; 
@@ -56,7 +41,6 @@ type OCRResponse = {
     entidad?: string;
     referencia?: string;
     tipo?: string;
-    tipo_comprobante?: string;  // 🔥 AGREGAR CAMPO FALTANTE
   };
   validacion_ia?: {
     score_confianza: number;
@@ -104,12 +88,7 @@ export default function RegistrarPagoSupervisor() {
     tipo: "",
     entidad: "",
     referencia: "",
-  });
-  
-  // 🔒 Estado para controlar si el tipo fue detectado por OCR (no editable)
-  const [tipoDetectadoPorOCR, setTipoDetectadoPorOCR] = useState<boolean>(false);
-  
-  const [validacionPago, setValidacionPago] = useState<any>(null);
+  });  const [validacionPago, setValidacionPago] = useState<any>(null);
 
   // Funciones auxiliares
   const convertirFechaAISO = (fechaTexto: string): string => {
@@ -235,9 +214,6 @@ export default function RegistrarPagoSupervisor() {
     setValidacionIA(null);
     setCalidadOCR(0);
     
-    // 🔓 Reset del estado OCR cuando se cambia el archivo
-    setTipoDetectadoPorOCR(false);
-    
     if (!file) return;
 
     setAnalizando(true);
@@ -245,7 +221,7 @@ export default function RegistrarPagoSupervisor() {
     formData.append("file", file);
 
     try {
-      const response = await fetch("https://api.x-cargo.co/ocr/extraer", {
+      const response = await fetch("http://127.0.0.1:8000/ocr/extraer", {
         method: "POST",
         body: formData,
       });
@@ -265,28 +241,84 @@ export default function RegistrarPagoSupervisor() {
       const data = result.datos_extraidos;
       
       if (data && Object.keys(data).length > 0) {
-        // 🔥 EXTRACCIÓN MEJORADA DEL TIPO - Considerar múltiples campos
-        const tipoExtraido = data.tipo || data.tipo_comprobante || data.entidad || "";
-        const tipoSanitizado = sanitizarTipoPago(tipoExtraido);
-        
-        // 🔥 LOG PARA DEBUGGING
-        console.log("🔍 Datos extraídos del OCR:", data);
-        console.log("🎯 Tipo extraído:", tipoExtraido);
-        console.log("✅ Tipo sanitizado:", tipoSanitizado);
-        
+        // 🔥 FUNCIÓN PARA LIMPIAR Y VALIDAR TIPO DE PAGO - MEJORADA
+        const limpiarTipoPago = (tipoExtraido: string): string => {
+          if (!tipoExtraido) return "";
+          
+          const tipoLower = tipoExtraido.toLowerCase().trim();
+          
+          // 🚫 FILTRAR ENTIDADES BANCARIAS ESPECÍFICAMENTE - PRIMERO
+          const entidadesBancarias = [
+            'bancolombia', 'banco colombia', 'bcolombia',
+            'davivienda', 'banco davivienda', 'daviplata',
+            'banco bogota', 'banco de bogota', 'bbogota',
+            'bbva', 'banco bbva',
+            'colpatria', 'banco colpatria',
+            'av villas', 'banco av villas',
+            'banco popular', 'popular',
+            'banco caja social', 'bcsc', 'caja social',
+            'citibank', 'banco citi',
+            'banco agrario', 'agrario',
+            'banco occidente', 'occidente'
+          ];
+          
+          // Si es una entidad bancaria, RECHAZAR inmediatamente
+          if (entidadesBancarias.some(entidad => tipoLower.includes(entidad))) {
+            console.error(`🚫 RECHAZADO: "${tipoExtraido}" es una entidad bancaria, no un tipo de pago`);
+            return "";
+          }
+          
+          // Lista ESTRICTA de tipos válidos
+          const tiposValidos = ['consignacion', 'nequi', 'transferencia'];
+          
+          // Mapear tipos comunes a tipos válidos
+          const mapeoTipos: { [key: string]: string } = {
+            'consignacion': 'consignacion',
+            'consignación': 'consignacion',
+            'nequi': 'Nequi',
+            'transferencia': 'Transferencia',
+            'transfer': 'Transferencia',
+            'pse': 'Transferencia'
+          };
+          
+          // Buscar coincidencia exacta en el mapeo
+          if (mapeoTipos[tipoLower]) {
+            console.log(`✅ TIPO MAPEADO: "${tipoExtraido}" -> "${mapeoTipos[tipoLower]}"`);
+            return mapeoTipos[tipoLower];
+          }
+          
+          // Si contiene palabras clave válidas
+          if (tipoLower.includes('consigna')) return 'consignacion';
+          if (tipoLower.includes('nequi')) return 'Nequi';
+          if (tipoLower.includes('transfer')) return 'Transferencia';
+          
+          // Si no es reconocido, RECHAZAR
+          console.warn(`⚠️ TIPO NO RECONOCIDO: "${tipoExtraido}". Se deja vacío.`);
+          return "";
+          
+          // Si no es reconocido, dejar vacío para que el usuario seleccione
+          console.warn(`⚠️ Tipo de pago no reconocido: "${tipoExtraido}". Se deja vacío.`);
+          return "";
+        };
+
         const datosLimpios = {
           valor: data.valor || "",
           fecha: convertirFechaAISO(data.fecha || ""),
           hora: normalizarHora(data.hora || ""),
-          tipo: tipoSanitizado, // Solo tipos válidos o string vacío
+          tipo: limpiarTipoPago(data.tipo || ""), // 🔥 SOLO usar data.tipo, NO data.entidad
           entidad: data.entidad || "",
           referencia: data.referencia || "",
         };
 
         setDatosManuales(datosLimpios);
-        
-        // 🔒 Marcar el tipo como detectado por OCR si se encontró un tipo válido
-        setTipoDetectadoPorOCR(tipoSanitizado !== "");
+
+        // 🔥 MOSTRAR ADVERTENCIA SI EL OCR EXTRAJO UN TIPO INVÁLIDO
+        if (data.tipo && !limpiarTipoPago(data.tipo)) {
+          console.warn(`⚠️ OCR extrajo tipo inválido: "${data.tipo}"`);
+          setTimeout(() => {
+            alert(`⚠️ Atención: El OCR detectó "${data.tipo}" como tipo de pago, pero este no es válido.\n\nPor favor selecciona manualmente: Consignación, Nequi o Transferencia.`);
+          }, 500);
+        }
 
         if (result.validacion_ia) {
           setValidacionIA(result.validacion_ia);
@@ -306,153 +338,6 @@ export default function RegistrarPagoSupervisor() {
           setCalidadOCR(result.estadisticas.calidad_imagen);
         }
 
-        // 🛡️ VERIFICACIÓN NEQUI - Si el tipo detectado es Nequi, verificar referencia
-        if (tipoSanitizado.toLowerCase().includes("nequi") && datosLimpios.referencia.trim() !== "") {
-          console.log("🛡️ Iniciando verificación Nequi para referencia:", datosLimpios.referencia);
-          
-          try {
-            const verificacionData = new FormData();
-            verificacionData.append("referencia", datosLimpios.referencia);
-            verificacionData.append("tipo", tipoSanitizado);
-            
-            const verificacionResponse = await fetch("http://127.0.0.1:8000/pagos/verificar-referencia-nequi", {
-              method: "POST",
-              body: verificacionData,
-            });
-            
-            if (verificacionResponse.ok) {
-              const verificacionResult = await verificacionResponse.json();
-              console.log("🔍 Resultado verificación Nequi:", verificacionResult);
-              
-              if (!verificacionResult.permitir_registro) {
-                // Crear modal superpuesto que bloquee el formulario
-                const modalOverlay = document.createElement('div');
-                modalOverlay.style.cssText = `
-                  position: fixed;
-                  top: 0;
-                  left: 0;
-                  width: 100%;
-                  height: 100%;
-                  background-color: rgba(0, 0, 0, 0.6);
-                  display: flex;
-                  justify-content: center;
-                  align-items: center;
-                  z-index: 10000;
-                  backdrop-filter: blur(2px);
-                `;
-                
-                const modalContent = document.createElement('div');
-                modalContent.style.cssText = `
-                  background-color: white;
-                  padding: 2rem;
-                  border-radius: 12px;
-                  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-                  max-width: 500px;
-                  width: 90%;
-                  text-align: center;
-                  animation: modalAppear 0.3s ease-out;
-                `;
-                
-                // Agregar animación CSS
-                const style = document.createElement('style');
-                style.textContent = `
-                  @keyframes modalAppear {
-                    from { opacity: 0; transform: scale(0.8); }
-                    to { opacity: 1; transform: scale(1); }
-                  }
-                  @keyframes fadeOut {
-                    from { opacity: 1; transform: scale(1); }
-                    to { opacity: 0; transform: scale(0.9); }
-                  }
-                `;
-                document.head.appendChild(style);
-                
-                modalContent.innerHTML = `
-                  <div style="color: #dc2626; font-size: 3rem; margin-bottom: 1rem;">❌</div>
-                  <div style="color: #991b1b; font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem;">
-                    REFERENCIA NEQUI DUPLICADA
-                  </div>
-                  <div style="color: #374151; font-size: 1.1rem; margin-bottom: 1.5rem; line-height: 1.5;">
-                    La referencia <strong style="color: #dc2626;">${datosLimpios.referencia}</strong> ya existe en el sistema.
-                    <br><br>
-                    Este pago no se puede registrar.
-                  </div>
-                  <button id="cerrarModal" style="
-                    background-color: #dc2626;
-                    color: white;
-                    border: none;
-                    padding: 0.75rem 2rem;
-                    border-radius: 8px;
-                    font-size: 1rem;
-                    font-weight: bold;
-                    cursor: pointer;
-                    transition: background-color 0.2s;
-                  ">
-                    Entendido
-                  </button>
-                `;
-                
-                modalOverlay.appendChild(modalContent);
-                document.body.appendChild(modalOverlay);
-                
-                // Manejar cierre del modal
-                const botonCerrar = modalContent.querySelector('#cerrarModal');
-                const cerrarModal = () => {
-                  if (document.body.contains(modalOverlay)) {
-                    modalOverlay.style.animation = 'fadeOut 0.3s ease-out';
-                    setTimeout(() => {
-                      if (document.body.contains(modalOverlay)) {
-                        document.body.removeChild(modalOverlay);
-                      }
-                      if (document.head.contains(style)) {
-                        document.head.removeChild(style);
-                      }
-                    }, 300);
-                  }
-                };
-                
-                botonCerrar?.addEventListener('click', cerrarModal);
-                
-                // Cerrar con Escape
-                const handleEscape = (event: KeyboardEvent) => {
-                  if (event.key === 'Escape') {
-                    cerrarModal();
-                    document.removeEventListener('keydown', handleEscape);
-                  }
-                };
-                document.addEventListener('keydown', handleEscape);
-                
-                // Hover effect para el botón
-                botonCerrar?.addEventListener('mouseenter', () => {
-                  (botonCerrar as HTMLElement).style.backgroundColor = '#b91c1c';
-                });
-                botonCerrar?.addEventListener('mouseleave', () => {
-                  (botonCerrar as HTMLElement).style.backgroundColor = '#dc2626';
-                });
-                
-                // Limpiar datos para evitar registro accidental
-                setDatosManuales({
-                  valor: "",
-                  fecha: "",
-                  hora: "",
-                  tipo: "",
-                  entidad: "",
-                  referencia: "",
-                });
-                setArchivo(null);
-                return;
-              } else {
-                console.log("✅ Verificación Nequi exitosa - pago permitido");
-              }
-            } else {
-              console.warn("⚠️ Error en verificación Nequi, permitiendo continuar:", verificacionResponse.status);
-            }
-          } catch (verificacionError: any) {
-            console.warn("⚠️ Error en verificación Nequi:", verificacionError);
-            // Continuar normal si falla la verificación
-          }
-        }
-
       } else {
         console.warn("⚠️ No se extrajeron datos válidos del comprobante");
         alert("⚠️ No se pudieron extraer datos del comprobante.\n\nPuedes ingresar los datos manualmente.");
@@ -466,32 +351,57 @@ export default function RegistrarPagoSupervisor() {
     }
   };
 
-  // Agregar pago individual
+  // Agregar pago individual - CON VALIDACIÓN EXTRA
   const agregarPago = () => {
-    // Validar campos obligatorios
+    // 🔥 VALIDACIÓN ESTRICTA DE TIPO DE PAGO - MEJORADA
+    const tiposValidos = ["consignacion", "Nequi", "Transferencia"];
+    const tipoActual = datosManuales.tipo.trim();
+    
+    console.log("🔍 VALIDANDO TIPO DE PAGO:");
+    console.log("- Tipo actual:", `"${tipoActual}"`);
+    console.log("- Tipos válidos:", tiposValidos);
+    console.log("- Es válido:", tiposValidos.includes(tipoActual));
+    
+    if (!tipoActual || !tiposValidos.includes(tipoActual)) {
+      console.error(`❌ TIPO INVÁLIDO: "${tipoActual}"`);
+      
+      // Detectar si es una entidad bancaria
+      const entidadesBancarias = ['bancolombia', 'davivienda', 'banco'];
+      const esEntidadBancaria = entidadesBancarias.some(entidad => 
+        tipoActual.toLowerCase().includes(entidad)
+      );
+      
+      if (esEntidadBancaria) {
+        alert(`❌ ERROR CRÍTICO: El campo "Tipo" contiene una entidad bancaria: "${tipoActual}"\n\n🔧 CORRECCIÓN NECESARIA:\n- Ve al campo "Tipo de pago"\n- Selecciona: Consignación, Nequi o Transferencia\n- NO uses nombres de bancos como tipo de pago`);
+      } else {
+        alert(`❌ Error: Tipo de pago inválido: "${tipoActual}"\n\nTipos válidos: ${tiposValidos.join(', ')}`);
+      }
+      return;
+    }
+
+    // Validar otros campos...
     const campos = Object.entries(datosManuales);
     for (const [key, val] of campos) {
       if (typeof val !== "string" || val.trim() === "") {
-        if (key === "tipo") {
-          alert("❌ Debes seleccionar un tipo de pago válido");
-          return;
-        }
-        alert(`❌ El campo "${key}" es obligatorio`);
+        alert(`El campo "${key}" es obligatorio`);
         return;
       }
     }
 
-    // Validación ESTRICTA del tipo de pago - solo permitir valores del dropdown
-    const tipoSanitizado = sanitizarTipoPago(datosManuales.tipo);
-    if (!tipoSanitizado) {
-      alert(`❌ Tipo de pago inválido. Solo se permiten: ${TIPOS_PAGO_VALIDOS.join(', ')}`);
+    if (!archivo) {
+      alert("Debes adjuntar el comprobante de pago.");
       return;
     }
 
-    if (!archivo) {
-      alert("❌ Debes adjuntar el comprobante de pago.");
-      return;
-    }
+    // 🔥 LOG DETALLADO ANTES DE AGREGAR
+    console.log("✅ AGREGANDO PAGO CON DATOS:", {
+      valor: datosManuales.valor,
+      tipo: datosManuales.tipo,
+      entidad: datosManuales.entidad,
+      referencia: datosManuales.referencia,
+      fecha: datosManuales.fecha,
+      hora: datosManuales.hora
+    });
 
     const referencia = datosManuales.referencia.trim();
     const fechaHora = `${datosManuales.fecha.trim()} ${datosManuales.hora.trim()}`;
@@ -503,20 +413,11 @@ export default function RegistrarPagoSupervisor() {
     );
 
     if (duplicado) {
-      alert("❌ Este comprobante ya fue cargado (referencia o fecha/hora duplicada).");
+      alert("Este comprobante ya fue cargado (referencia o fecha/hora duplicada).");
       return;
     }
 
-    // Asegurarse de usar el tipo sanitizado al agregar el pago
-    const pagoSeguro = {
-      datos: {
-        ...datosManuales,
-        tipo: tipoSanitizado // Garantizar que solo se almacene un tipo válido
-      },
-      archivo
-    };
-
-    setPagosCargados((prev) => [...prev, pagoSeguro]);
+    setPagosCargados((prev) => [...prev, { datos: datosManuales, archivo }]);
     setDatosManuales({
       valor: "",
       fecha: "",
@@ -537,20 +438,12 @@ export default function RegistrarPagoSupervisor() {
     );
   };
 
-  // Función de registro de pagos (unificada para enviar todos los comprobantes y guías en un solo request)
+  // Función de registro de pagos - CON DEBUGGING MEJORADO
   const registrarTodosLosPagos = async () => {
     const totales = calcularTotales();
     
     if (totales.faltante > 0) {
-      alert(`❌ Faltan $${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
-      return;
-    }
-
-    // VALIDACIÓN CRÍTICA: Verificar que todos los tipos de pago sean válidos
-    const tiposInvalidos = pagosCargados.filter(pago => !esTipoPagoValido(pago.datos.tipo));
-    if (tiposInvalidos.length > 0) {
-      alert(`❌ Error crítico: Se detectaron tipos de pago inválidos. Solo se permiten: ${TIPOS_PAGO_VALIDOS.join(', ')}`);
-      console.error("🚨 Tipos inválidos detectados:", tiposInvalidos.map(p => p.datos.tipo));
+      alert(`Faltan $${totales.faltante.toLocaleString()} para cubrir el total de las guías.`);
       return;
     }
     
@@ -562,11 +455,25 @@ export default function RegistrarPagoSupervisor() {
       const token = user?.token || localStorage.getItem("token") || "";
       const formData = new FormData();
 
-      // 🔥 NUEVA LÓGICA: Adjuntar todos los comprobantes CON SUS TIPOS INDEPENDIENTES
+      // 🔥 VALIDACIÓN PREVIA: Verificar que todos los pagos tengan tipos válidos
+      console.log("🔍 VALIDACIÓN PREVIA DE PAGOS:");
+      const tiposValidos = ["consignacion", "Nequi", "Transferencia"];
+      
+      for (let i = 0; i < pagosCargados.length; i++) {
+        const pago = pagosCargados[i];
+        console.log(`- Pago ${i + 1}: tipo="${pago.datos.tipo}", entidad="${pago.datos.entidad}"`);
+        
+        if (!tiposValidos.includes(pago.datos.tipo)) {
+          console.error(`🚫 PAGO ${i + 1} CON TIPO INVÁLIDO:`, pago.datos);
+          alert(`❌ Error: El pago ${i + 1} tiene un tipo inválido: "${pago.datos.tipo}"\n\nElimínalo y vuelve a agregarlo con un tipo válido.`);
+          setCargando(false);
+          return;
+        }
+      }
+
+      // Adjuntar todos los comprobantes
       pagosCargados.forEach((pago, idx) => {
         formData.append(`comprobante_${idx}`, pago.archivo);
-        // 🎯 ENVIAR EL TIPO ESPECÍFICO DE CADA COMPROBANTE
-        formData.append(`tipo_comprobante_${idx}`, sanitizarTipoPago(pago.datos.tipo));
       });
 
       // Para compatibilidad, también enviar el primer comprobante como 'comprobante'
@@ -574,77 +481,86 @@ export default function RegistrarPagoSupervisor() {
         formData.append("comprobante", pagosCargados[0].archivo);
       }
 
-      // 🔥 LÓGICA MEJORADA: Cada guía mantiene relación con su comprobante específico
+      // 🔥 CREAR GUÍAS CON DATOS DE PAGO DE FORMA CONTROLADA
+      const primerPago = pagosCargados[0];
       let guiasConPagos: any[] = [];
-      pagosCargados.forEach((pago, pagoIndex) => {
-        guias.forEach((guia) => {
-          guiasConPagos.push({
-            ...guia,
-            ...pago.datos,
-            tipo: sanitizarTipoPago(pago.datos.tipo), // SANITIZAR TIPO ANTES DE ENVIAR
-            indice_comprobante: pagoIndex // 🎯 RELACIONAR CON EL ÍNDICE DEL COMPROBANTE
-          });
+      
+      guias.forEach((guia) => {
+        // 🔥 CONSTRUCCIÓN EXPLÍCITA - NO usar spread operator que puede causar conflictos
+        guiasConPagos.push({
+          // Datos de la guía (SIN el campo 'tipo' que puede estar contaminado)
+          referencia: guia.referencia,
+          valor: guia.valor,
+          tracking: guia.tracking,
+          liquidacion_id: guia.liquidacion_id,
+          conductor: guia.conductor,
+          cliente: guia.cliente,
+          ciudad: guia.ciudad,
+          departamento: guia.departamento,
+          carrier: guia.carrier,
+          estado_actual: guia.estado_actual,
+          
+          // Datos del pago (EXPLÍCITAMENTE del formulario)
+          valor_pago: primerPago.datos.valor,
+          fecha_pago: primerPago.datos.fecha,
+          hora_pago: primerPago.datos.hora,
+          tipo_pago: primerPago.datos.tipo,  // 🔥 USAR NOMBRE DIFERENTE para evitar conflictos
+          entidad_pago: primerPago.datos.entidad,
+          referencia_pago: primerPago.datos.referencia
         });
       });
 
-      // Sanitizar el tipo principal que se envía como campo independiente
-      const tipoPrincipalSanitizado = sanitizarTipoPago(pagosCargados[0]?.datos.tipo || "");
-      
-      // VALIDACIÓN FINAL: No permitir envío si el tipo no es válido
-      if (!tipoPrincipalSanitizado) {
-        alert(`❌ Error de validación: Tipo de pago inválido. Solo se permiten: ${TIPOS_PAGO_VALIDOS.join(', ')}`);
-        return;
-      }
+      // 🔥 LOGGING DETALLADO DEL FORMDATA
+      console.log("==== DATOS A ENVIAR AL BACKEND ====");
+      console.log("Correo:", correo);
+      console.log("Valor total:", totales.totalPagosEfectivo.toString());
+      console.log("Fecha:", primerPago.datos.fecha);
+      console.log("Hora normalizada:", normalizarHoraParaEnvio(primerPago.datos.hora));
+      console.log("🔥 TIPO (CRÍTICO):", `"${primerPago.datos.tipo}"`);
+      console.log("Entidad:", primerPago.datos.entidad);
+      console.log("Referencia:", primerPago.datos.referencia);
+      console.log("Número de guías procesadas:", guiasConPagos.length);
+      console.log("Primera guía con datos de pago:", guiasConPagos[0]);
 
       formData.append("correo", correo);
       formData.append("valor_pago_str", totales.totalPagosEfectivo.toString());
-      formData.append("fecha_pago", pagosCargados[0]?.datos.fecha || "");
-      formData.append("hora_pago", normalizarHoraParaEnvio(pagosCargados[0]?.datos.hora || ""));
-      formData.append("tipo", tipoPrincipalSanitizado); // TIPO SANITIZADO Y VALIDADO
-      formData.append("entidad", pagosCargados[0]?.datos.entidad || "");
-      formData.append("referencia", pagosCargados[0]?.datos.referencia || "");
+      formData.append("fecha_pago", primerPago.datos.fecha);
+      formData.append("hora_pago", normalizarHoraParaEnvio(primerPago.datos.hora));
+      formData.append("tipo", primerPago.datos.tipo);  // 🔥 USAR DIRECTAMENTE DEL FORMULARIO
+      formData.append("entidad", primerPago.datos.entidad);
+      formData.append("referencia", primerPago.datos.referencia);
       formData.append("guias", JSON.stringify(guiasConPagos));
 
-      // 🔥 LOG DETALLADO DE TIPOS INDEPENDIENTES POR COMPROBANTE
-      console.log("==== ENVÍO DE PAGO SUPERVISOR ====");
-      console.log("🔒 ANÁLISIS DE TIPOS POR COMPROBANTE:");
-      pagosCargados.forEach((pago, idx) => {
-        console.log(`   📄 COMPROBANTE ${idx}:`);
-        console.log(`      - Tipo original: "${pago.datos.tipo}"`);
-        console.log(`      - Tipo sanitizado: "${sanitizarTipoPago(pago.datos.tipo)}"`);
-        console.log(`      - Referencia: "${pago.datos.referencia}"`);
-        console.log(`      - Valor: "${pago.datos.valor}"`);
-      });
-      console.log("   - Tipos válidos permitidos:", TIPOS_PAGO_VALIDOS);
-      console.log("   - Tipo principal (primer comprobante):", tipoPrincipalSanitizado);
-      
-      // LOG: Mostrar el contenido del FormData antes de enviar
-      console.log("\n📤 CONTENIDO FORMDATA:");
+      // 🔥 VALIDACIÓN FINAL: Verificar el FormData antes del envío
+      console.log("🔍 VALIDACIÓN FINAL DEL FORMDATA:");
       for (let pair of formData.entries()) {
         if (pair[0] === "tipo") {
-          console.log(`🎯 ${pair[0]}: "${pair[1]}" ← TIPO PRINCIPAL (primer comprobante)`);
-        } else if (pair[0].startsWith("tipo_comprobante_")) {
-          console.log(`🎯 ${pair[0]}: "${pair[1]}" ← TIPO ESPECÍFICO DE ESTE COMPROBANTE`);
+          console.log(`🔥 TIPO EN FORMDATA: "${pair[1]}"`);
+          if (!tiposValidos.includes(pair[1] as string)) {
+            console.error("🚨 TIPO INVÁLIDO EN FORMDATA!");
+            alert(`❌ Error crítico: El tipo "${pair[1]}" es inválido y no se puede enviar.`);
+            setCargando(false);
+            return;
+          }
         } else if (pair[0] === "guias") {
           try {
-            const guiasLog = JSON.parse(pair[1] as string);
-            console.log("📦 guias: Array con", guiasLog.length, "elementos");
-            console.log("   - Referencias:", guiasLog.map((g: any) => g.referencia));
-            console.log("   - Trackings:", guiasLog.map((g: any) => g.tracking));
-            console.log("   - Tipos en guías:", guiasLog.map((g: any) => g.tipo));
-            console.log("   - Índices de comprobantes:", guiasLog.map((g: any) => g.indice_comprobante));
+            const guiasParsed = JSON.parse(pair[1] as string);
+            console.log("Número de guías:", guiasParsed.length);
+            if (guiasParsed.length > 0) {
+              console.log("Tipo en primera guía:", guiasParsed[0].tipo_pago);
+            }
           } catch (e) {
-            console.log("❌ No se pudo parsear guias para log");
+            console.log("No se pudo parsear guias para validación");
           }
         } else if (pair[1] instanceof File) {
-          console.log(`📎 ${pair[0]}: [Archivo] ${(pair[1] as File).name}`);
+          console.log(pair[0], "[Archivo]", (pair[1] as File).name);
         } else {
-          console.log(`📝 ${pair[0]}: "${pair[1]}"`);
+          console.log(pair[0], pair[1]);
         }
       }
 
       // Enviar al backend
-      const response = await fetch("https://api.x-cargo.co/pagos/registrar-conductor", {
+      const response = await fetch("http://127.0.0.1:8000/pagos/registrar-conductor", {
         method: "POST",
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -659,7 +575,7 @@ export default function RegistrarPagoSupervisor() {
         throw new Error(result.detail || result.message || `Error ${response.status}: ${response.statusText}`);
       }
       
-      console.log("✅ Pago registrado exitosamente:", result);
+      console.log("✅ Respuesta exitosa del backend:", result);
 
       const mensajeExito = `✅ Pago registrado exitosamente: ${pagosCargados.length} comprobante(s) por $${totales.totalPagosEfectivo.toLocaleString()}.`;
       
@@ -901,56 +817,30 @@ export default function RegistrarPagoSupervisor() {
               ["tipo", "Tipo de pago", ""],
             ].map(([key, label, placeholder]) => (
               <div className="input-group" key={key}>
-                <label>
-                  {label}
-                  {key === "tipo" && tipoDetectadoPorOCR && (
-                    <span 
-                      style={{ 
-                        marginLeft: "8px", 
-                        fontSize: "12px", 
-                        color: "#10b981", 
-                        fontWeight: "bold",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: "4px"
-                      }}
-                      title="Tipo detectado automáticamente por OCR"
-                    >
-                      🤖 Auto-detectado
-                    </span>
-                  )}
-                </label>
+                <label>{label}</label>
                 {key === "tipo" ? (
                   <select
                     value={datosManuales.tipo}
                     onChange={(e) => {
-                      // Solo procesar cambios si NO fue detectado por OCR
-                      if (!tipoDetectadoPorOCR) {
-                        const valorSeleccionado = e.target.value;
-                        // Solo permitir valores válidos o string vacío
-                        const tipoValidado = valorSeleccionado === "" ? "" : sanitizarTipoPago(valorSeleccionado);
-                        setDatosManuales((prev) => ({
-                          ...prev,
-                          tipo: tipoValidado,
-                        }));
-                      }
+                      const valorSeleccionado = e.target.value;
+                      console.log(`🔧 Tipo seleccionado: "${valorSeleccionado}"`);
+                      setDatosManuales((prev) => ({
+                        ...prev,
+                        tipo: valorSeleccionado,
+                      }))
                     }}
                     required
-                    disabled={tipoDetectadoPorOCR} // 🔒 No editable si fue detectado por OCR
                     style={{
-                      borderColor: datosManuales.tipo && !esTipoPagoValido(datosManuales.tipo) ? "#ef4444" : "",
-                      backgroundColor: tipoDetectadoPorOCR ? "#f3f4f6" : "",
-                      cursor: tipoDetectadoPorOCR ? "not-allowed" : "pointer",
-                      opacity: tipoDetectadoPorOCR ? 0.7 : 1
+                      backgroundColor: !["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo) && datosManuales.tipo !== "" 
+                        ? "#fee2e2" : undefined,
+                      borderColor: !["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo) && datosManuales.tipo !== ""
+                        ? "#ef4444" : undefined
                     }}
-                    title={tipoDetectadoPorOCR ? "🤖 Tipo detectado automáticamente por OCR" : "Seleccione el tipo de pago"}
                   >
-                    <option value="">Seleccione tipo de pago...</option>
-                    {TIPOS_PAGO_VALIDOS.map((tipo) => (
-                      <option key={tipo} value={tipo}>
-                        {tipo === "consignacion" ? "Consignación" : tipo}
-                      </option>
-                    ))}
+                    <option value="">Seleccione...</option>
+                    <option value="consignacion">Consignación</option>
+                    <option value="Nequi">Nequi</option>
+                    <option value="Transferencia">Transferencia</option>
                   </select>
                 ) : (
                   <input
@@ -995,25 +885,28 @@ export default function RegistrarPagoSupervisor() {
             disabled={
               !validacionPago?.valido || 
               analizando || 
-              !esTipoPagoValido(datosManuales.tipo.trim())
+              !datosManuales.tipo.trim() ||
+              !["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo.trim())
             }
             style={{
               backgroundColor: (
                 validacionPago?.valido && 
-                esTipoPagoValido(datosManuales.tipo.trim())
+                datosManuales.tipo.trim() && 
+                ["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo.trim())
               ) ? "#3b82f6" : "#6b7280",
               opacity: (
                 validacionPago?.valido && 
                 !analizando && 
-                esTipoPagoValido(datosManuales.tipo.trim())
+                datosManuales.tipo.trim() &&
+                ["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo.trim())
               ) ? 1 : 0.6,
               margin: "1rem 0"
             }}
           >
             {!datosManuales.tipo.trim() ? 
               '❌ Selecciona tipo de pago válido' : 
-              !esTipoPagoValido(datosManuales.tipo.trim()) ?
-              `❌ Solo se permiten: ${TIPOS_PAGO_VALIDOS.join(', ')}` :
+              !["consignacion", "Nequi", "Transferencia"].includes(datosManuales.tipo.trim()) ?
+              '❌ Tipo de pago inválido' :
               !validacionPago?.valido ? 
               '❌ Comprobante inválido' : 
               '✅ Agregar comprobante'}
