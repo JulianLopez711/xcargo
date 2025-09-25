@@ -589,23 +589,55 @@ const verDetallesPago = async ({
   id_transaccion?: number;
 }) => {
   try {
-    let url = "";
     const params = new URLSearchParams();
     
+    // 🔥 FIX: Validar que al menos un parámetro válido esté presente
+    let tieneParametrosValidos = false;
+    
     // Si el pago tiene id_transaccion, solo enviar ese parámetro
-    if (id_transaccion !== undefined && id_transaccion !== null) {
+    if (id_transaccion !== undefined && id_transaccion !== null && id_transaccion > 0) {
       params.append("id_transaccion", id_transaccion.toString());
-    } else {
+      tieneParametrosValidos = true;
+      console.log("🔍 Buscando detalles por id_transaccion:", id_transaccion);
+    } else if (referencia_pago && referencia_pago.trim() !== '') {
       // Para pagos sin Id_Transaccion, usar referencia_pago y filtros adicionales
-      params.append("referencia_pago", referencia_pago);
-      if (correo) params.append("correo", correo);
-      if (fecha_pago) params.append("fecha_pago", fecha_pago);
-      if (valor !== undefined) params.append("valor", valor.toString());
+      params.append("referencia_pago", referencia_pago.trim());
+      tieneParametrosValidos = true;
+      console.log("🔍 Buscando detalles por referencia_pago:", referencia_pago);
+      
+      // Agregar parámetros adicionales solo si son válidos
+      if (correo && correo.trim() !== '') {
+        params.append("correo", correo.trim());
+      }
+      if (fecha_pago && fecha_pago.trim() !== '') {
+        params.append("fecha_pago", fecha_pago.trim());
+      }
+      if (valor !== undefined && valor !== null && !isNaN(valor) && valor > 0) {
+        params.append("valor", valor.toString());
+      }
     }
     
-    url = `http://127.0.0.1:8000/pagos/detalles-pago?${params.toString()}`;
+    // 🔥 FIX: Validar que tengamos parámetros válidos antes de hacer la petición
+    if (!tieneParametrosValidos) {
+      console.error("❌ No hay parámetros válidos para buscar detalles del pago:", {
+        referencia_pago,
+        correo,
+        fecha_pago,
+        valor,
+        id_transaccion
+      });
+      alert("Error: No se pudieron identificar los parámetros necesarios para buscar los detalles del pago.");
+      return;
+    }
+    
+    const url = `http://127.0.0.1:8000/pagos/detalles-pago?${params.toString()}`;
+    console.log("📡 URL construida:", url);
 
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${getToken()}`
+      }
+    });
 
     if (!response.ok) {
       throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -617,7 +649,7 @@ const verDetallesPago = async ({
     setModalDetallesVisible(true);
 
   } catch (err: any) {
-    console.error("Error cargando detalles:", err);
+    console.error("❌ Error cargando detalles:", err);
     alert(`Error al cargar detalles del pago: ${err.message}`);
   }
 };
@@ -1289,25 +1321,41 @@ function parseFechaLocal(fechaStr: string) {
                   </td>
                   
                   <td>
-
-                  <button
-                    onClick={() => verDetallesPago({
-                      referencia_pago: p.referencia_pago_principal || p.referencia_pago,
-                      correo: p.correo_conductor,
-                      fecha_pago: p.fecha,
-                      valor: p.valor,
-                      id_transaccion: p.Id_Transaccion
-                    })}
-                    className="btn-ver"
-                    title={p.trackings_preview}
-                  >
-                    Detalles ({p.num_guias})
-                    {p.es_grupo_transaccion && (
-                      <span style={{fontSize: '0.7em', color: '#ffffffff', display: 'block'}}>
-                        Grupo
-                      </span>
-                    )}
-                  </button>
+                  {/* 🔥 FIX: Validar que tengamos datos suficientes antes de permitir el clic */}
+                  {(() => {
+                    const tieneIdTransaccion = p.Id_Transaccion && p.Id_Transaccion > 0;
+                    const tieneReferencia = (p.referencia_pago_principal || p.referencia_pago)?.trim();
+                    const puedeVerDetalles = tieneIdTransaccion || tieneReferencia;
+                    
+                    return (
+                      <button
+                        onClick={puedeVerDetalles ? () => verDetallesPago({
+                          referencia_pago: p.referencia_pago_principal || p.referencia_pago,
+                          correo: p.correo_conductor,
+                          fecha_pago: p.fecha,
+                          valor: p.valor,
+                          id_transaccion: p.Id_Transaccion
+                        }) : undefined}
+                        className="btn-ver"
+                        title={puedeVerDetalles 
+                          ? p.trackings_preview 
+                          : "No hay datos suficientes para mostrar detalles"}
+                        disabled={!puedeVerDetalles}
+                        style={{
+                          backgroundColor: !puedeVerDetalles ? '#6c757d' : undefined,
+                          cursor: !puedeVerDetalles ? 'not-allowed' : 'pointer',
+                          opacity: !puedeVerDetalles ? 0.6 : 1
+                        }}
+                      >
+                        {puedeVerDetalles ? `Detalles (${p.num_guias})` : 'Sin datos'}
+                        {p.es_grupo_transaccion && puedeVerDetalles && (
+                          <span style={{fontSize: '0.7em', color: '#ffffffff', display: 'block'}}>
+                            Grupo
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })()} 
                   </td>
                   {/* 🔥 CELDA MEJORADA PARA MOVIMIENTOS BANCARIOS INDIVIDUALES */}
                   <td style={{ padding: "6px", fontSize: "0.85rem" }}>
