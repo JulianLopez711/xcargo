@@ -111,6 +111,11 @@ export default function RegistrarPagoSupervisor() {
   
   const [validacionPago, setValidacionPago] = useState<any>(null);
 
+  // 🔥 FIX: Función auxiliar para convertir valores a string de forma segura
+  const toSafeString = (value: any): string => {
+    return typeof value === 'string' ? value : String(value || '');
+  };
+
   // Funciones auxiliares
   const convertirFechaAISO = (fechaTexto: string): string => {
     if (!fechaTexto) return "";
@@ -194,8 +199,11 @@ export default function RegistrarPagoSupervisor() {
     return `${hora.slice(0, 5)}:00`;
   };
 
-  function parseValorMonetario(valor: string): number {
-    const limpio = valor
+  function parseValorMonetario(valor: string | number): number {
+    // 🔥 FIX: Manejar tanto strings como números
+    const valorStr = typeof valor === 'string' ? valor : String(valor || '0');
+    
+    const limpio = valorStr
       .replace(/[^0-9.,]/g, "")
       .replace(/\.(?=\d{3,})/g, "")
       .replace(",", ".");
@@ -206,7 +214,9 @@ export default function RegistrarPagoSupervisor() {
   // Calcular totales (simplificado para supervisor - solo comprobantes)
   const calcularTotales = () => {
     const totalPagosEfectivo = pagosCargados.reduce((sum, p) => {
-      const val = parseValorMonetario(p.datos.valor);
+      // 🔥 FIX: Validar que p.datos.valor sea string antes de parsearlo
+      const valorStr = typeof p.datos.valor === 'string' ? p.datos.valor : String(p.datos.valor || '0');
+      const val = parseValorMonetario(valorStr);
       return sum + (isNaN(val) ? 0 : val);
     }, 0);
     
@@ -274,13 +284,14 @@ export default function RegistrarPagoSupervisor() {
         console.log("🎯 Tipo extraído:", tipoExtraido);
         console.log("✅ Tipo sanitizado:", tipoSanitizado);
         
+        // 🔥 FIX: Asegurar que todos los valores sean strings
         const datosLimpios = {
-          valor: data.valor || "",
-          fecha: convertirFechaAISO(data.fecha || ""),
-          hora: normalizarHora(data.hora || ""),
-          tipo: tipoSanitizado, // Solo tipos válidos o string vacío
-          entidad: data.entidad || "",
-          referencia: data.referencia || "",
+          valor: String(data.valor || ""),
+          fecha: convertirFechaAISO(String(data.fecha || "")),
+          hora: normalizarHora(String(data.hora || "")),
+          tipo: tipoSanitizado,
+          entidad: String(data.entidad || ""),
+          referencia: String(data.referencia || ""),
         };
 
         setDatosManuales(datosLimpios);
@@ -471,7 +482,9 @@ export default function RegistrarPagoSupervisor() {
     // Validar campos obligatorios
     const campos = Object.entries(datosManuales);
     for (const [key, val] of campos) {
-      if (typeof val !== "string" || val.trim() === "") {
+      // 🔥 FIX: Convertir val a string antes de usar .trim()
+      const valStr = toSafeString(val);
+      if (valStr.trim() === "") {
         if (key === "tipo") {
           alert("❌ Debes seleccionar un tipo de pago válido");
           return;
@@ -493,8 +506,8 @@ export default function RegistrarPagoSupervisor() {
       return;
     }
 
-    const referencia = datosManuales.referencia.trim();
-    const fechaHora = `${datosManuales.fecha.trim()} ${datosManuales.hora.trim()}`;
+    const referencia = toSafeString(datosManuales.referencia).trim();
+    const fechaHora = `${toSafeString(datosManuales.fecha).trim()} ${toSafeString(datosManuales.hora).trim()}`;
 
     const duplicado = pagosCargados.find(
       (p) =>
@@ -966,8 +979,8 @@ export default function RegistrarPagoSupervisor() {
                     }
                     placeholder={placeholder}
                     required
-                    readOnly={(key === "valor" && datosManuales.valor.trim() !== "") || (key === "fecha" && datosManuales.fecha.trim() !== "")}
-                    style={(key === "valor" && datosManuales.valor.trim() !== "") || (key === "fecha" && datosManuales.fecha.trim() !== "") ? {
+                    readOnly={(key === "valor" && toSafeString(datosManuales.valor).trim() !== "") || (key === "fecha" && toSafeString(datosManuales.fecha).trim() !== "")}
+                    style={(key === "valor" && toSafeString(datosManuales.valor).trim() !== "") || (key === "fecha" && toSafeString(datosManuales.fecha).trim() !== "") ? {
                       backgroundColor: "#f3f4f6",
                       cursor: "not-allowed",
                       opacity: 0.7
@@ -979,10 +992,10 @@ export default function RegistrarPagoSupervisor() {
           </div>
 
           {/* Componente de validación */}
-          {guias.length > 0 && (
+          {guias.length > 0 && toSafeString(datosManuales.valor).trim() !== "" && (
             <ValidadorPago
               guiasSeleccionadas={guias}
-              valorConsignado={parseValorMonetario(datosManuales.valor)}
+              valorConsignado={parseValorMonetario(toSafeString(datosManuales.valor))}
               onValidacionChange={setValidacionPago}
             />
           )}
@@ -995,24 +1008,24 @@ export default function RegistrarPagoSupervisor() {
             disabled={
               !validacionPago?.valido || 
               analizando || 
-              !esTipoPagoValido(datosManuales.tipo.trim())
+              !esTipoPagoValido(toSafeString(datosManuales.tipo).trim())
             }
             style={{
               backgroundColor: (
                 validacionPago?.valido && 
-                esTipoPagoValido(datosManuales.tipo.trim())
+                esTipoPagoValido(toSafeString(datosManuales.tipo).trim())
               ) ? "#3b82f6" : "#6b7280",
               opacity: (
                 validacionPago?.valido && 
                 !analizando && 
-                esTipoPagoValido(datosManuales.tipo.trim())
+                esTipoPagoValido(toSafeString(datosManuales.tipo).trim())
               ) ? 1 : 0.6,
               margin: "1rem 0"
             }}
           >
-            {!datosManuales.tipo.trim() ? 
+            {!toSafeString(datosManuales.tipo).trim() ? 
               '❌ Selecciona tipo de pago válido' : 
-              !esTipoPagoValido(datosManuales.tipo.trim()) ?
+              !esTipoPagoValido(toSafeString(datosManuales.tipo).trim()) ?
               `❌ Solo se permiten: ${TIPOS_PAGO_VALIDOS.join(', ')}` :
               !validacionPago?.valido ? 
               '❌ Comprobante inválido' : 

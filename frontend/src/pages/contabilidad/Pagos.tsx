@@ -147,7 +147,7 @@ export default function PagosContabilidad() {
   const refParaRechazo = pago.referencia_pago_principal || pago.referencia_pago;
   console.log("🖱️ Click en botón rechazar para:", refParaRechazo);
   setRefPagoSeleccionada(refParaRechazo);
-  setPagoSeleccionadoCompleto(pago); // 🔥 NUEVO: Guardar el pago completo
+  setPagoSeleccionadoCompleto(pago); 
   setModalVisible(true);
   
   };
