@@ -316,7 +316,12 @@ async def get_carriers_guias_entregadas(
         
         # Query OPTIMIZADO que obtiene todo en una sola consulta
         optimized_query = f"""
-        WITH GuiasEntregadas AS (
+        WITH PrimerPagoConductor AS (
+            SELECT tracking, ARRAY_AGG(estado_conciliacion ORDER BY fecha ASC LIMIT 1)[OFFSET(0)] AS estado_conciliacion
+            FROM `{PROJECT_ID}.{DATASET}.pagosconductor`
+            GROUP BY tracking
+        ),
+        GuiasEntregadas AS (
             SELECT 
                 cod.tracking_number,
                 cod.Cliente,
@@ -334,11 +339,14 @@ async def get_carriers_guias_entregadas(
                     WHEN gl.tracking_number IS NOT NULL AND gl.estado_liquidacion IN ('pagado', 'liquidado', 'procesado') THEN 'pagado'
                     ELSE 'pendiente'
                 END as estado_pago,
+                ppc.estado_conciliacion,
                 gl.pago_referencia,
                 gl.fecha_entrega as fecha_liquidacion
             FROM `{PROJECT_ID}.{DATASET}.COD_pendientes_v1` cod
             LEFT JOIN `{PROJECT_ID}.{DATASET}.guias_liquidacion` gl
                 ON cod.tracking_number = gl.tracking_number
+            LEFT JOIN PrimerPagoConductor ppc
+                ON cod.tracking_number = ppc.tracking
             WHERE cod.Status_Big = '360 - Entregado al cliente'
                 AND cod.Valor > 0
                 AND {where_clause}
@@ -382,6 +390,7 @@ async def get_carriers_guias_entregadas(
             Empleado,
             Employee_id,
             estado_pago,
+            estado_conciliacion,
             pago_referencia,
             fecha_liquidacion,
             NULL as total_count,
@@ -409,6 +418,7 @@ async def get_carriers_guias_entregadas(
             NULL as Empleado,
             NULL as Employee_id,
             NULL as estado_pago,
+            NULL as estado_conciliacion,
             NULL as pago_referencia,
             NULL as fecha_liquidacion,
             (SELECT total_count FROM ConteoTotal) as total_count,
@@ -436,6 +446,7 @@ async def get_carriers_guias_entregadas(
             NULL as Empleado,
             NULL as Employee_id,
             NULL as estado_pago,
+            NULL as estado_conciliacion,
             NULL as pago_referencia,
             NULL as fecha_liquidacion,
             NULL as total_count,
@@ -664,6 +675,11 @@ async def export_carriers_data(
         
         # Query simplificada para exportación (sin paginación)
         export_query = f"""
+        WITH PrimerPagoConductor AS (
+            SELECT tracking, ARRAY_AGG(estado_conciliacion ORDER BY fecha ASC LIMIT 1)[OFFSET(0)] AS estado_conciliacion
+            FROM `{PROJECT_ID}.{DATASET}.pagosconductor`
+            GROUP BY tracking
+        )
         SELECT 
             cod.tracking_number,
             cod.Cliente,
@@ -681,11 +697,14 @@ async def export_carriers_data(
                 WHEN gl.tracking_number IS NOT NULL AND gl.estado_liquidacion IN ('pagado', 'liquidado', 'procesado') THEN 'pagado'
                 ELSE 'pendiente'
             END as estado_pago,
+            ppc.estado_conciliacion,
             gl.pago_referencia,
             gl.fecha_entrega as fecha_liquidacion
         FROM `{PROJECT_ID}.{DATASET}.COD_pendientes_v1` cod
         LEFT JOIN `{PROJECT_ID}.{DATASET}.guias_liquidacion` gl
             ON cod.tracking_number = gl.tracking_number
+        LEFT JOIN PrimerPagoConductor ppc
+            ON cod.tracking_number = ppc.tracking
         WHERE cod.Status_Big = '360 - Entregado al cliente'
             AND cod.Valor > 0
             AND {where_clause}
@@ -730,11 +749,11 @@ async def export_carriers_data(
             output = io.StringIO()
             writer = csv.writer(output)
             
-            # Escribir headers
+            # Escribir headers (insertar estado_conciliacion después de estado_pago)
             headers = [
                 "tracking_number", "Cliente", "Ciudad", "Departamento", 
                 "Valor", "Status_Date", "Carrier", "Empleado", 
-                "Employee_id", "estado_pago", "pago_referencia"
+                "Employee_id", "estado_pago", "estado_conciliacion", "pago_referencia"
             ]
             writer.writerow(headers)
             
@@ -751,6 +770,7 @@ async def export_carriers_data(
                     guia.get("Empleado", ""),
                     guia.get("Employee_id", ""),
                     guia.get("estado_pago", ""),
+                    guia.get("estado_conciliacion", ""),
                     guia.get("pago_referencia", "")
                 ])
             

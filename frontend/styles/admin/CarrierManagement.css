@@ -1,0 +1,36 @@
+/* Badge styles for estado_conciliacion */
+.badge-conciliacion {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.2em 0.7em;
+  border-radius: 1em;
+  font-size: 0.95em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.badge-conciliacion.pendiente_conciliacion {
+  background: #fffbe6;
+  color: #b8860b;
+  border: 1px solid #ffe58f;
+}
+.badge-conciliacion.conciliado_manual {
+  background: #e6f7ff;
+  color: #096dd9;
+  border: 1px solid #91d5ff;
+}
+.badge-conciliacion.conciliado_automatico {
+  background: #f6ffed;
+  color: #389e0d;
+  border: 1px solid #b7eb8f;
+}
+.badge-conciliacion.rechazado {
+  background: #fff1f0;
+  color: #cf1322;
+  border: 1px solid #ffa39e;
+}
+.badge-conciliacion.indefinido {
+  background: #f0f0f0;
+  color: #888;
+  border: 1px solid #d9d9d9;
+}

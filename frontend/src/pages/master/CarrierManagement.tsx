@@ -16,6 +16,7 @@ interface GuiaCarrier {
   Empleado: string;
   Employee_id: number;
   estado_pago: "pendiente" | "pagado";
+  estado_conciliacion?: string;
   pago_referencia?: string;
   fecha_liquidacion?: string;
 }
@@ -107,7 +108,11 @@ export default function CarrierManagement() {
           ? aValue.localeCompare(bValue as string)
           : (bValue as string).localeCompare(aValue);
       }
-
+      // Si es undefined (ej: estado_conciliacion puede ser null), poner al final
+      if (aValue === undefined || bValue === undefined) {
+        if (aValue === undefined && bValue === undefined) return 0;
+        return aValue === undefined ? 1 : -1;
+      }
       return ascendente
         ? (aValue as number) - (bValue as number)
         : (bValue as number) - (aValue as number);
@@ -147,7 +152,7 @@ export default function CarrierManagement() {
         params.append("page", page.toString());
         params.append("page_size", pageSize.toString());
 
-        const url = `https://api.x-cargo.co/master/carriers/guias${
+        const url = `http://127.0.0.1:8000/master/carriers/guias${
           params.toString() ? "?" + params.toString() : ""
         }`;
 
@@ -252,7 +257,7 @@ export default function CarrierManagement() {
         if (filtros.estadoPago)
           params.append("estado_pago", filtros.estadoPago);
 
-        const url = `https://api.x-cargo.co/master/carriers/export?${params.toString()}`;
+        const url = `http://127.0.0.1:8000/master/carriers/export?${params.toString()}`;
         console.log("📡 URL de exportación:", url);
 
         const response = await fetch(url, {
@@ -406,7 +411,7 @@ export default function CarrierManagement() {
         params.append("page", "1");
         params.append("page_size", "100");
 
-        const url = `https://api.x-cargo.co/master/carriers/guias?${params.toString()}`;
+        const url = `http://127.0.0.1:8000/master/carriers/guias?${params.toString()}`;
 
         console.log("🔍 Carga inicial - Request a:", url);
 
@@ -754,24 +759,27 @@ export default function CarrierManagement() {
                 <table className="guias-table">
                   <thead>
                     <tr>
-                      <th onClick={() => ordenarGuias("tracking_number")}>
+                      <th onClick={() => ordenarGuias("tracking_number")}> 
                         Tracking
                       </th>
                       <th onClick={() => ordenarGuias("Cliente")}>Cliente</th>
                       <th onClick={() => ordenarGuias("Carrier")}>Carrier</th>
-                      <th onClick={() => ordenarGuias("Empleado")}>
+                      <th onClick={() => ordenarGuias("Empleado")}> 
                         Conductor
                       </th>
                       <th onClick={() => ordenarGuias("Ciudad")}>Ciudad</th>
                       <th onClick={() => ordenarGuias("Valor")}>Valor</th>
-                      <th onClick={() => ordenarGuias("Status_Date")}>
+                      <th onClick={() => ordenarGuias("Status_Date")}> 
                         Fecha Entrega
                       </th>
-                      <th onClick={() => ordenarGuias("diferencia_dias")}>
+                      <th onClick={() => ordenarGuias("diferencia_dias")}> 
                         Días
                       </th>
-                      <th onClick={() => ordenarGuias("estado_pago")}>
+                      <th onClick={() => ordenarGuias("estado_pago")}> 
                         Estado Pago
+                      </th>
+                      <th onClick={() => ordenarGuias("estado_conciliacion")}> 
+                        Estado Conciliación
                       </th>
                       <th>Referencia</th>
                     </tr>
@@ -810,6 +818,37 @@ export default function CarrierManagement() {
                                 ? "⏳ Pendiente"
                                 : "✅ Pagado"}
                             </span>
+                          </td>
+                          <td>
+                            {guia.estado_conciliacion ? (
+                              <span
+                                className={`badge-conciliacion ${guia.estado_conciliacion}`}
+                                title={guia.estado_conciliacion}
+                              >
+                                {guia.estado_conciliacion === "pendiente_conciliacion" && (
+                                  <>
+                                    ⏳ <span>Pendiente Conciliación</span>
+                                  </>
+                                )}
+                                {guia.estado_conciliacion === "conciliado_manual" && (
+                                  <>
+                                    📝 <span>Conciliado Manual</span>
+                                  </>
+                                )}
+                                {guia.estado_conciliacion === "conciliado_automatico" && (
+                                  <>
+                                    🤖 <span>Conciliado Automático</span>
+                                  </>
+                                )}
+                                {guia.estado_conciliacion === "rechazado" && (
+                                  <>
+                                    ❌ <span>Rechazado</span>
+                                  </>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="badge-conciliacion indefinido">-</span>
+                            )}
                           </td>
                           <td className="referencia-cell">
                             {guia.pago_referencia || "-"}
