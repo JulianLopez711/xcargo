@@ -377,7 +377,7 @@ export default function RegistrarPago() {
               verificacionData.append("referencia", data.referencia);
               verificacionData.append("tipo", tipoSanitizado);
               
-              const verificacionResponse = await fetch("http://127.0.0.1:8000/pagos/verificar-referencia-nequi", {
+              const verificacionResponse = await fetch("https://api.x-cargo.co/pagos/verificar-referencia-nequi", {
                 method: "POST",
                 body: verificacionData,
               });
