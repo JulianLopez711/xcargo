@@ -1,0 +1,38 @@
+name: Build LaTeX thesis
+
+on:
+  push:
+    paths:
+      - 'ProyectoGrado/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install TeX Live and dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y latexmk texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-fonts-extra texlive-bibtex-extra biber inkscape
+
+      - name: Convert SVG figures to PDF
+        working-directory: ProyectoGrado
+        run: |
+          mkdir -p Images/Project
+          for f in Images/Project/*.svg; do
+            [ -f "$f" ] || continue
+            inkscape "$f" --export-type=pdf --export-filename="${f%.svg}.pdf"
+          done
+
+      - name: Compile LaTeX document
+        working-directory: ProyectoGrado
+        run: |
+          latexmk -pdf -quiet main.tex
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proyecto-xcargo-pdf
+          path: ProyectoGrado/main.pdf

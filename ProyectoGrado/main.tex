@@ -1,0 +1,129 @@
+%        1         2         3         4         5         6         7         8         9         0         1         2
+%23456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890
+\documentclass[12pt]{MIA-USA}
+
+\usepackage{layout}
+\usepackage{subcaption}
+\usepackage{paralist}
+\usepackage{breakcites}
+
+\usepackage[pagebackref=true,breaklinks=true]{hyperref}
+\hypersetup{
+	pdftitle={Documento de trabajo Final}, 
+	pdfauthor={MIA-D.Martinez}, 
+	pdfsubject={}, 
+	pdfcreator={DarMart with Latex}, 
+	colorlinks=true,
+	linkcolor=GrisUno,
+	citecolor=AzulInstitucional,
+	filecolor=AzulClaro,
+	urlcolor=AzulInstitucional,
+	linktoc=all
+}
+
+\graphicspath{{Images/}}
+
+
+\title{T\'itulo del proyecto}
+\author{Nombres y apellidos Estudiante}
+\documenttype{Docuemnto Final}
+
+\advisor{Nombres y apellidos Asesor}
+
+% Si hay un coasesor 
+% \coadvisor{Nombres y apellidos Co-Asesor}
+
+
+% Aqui comienza el documento
+% - -- --- ----- ------- ------- ----- --- -- -
+\begin{document}
+    % \layout{}
+	
+	\maketitle
+	% Incluye la pagina de acptación (Opcional)
+	\input{FrontMatter/F01-Approval}
+	% Incluye la dedicatoria (Opcional)
+	\input{FrontMatter/F02-Dedication}
+	% Incluye los agradecimientos (Opcional)
+	\input{FrontMatter/F03-Acknowledgements}
+	% Resumen
+    \input{FrontMatter/F04-Abstract}
+	
+    
+    % Crea la tabla de contenidos a partir de la estructura del documento
+    \tableofcontents
+    % Crea la lista de figuras (Opcional)
+    \listoffigures
+    % Crea la lista de tablas (Opcional)
+    \listoftables
+    % Incluye la lista de simbolos (Opcional)
+    \input{FrontMatter/F05-Symbols}
+    % Glosario (Opcional)
+    \input{FrontMatter/F06-Glossary}
+    
+    
+    % A partir de este punto se crea la estructura del documento con un archivo por capitulo conservando la siguiente jerarquía
+    % chapter (Capitulo)
+    %   - section (sección)
+    %       - subsection (subsección)
+    %           - subsubsection (subsubsección)
+    
+    % Introduction
+    \chapter{Introducci\'on}
+    \input{MainMatter/Cap0/M01-Introduction}
+
+    % Problema de investigacion
+    \chapter{Problema de investigaci\'on}
+    \input{MainMatter/Cap0/M03-ResearchProblem}
+    
+    % Justificación
+    \chapter{Justificaci\'on}
+    \input{MainMatter/Cap0/M04-Justification}
+    
+    % Objetivos
+    \chapter{Objetivos}
+    \input{MainMatter/Cap0/M05-Objectives}
+
+    % Trabajos previos
+    \chapter{Marco Teórico}
+    \input{MainMatter/Cap0/M02-Marco-teorico}
+    
+    % Capitulo 2
+    \chapter{Cap\'{i}tulo 1}
+    \input{MainMatter/Cap1/M02-Chapter1}
+    
+    % Capitulo 2
+    \chapter{Cap\'{i}tulo 2}
+    \input{MainMatter/Cap2/M03-Chapter2}
+    
+    % Capitulo 3
+    \chapter{Cap\'{i}tulo 3}
+    \input{MainMatter/Cap3/M04-Chapter3}
+    
+    % Capitulo 4
+    \chapter{Cap\'{i}tulo 4}
+    \input{MainMatter/Cap4/M05-Chapter4}
+    
+    % Capitulo 5
+    \chapter{Cap\'{i}tulo 5}
+    \input{MainMatter/Cap5/M06-Chapter5}
+    
+    % Capitulo 10
+    \chapter{Conclusiones y recomendaciones}
+    \input{MainMatter/Cap9/M10-Conclusiones}
+    
+    
+    % Anexos (Opcional)
+    % \chapter*{Anexos}
+    % \input{BackMatter/B01-Anexos}
+    
+    % Indices (Opcional)
+    % \chapter*{\'Indices}
+    % \input{BackMatter/B10-Index}
+    
+    % Incluye las referencias
+    %\bibliographystyle{apalike}
+    \bibliographystyle{unsrt}
+    \bibliography{Bibliography/referencias}
+
+\end{document}

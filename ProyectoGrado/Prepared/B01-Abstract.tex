@@ -1,0 +1,12 @@
+% Resumen (Abstract) - Borrador para Proyecto XCargo
+\begin{abstract}
+
+Este trabajo presenta el diseño, implementación y evaluación de XCargo, una plataforma integral para la gestión logística de envíos y liquidación de guías dirigida a pequeñas y medianas empresas de transporte. XCargo integra una interfaz web para operadores y conductores, un backend basado en FastAPI que centraliza la lógica de negocio y almacenamiento en Google BigQuery para registro y conciliación de pagos.
+
+Se propone un flujo seguro y trazable para el registro de pagos de conductores, la gestión de comprobantes digitales y la conciliación contable. La solución aborda problemas comunes en el sector como la falta de trazabilidad en el proceso de cobro, la dificultad para conciliar movimientos bancarios con referencias de pago, y la necesidad de reportes por carrier y por periodo.
+
+En la implementación se describen los módulos principales: autenticación y control de acceso por roles y permisos, captura y validación de comprobantes, almacenamiento y consulta analítica en BigQuery, y herramientas de supervisión y conciliación. Se presenta una evaluación funcional que incluye pruebas de caso real, pruebas de integridad de datos y consideraciones de seguridad y rendimiento.
+
+Finalmente, se discuten las limitaciones del prototipo, recomendaciones para despliegue en producción y las líneas de trabajo futuro, que incluyen: mejora de la seguridad de autenticación (rotación de claves y refresh tokens), optimización de consultas en BigQuery para reducir costos, y un módulo de automatización de conciliación bancaria.
+
+\end{abstract}

@@ -1,0 +1,59 @@
+% En ella, el autor presenta y señala la importancia, el origen (los antecedentes teóricos y prácticos), los objetivos, los alcances, las limitaciones, la metodología empleada, el significado que el estudio tiene en el avance del campo respectivo y su aplicación en el área investigada.
+
+De acuerdo con la NTC1486, la introducción es un espacio dónde el autor presenta y señala la importancia, el origen (los antecedentes teóricos y prácticos), los objetivos, los alcances, las limitaciones, la metodología empleada, el significado que el estudio tiene en el avance del campo respectivo y su aplicación en el área investigada. No debe confundirse con el resumen, ni contener un recuento detallado de la teoría, el método o los resultados, como tampoco anticipar las conclusiones y recomendaciones~\cite{NTC14862008}, y se recomienda que la introducción tenga una extensión de mínimo 2 páginas y máximo de 4 páginas.\\
+
+Para el desarrollo del documento utilizando la plantilla en \LaTeX se recomienda la guía \textit{the not so short guide to \LaTeX}~\cite{Oetiker2016} que brinda una introducción breve pero muy completa. En donde se presentan entro otras cosas los comandos y ambeintes para el trabajo con gráficas y tablas, como las que se muestran a continuación:
+
+\begin{figure}[htbp!]
+    \caption{Muestra de inclusión de un elemento gráfico}
+    \centering
+    \includegraphics[width=0.8\textwidth]{Images/ImagenYoda.jpg}
+    \label{fig:yoda}
+\end{figure}
+
+Así la Figura~\ref{fig:yoda} muestra una imagen que se encuentra en el directorio images, mientras la tabla~\ref{tab:tablasEx}, muestra dos ejemplos de información tabular con combinación de columnas, y combinación de filas.
+
+\begin{table}[htbp!]
+    \centering
+    \caption{Ejemplo de tabla con multi columnas (arriba) y multi filas(abajo)}
+    \begin{tabular}{ |p{3cm}||p{3cm}|p{3cm}|p{3cm}|  }
+        \hline
+        \multicolumn{4}{|c|}{Country List} \\
+        \hline
+        Country Name or Area Name& ISO ALPHA 2 Code &ISO ALPHA 3 Code&ISO numeric Code\\
+        \hline
+        Afghanistan   & AF    &AFG&   004\\
+        Aland Islands&   AX  & ALA   &248\\
+        Albania &AL & ALB&  008\\
+        Algeria    &DZ & DZA&  012\\
+        American Samoa&   AS  & ASM&016\\
+        Andorra& AD  & AND   &020\\
+        Angola& AO  & AGO&024\\
+        \hline
+    \end{tabular}\\
+    \vspace{0.5cm}
+    \begin{tabular}{ |c|c|c|c| } 
+        \hline
+        col1 & col2 & col3 \\
+        \hline
+        \multirow{3}{4em}{Multiple row} & cell2 & cell3 \\ 
+        & cell5 & cell6 \\ 
+        & cell8 & cell9 \\ 
+        \hline
+    \end{tabular}
+
+    \label{tab:tablasEx}
+\end{table}
+
+Adem\'as se recomienda consultar los manuales que aparecen en al sección de aprendizaje de overleaf, por ejemplo el de \href{https://www.overleaf.com/learn/latex/Tables}{tablas}.
+
+La presente plantilla tiene en cuenta aspectos importantes de la Norma T\'{e}cnica Colombiana - NTC 1486~\cite{NTC14862008}. Las márgenes, numeración, tamaño de las fuentes y demás aspectos de formato, deben ser conservada de acuerdo con esta plantilla, la cual esta diseñada para imprimir por lado y lado en hojas tamaño carta. Se sugiere que los encabezados cambien según la sección/capítulo del documento.\\
+
+La redacción debe ser impersonal y genérica. La numeración de las hojas sugiere que las páginas preliminares se realicen en números romanos en mayúscula y las demás en números arábigos, en forma consecutiva a partir de la introducción que comenzará con el número 1. La cubierta y la portada no se numeran pero si se cuentan como páginas.\\
+
+Para trabajos muy extensos se recomienda publicar más de un volumen. Se debe tener en cuenta que algunas facultades tienen reglamentada la extensión máxima de las tesis  o trabajo de investigación; en caso que no sea así, se sugiere que el documento no supere 120 páginas.\\
+
+No se debe utilizar numeración compuesta como 13A, 14B ó 17 bis, entre otros, que indican superposición de texto en el documento. Para resaltar, puede usarse letra cursiva o negrilla. Los términos de otras lenguas que aparezcan dentro del texto se escriben en cursiva.\\
+
+El contenido de este documento esta basado principalmente en la NTC1486~\cite{NTC14862008} y la plantilla de Tesis de maestría y doctorado de la Universidad Nacional de colombia~\cite{Unal2014DocTesis}.
+

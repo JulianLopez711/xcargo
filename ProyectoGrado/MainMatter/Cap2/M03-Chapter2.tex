@@ -1,0 +1,260 @@
+% Capítulo 2 - Implementación (Borrador)
+\chapter{Implementación}
+
+En este capítulo se documenta la implementación del prototipo XCargo. Se describen los componentes principales del backend y frontend, los endpoints disponibles, los modelos de datos usados en las comunicaciones y las responsabilidades de cada módulo.
+
+\section{Resumen arquitectónico}
+El sistema sigue una arquitectura cliente-servidor clásica:
+\begin{itemize}
+\item Frontend: aplicación React + TypeScript (Vite) que gestiona la autenticación, vistas según rol y la subida de comprobantes.
+\item Backend: API REST implementada con FastAPI. Opera sobre tablas analíticas en Google BigQuery y un almacenamiento local de comprobantes (`backend/comprobantes/`) para el prototipo.
+\item Almacenamiento analítico: BigQuery para consultas agregadas y conciliaciones.
+\end{itemize}
+
+\section{Endpoints principales}
+A continuación se presenta una tabla resumen de los endpoints más relevantes (ruta, método y objetivo).
+
+\begin{tabular}{p{5cm} p{2cm} p{8cm}}
+Ruta & Método & Propósito \\
+\hline
+/auth/login & POST & Autenticación y emisión de JWT con rol y permisos \\
+/auth/solicitar-codigo & POST & Solicitar código de recuperación de contraseña \\
+/auth/cambiar-clave & POST & Cambiar contraseña con código de verificación \\
+/guias/pendientes & GET & Obtener guías pendientes de liquidación para un conductor \\
+/guias/sincronizar-guias-desde-cod & POST & Sincronizar guías desde la tabla COD_pendientes_v1 \\
+/pagos/registrar-conductor & POST & Registrar pago de conductor, validar y guardar comprobantes \\
+/pagos/ (otros) & POST/GET & Endpoints para pagos avanzados y conciliaciones \\
+/conciliacion/ (varios) & GET/POST & Endpoints para procesos de conciliación y reportes \\
+/roles/ & GET/POST & Gestión de roles y permisos \\
+\end{tabular}
+
+\subsection{Listado ampliado de endpoints}
+Basado en la revisión del código, los routers disponibles incluyen (lista no exhaustiva):
+\begin{itemize}
+\item `/auth/*` — login, solicitar-codigo, cambiar-clave
+\item `/guias/*` — pendientes, sincronizar-guias-desde-cod, operaciones de liquidación
+\item `/pagos/*` — registrar-conductor, endpoints avanzados de pagos y validación
+\item `/pagos-avanzados/*` — validar-pago, procesar-pago-completo
+\item `/conciliacion/*` — carga de archivos bancarios, ejecución de conciliaciones por lote, auditoría y gestión de estados
+\item `/cruces/*` — obtención de cruces bancarios, estadísticas y acciones manuales (aprobar/rechazar)
+\item `/contabilidad/*` — resúmenes contables, reportes por cliente
+\item `/admin/*` — gestión administrativa: crear usuarios, buscar usuarios, listar entregas
+\item `/master/*` — dashboards globales y exportaciones para usuarios con rol master/admin
+\item `/roles/*` — listado y gestión de roles
+\item `/ocr/*` — extracción OCR con IA (extraer), health check
+\item `/pago-cliente/*` — registrar pagos por cliente y enviar confirmaciones por email
+\end{itemize}
+
+\section{Ejemplos de uso: request/response}
+Se muestran a continuación tres ejemplos representativos (resumidos) que pueden incluirse en la documentación técnica.
+
+\subsection{Login (`/auth/login`)}
+Request (JSON):
+\begin{verbatim}
+POST /auth/login
+{
+    "correo": "juan@xcargo.co",
+    "password": "miContrasena"
+}
+\end{verbatim}
+
+Response (JSON):
+\begin{verbatim}
+{
+    "id_usuario": "USR_...",
+    "nombre": "Juan",
+    "correo": "juan@xcargo.co",
+    "rol": "conductor",
+    "permisos": [...],
+    "token": "eyJhbGci..."
+}
+\end{verbatim}
+
+\subsection{Registrar pago conductor (`/pagos/registrar-conductor`)}
+Request (multipart/form-data): campos principales:
+\begin{verbatim}
+POST /pagos/registrar-conductor
+Form fields:
+    correo: conductor@xcargo.co
+    valor_pago_str: 120000
+    fecha_pago: 2025-07-02
+    hora_pago: 14:03
+    tipo: transferencia
+    entidad: Bancolombia
+    referencia: REF12345
+    guias: [{"tracking":"TRK123","referencia":"REF_G1","valor":50000}]
+Files:
+    comprobante_0: archivo.jpg
+    comprobante_1: archivo2.jpg (opcional)
+\end{verbatim}
+
+Response (JSON) (resumen):
+\begin{verbatim}
+{
+    "status": "ok",
+    "Id_Transaccion": 2345,
+    "comprobantes": ["https://api.x-cargo.co/static/uuid_...jpg"],
+    "detalle": "Pago registrado y pendiente de conciliación"
+}
+\end{verbatim}
+
+\subsection{Ejecutar conciliación por lote (`/conciliacion/ejecutar-conciliacion-lote`)}
+Request (JSON):
+\begin{verbatim}
+POST /conciliacion/ejecutar-conciliacion-lote
+{
+    "fecha_inicio": "2025-06-01",
+    "fecha_fin": "2025-07-01",
+    "estrategia": "por_valor"
+}
+\end{verbatim}
+
+Response (JSON) (resumen):
+\begin{verbatim}
+{
+    "procesadas": 1520,
+    "conciliadas_exacto": 1200,
+    "conciliadas_aproximado": 200,
+    "pendientes": 120,
+    "detalle_url": "/conciliacion/reportes/2025-10-14"
+}
+\end{verbatim}
+
+
+Notas:
+\begin{itemize}
+\item Muchos endpoints utilizan BigQuery para validaciones en tiempo de escritura (por ejemplo verificación de referencias duplicadas, búsquedas por tracking).
+\item La generación de `Id_Transaccion` actualmente se hace consultando `MAX(Id_Transaccion)` y sumando 1 por lote; se recomienda reemplazarlo por UUID o un generador centralizado para evitar condiciones de carrera.
+\end{itemize}
+
+\section{Modelos de datos (resumen)}
+Los modelos pydantic y estructuras JSON usadas en las comunicaciones incluyen (resumen):
+\begin{itemize}
+\item `PagoRequest`: lista de facturas/guías, valor, fecha, banco, tipo, referencia y operador.
+\item `GuiaAsignada` / `RegistroPago`: estructuras para asignar valor por guía dentro de una referencia de pago.
+\item `Usuario` (implícito): datos devueltos por `auth/login` incluyen id_usuario, nombre, correo, rol, permisos y token JWT.
+\end{itemize}
+
+\section{Flujos principales}
+\subsection{Registro de pago por conductor}
+Flujo simplificado:
+\begin{enumerate}
+\item El conductor completa un formulario en el frontend y adjunta comprobantes.
+\item El frontend envía un request multipart/form-data a `/pagos/registrar-conductor`.
+\item El backend valida formato, referencia, fechas, y consulta BigQuery para obtener datos relacionados (p. ej. `COD_pendientes_v1`).
+\item Si todo es válido, guarda comprobantes en `backend/comprobantes/` y persiste filas en `pagosconductor` en BigQuery con `Id_Transaccion` común por lote.
+\item Se retorna un objeto con estado y URL(s) de comprobante(s).
+\end{enumerate}
+
+\subsection{Consulta de guías pendientes}
+El endpoint `/guias/pendientes` obtiene guías de `guias_liquidacion` y `COD_pendientes_v1`, aplica filtros (estado 360, fechas, exclusión de pagadas) y devuelve una lista limpia priorizando `guias_liquidacion`.
+
+\section{Frontend: responsabilidades y componentes}
+El frontend está organizado con un `AuthContext` que maneja el token JWT y la lista de permisos. Componentes y responsabilidades clave:
+\begin{itemize}
+\item `ProtectedRoute`: protege rutas según permisos del usuario.
+\item Formularios de registro de pago: envían multipart/form-data con campos y múltiples comprobantes (`comprobante_0`, `comprobante_1`, ...).
+\item Páginas por rol: dashboards para administradores, supervisores, y vistas simplificadas para conductores.
+\end{itemize}
+
+\section{Consideraciones operativas y de seguridad}
+\begin{itemize}
+\item Mover `SECRET_KEY` fuera del código a variables de entorno o un secreto gestionado.
+\item Validar límites y tipos de archivos para comprobantes (ya implementado con tamaños y extensiones permitidas).
+\item Revisar concurrencia en generación de identificadores y operaciones que usan `MAX(...) + 1`.
+\end{itemize}
+
+\section{Ejemplos y snippets}
+Ejemplo resumido (respuesta de login):
+\begin{verbatim}
+{
+  "id_usuario": 123,
+  "nombre": "Juan",
+  "correo": "juan@xcargo.co",
+  "rol": "conductor",
+  "permisos": [...],
+  "token": "eyJhbGci..."
+}
+\end{verbatim}
+
+\section{Tareas pendientes para la implementación final}
+\begin{itemize}
+\item Añadir pruebas unitarias e integración para endpoints críticos (pagos, guías, auth).
+\item Documentar contratos (request/response) más detalladamente y agregar ejemplos en el README técnico.
+\item Considerar migrar comprobantes a almacenamiento en la nube (GCS) para producción.
+\end{itemize}
+Existen varias normas para la citaci\'{o}n bibliogr\'{a}fica. Algunas \'{a}reas del conocimiento prefieren normas espec\'{\i}ficas para citar las referencias bibliogr\'{a}ficas en el texto y escribir la lista de bibliograf\'{\i}a al final de los documentos. Esta plantilla brinda la libertad para que el autor de la tesis  o trabajo de investigaci\'{o}n utilice la norma bibliogr\'{a}fica com\'{u}n para su disciplina. Sin embargo, se solicita que la norma seleccionada se utilice con rigurosidad, sin olvidar referenciar "todos" los elementos tomados de otras fuentes (referencias bibliogr\'{a}ficas, patentes consultadas, software empleado en el manuscrito, en el tratamiento a los datos y resultados del trabajo, consultas a personas (expertos o p\'{u}blico general), entre otros).\\
+
+\section{Ejemplos de citaciones bibliogr\'{a}ficas}
+
+Citaci\'{o}n individual:\cite{AG01}.\\
+Citaci\'{o}n simult\'{a}nea de varios autores:
+\cite{AG12,AG52,AG70,AG08a,AG09a,AG36a,AG01i}.\\
+
+Por lo general, las referencias bibliogr\'{a}ficas correspondientes a los anteriores n\'{u}meros, se listan al final del documento en orden de aparici\'{o}n o en orden alfab\'{e}tico. Otras normas de citaci\'{o}n incluyen el apellido del autor y el a\~{n}o de la referencia, por ejemplo: 1) "...\'{e}nfasis en elementos ligados al \'{a}mbito ingenieril que se enfocan en el manejo de datos e informaci\'{o}n estructurada y que seg\'{u}n Kostoff (1997) ha atra\'{\i}do la atenci\'{o}n de investigadores dado el advenimiento de TIC...", 2) "...Dicha afirmaci\'{o}n coincide con los planteamientos de Snarch (1998), citado por Castellanos (2007), quien comenta que el manejo..." y 3) "...el futuro del sistema para argumentar los procesos de toma de decisiones y el desarrollo de ideas innovadoras (Nosella \textsl{et al}., 2008)...".\\
+
+\section{Ejemplos de presentaci\'{o}n y citaci\'{o}n de figuras}
+Las ilustraciones forman parte del contenido de los cap\'{\i}tulos. Se deben colocar en la misma p\'{a}gina en que se mencionan o en la siguiente (deben siempre mencionarse en el texto).\\
+
+Las llamadas para explicar alg\'{u}n aspecto de la informaci\'{o}n deben hacerse con nota al pie y su nota correspondiente\footnote{Las notas van como "notas al pie". Se utilizan para explicar, comentar o hacer referencia al texto de un documento, as\'{\i} como para introducir comentarios detallados y en ocasiones para citar fuentes de informaci\'{o}n (aunque para esta opci\'{o}n es mejor seguir en detalle las normas de citaci\'{o}n bibliogr\'{a}fica seleccionadas).}. La fuente documental se debe escribir al final de la ilustraci\'{o}n o figura con los elementos de la referencia (de acuerdo con las normas seleccionadas) y no como pie de p\'{a}gina. Un ejemplo para la presentaci\'{o}n y citaci\'{o}n de figuras, se presenta a continuaci\'{o}n (citaci\'{o}n directa):\\
+
+Por medio de las propiedades del fruto, seg\'{u}n el espesor del endocarpio, se hace una clasificaci\'{o}n de la palma de aceite en tres tipos: Dura, Ternera y Pisifera, que se ilustran en la Figura
+\ref{fig:yoda2}.\\
+\begin{figure}
+    \centering%
+    \includegraphics{Images/ImagenYoda.jpg}%
+    \caption{Lego StarWars~\cite{LucasArts2010Yoda} }
+    \label{fig:yoda2}
+\end{figure}
+
+\section{Ejemplo de presentaci\'{o}n y citaci\'{o}n de tablas y cuadros}
+Para la edici\'{o}n de tablas, cada columna debe llevar su t\'{\i}tulo; la primera palabra se debe escribir con may\'{u}scula inicial y preferiblemente sin abreviaturas. En las tablas y cuadros, los t\'{\i}tulos y datos se deben ubicar entre l\'{\i}neas horizontales y verticales cerradas (como se realiza en esta plantilla).\\
+
+La numeraci\'{o}n de las tablas se realiza de la misma manera que las figuras o ilustraciones, a lo largo de todo el texto. Deben llevar un t\'{\i}tulo breve, que concreta el contenido de la tabla; \'{e}ste se debe escribir en la parte superior de la misma. Para la presentaci\'{o}n de cuadros, se deben seguir las indicaciones dadas para las tablas.\\
+
+Un ejemplo para la presentaci\'{o}n y citaci\'{o}n de tablas (citaci\'{o}n indirecta), se presenta a continuaci\'{o}n:\\
+
+De esta participaci\'{o}n aproximadamente el 60 \% proviene de biomasa
+(Tabla \ref{EMundo1}).
+\begin{center}
+\begin{threeparttable}
+    \centering%
+    \caption{Participaci\'{o}n de las energ\'{\i}as renovables en el suministro total de energ\'{\i}a primaria \cite{AG02i}.}
+    \label{EMundo1}
+    \begin{tabular}{|l|c|c|}
+        \hline
+        & \multicolumn{2}{c|}{Participaci\'{o}n en el suministro de energ\'{\i}a primaria /\% (Mtoe)\;$\tnote{1}$}\\
+        \cline{2-3}%
+        {Region} & Energ\'{\i}as renovables & Participaci\'{o}n de la biomasa\\
+        \hline%
+        Latinoam\'{e}rica&28,9 (140)&62,4 (87,4)\\
+        \hline%
+        \:Colombia&27,7 (7,6)&54,4 (4,1)\\
+        \hline%
+        Alemania&3,8 (13,2)&65,8 (8,7)\\
+        \hline%
+        Mundial&13,1 (1404,0)&79,4 (1114,8)\\
+        \hline
+    \end{tabular}
+    \begin{tablenotes}
+        \item[1] \footnotesize{1 kg oe=10000 kcal=41,868 MJ}
+    \end{tablenotes}
+\end{threeparttable}
+\end{center}
+
+NOTA: en el caso en que el contenido de la tabla o cuadro sea muy extenso, se puede cambiar el tama\~{n}o de la letra, siempre y cuando \'{e}sta sea visible por el lector.\\
+
+\subsection{Consideraciones adicionales para el manejo de figuras y tablas}
+Cuando una tabla, cuadro o figura ocupa m\'{a}s de una p\'{a}gina, se debe repetir su identificaci\'{o}n num\'{e}rica, seguida por la palabra continuaci\'{o}n.\\
+
+Adicionalmente los encabezados de las columnas se deben repetir en todas las p\'{a}ginas despu\'{e}s de la primera.\\
+
+Los anteriores lineamientos se contemplan en la presente plantilla.\\
+
+\begin{itemize}
+\item Presentaci\'{o}n y citaci\'{o}n de ecuaciones.
+\end{itemize}
+
+La citaci\'{o}n de ecuaciones, en caso que se presenten, debe hacerse como lo sugiere esta plantilla. Todas las ecuaciones deben estar numeradas y citadas detro del texto.\\
+
+Para el manejo de cifras se debe seleccionar la norma seg\'{u}n el \'{a}rea de conocimiento de la tesis  o trabajo de investigaci\'{o}n.\\

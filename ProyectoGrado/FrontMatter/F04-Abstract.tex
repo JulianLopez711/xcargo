@@ -1,0 +1,29 @@
+% Presentación abreviada y precisa del contenido de un documento, sin agregar interpretación o crítica y se recomienda un exceda una página.
+\section*{Resumen}
+
+El resumen es una presentación abreviada y precisa del contenido de un documento, sin agregar interpretación o crítica. Para documentos extensos como informes, tesis y trabajos de grado, no debe exceder de 500 palabras, y debe ser lo suficientemente breve para que no ocupe más de una página~\cite{NTC14862008}. Se recomienda que este resumen sea anal\'{\i}tico, es decir, que sea completo, con informaci\'{o}n cuantitativa y cualitativa, generalmente incluyendo los siguientes aspectos: objetivos, dise\~{n}o, lugar y circunstancias, pacientes (u objetivo del estudio), intervenci\'{o}n, mediciones y principales resultados, y conclusiones. Al final del resumen se deben usar palabras claves tomadas del texto (m\'{\i}nimo 3 y m\'{a}ximo 10 palabras), las cuales permiten la recuperaci\'{o}n de la informaci\'{o}n.\\
+
+\textbf{\small Palabras clave: (m\'{a}ximo 10 palabras, preferiblemente seleccionadas de las listas internacionales que permitan el indizado cruzado)}.\\
+
+% debe incluir una lista de palabras clave 
+\textbf{Palabras clave}: palabra 1, palabra 2, palabra 3, ...
+
+% Incluir un resumen en otro idioma de preferencia inglés
+\newpage
+\section*{Abstract}
+
+% debe incluir una lista de palabras clave en el otro idioma
+\textbf{Keywords}: Keyword 1, Keyword 2, Keyword 3, ...
+% Resumen (Abstract) - Contenido actualizado por integración de borrador
+\begin{abstract}
+
+Este trabajo presenta el dise\\~{n}o, implementaci\\'on y evaluaci\\'on de XCargo, una plataforma integral para la gesti\\'on log\\'istica de env\\'ios y liquidaci\\'on de gu\\'ias dirigida a peque\\~{n}as y medianas empresas de transporte. XCargo integra una interfaz web para operadores y conductores, un backend basado en FastAPI que centraliza la l\\'ogica de negocio y almacenamiento en Google BigQuery para registro y conciliaci\\'on de pagos.
+
+Se propone un flujo seguro y trazable para el registro de pagos de conductores, la gesti\\'on de comprobantes digitales y la conciliaci\\'on contable. La soluci\\'on aborda problemas comunes en el sector como la falta de trazabilidad en el proceso de cobro, la dificultad para conciliar movimientos bancarios con referencias de pago, y la necesidad de reportes por carrier y por periodo.
+
+En la implementaci\\'on se describen los m\\'odulos principales: autenticaci\\'on y control de acceso por roles y permisos, captura y validaci\\'on de comprobantes, almacenamiento y consulta anal\\'itica en BigQuery, y herramientas de supervisi\\'on y conciliaci\\'on. Se presenta una evaluaci\\'on funcional que incluye pruebas de caso real, pruebas de integridad de datos y consideraciones de seguridad y rendimiento.
+
+Finalmente, se discuten las limitaciones del prototipo, recomendaciones para despliegue en producci\\'on y las l\\'ineas de trabajo futuro, que incluyen: mejora de la seguridad de autenticaci\\'on (rotaci\\'on de claves y refresh tokens), optimizaci\\'on de consultas en BigQuery para reducir costos, y un m\\'odulo de automatizaci\\'on de conciliaci\\'on bancaria.
+
+\end{abstract}
+

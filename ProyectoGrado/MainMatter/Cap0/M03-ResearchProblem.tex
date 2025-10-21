@@ -1,0 +1,20 @@
+% Planteamiento del problema - Borrador profesional
+\section{Planteamiento del problema}
+
+En muchas empresas de transporte de mediana escala, la gestión de pagos a conductores y la conciliación con movimientos bancarios presentan deficiencias que generan retrasos, pérdidas de tiempo en procesos manuales y errores por registros duplicados o referencias inconsistentes. Estas deficiencias afectan la liquidez, la transparencia y la capacidad de supervisión por parte de los administradores.
+
+\subsection{Descripción del problema}
+Los procesos actuales dependen en gran medida de reportes manuales por parte de conductores, comprobantes físicos y conciliaciones semimanuales. La falta de un identificador único y estandarizado por transacción dificulta la conciliación automática con extractos bancarios. Además, la ausencia de controles rigurosos provoca inconsistencias en los registros y complica la auditoría.
+
+\subsection{Pregunta principal de investigación}
+¿Cómo diseñar e implementar un prototipo de plataforma que permita el registro trazable de pagos de conductores, la gestión segura de comprobantes y la conciliación eficiente con movimientos bancarios en empresas de transporte de mediana escala?
+
+\subsection{Preguntas específicas}
+\begin{itemize}
+  \item ¿Qué modelo de datos y qué identificadores permiten una conciliación más eficiente entre pagos reportados y movimientos bancarios?
+  \item ¿Qué controles y validaciones son necesarios para reducir la tasa de registros duplicados e inconsistentes?
+  \item ¿Cómo puede integrarse una capa analítica (BigQuery) para soportar reportes y conciliaciones sin incurrir en costos operativos inasumibles?
+\end{itemize}
+
+\subsection{Hipótesis}
+La implementación de un prototipo que combine la captura digital de comprobantes, la asignación de identificadores transaccionales únicos y reglas de validación automatizadas reducirá significativamente el tiempo de conciliación y la tasa de inconsistencias en los registros en comparación con procesos manuales actuales.

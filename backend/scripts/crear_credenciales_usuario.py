@@ -245,9 +245,9 @@ if __name__ == "__main__":
     print("=" * 50)
     
     # Datos del usuario para crear credenciales
-    correo = "vivian.cardenas@x-cargo.co"
+    correo = "xcargoibague@gmail.com"
     password_temporal = "Xcargo123"  # Contraseña temporal que debe cambiar
-    rol = "contabilidad"  # Rol según tu sistema
+    rol = "conductor"  # Rol según tu sistema
     
     print("\n1️⃣  Consultando credenciales existentes...")
     consultar_credenciales_existentes()

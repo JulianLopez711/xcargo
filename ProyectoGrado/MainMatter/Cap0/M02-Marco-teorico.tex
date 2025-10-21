@@ -1,0 +1,27 @@
+% Marco teórico - Borrador profesional
+\chapter{Marco teórico}
+
+En este capítulo se revisan los conceptos, modelos y trabajos previos relevantes para el desarrollo de XCargo. El objetivo es establecer el marco conceptual y técnico que explique las decisiones de diseño y las bases teóricas de las soluciones propuestas.
+
+\section{Gestión logística y procesos de pago}
+La literatura sobre gestión logística destaca la importancia de la trazabilidad y de procesos estándar para asegurar la eficiencia operativa y la fiabilidad de la información financiera. En particular, la gestión de comprobantes y la conciliación de pagos son procesos críticos en empresas de transporte debido a la multiplicidad de actores (operadores, conductores, carriers y entidades bancarias) y a la frecuencia de los movimientos.
+\cite{react2013, bigquery2011}
+
+\section{Sistemas de información para transporte}
+Los sistemas actuales para empresas de transporte suelen integrar módulos de gestión de guías, seguimiento de envíos y facturación. Estos sistemas varían desde soluciones ERP completas hasta aplicaciones específicas que soportan la captura móvil de comprobantes y la sincronización con sistemas contables.
+
+\section{Trazabilidad y conciliación contable}
+La conciliación entre pagos reportados y movimientos bancarios requiere identificadores estables (referencias, remesas) y procesos que permitan la conciliación automática cuando sea posible. Estudios previos muestran que el uso de almacenes analíticos (p. ej. BigQuery) facilita consultas históricas y la construcción de informes, pero no sustituye la necesidad de reglas de negocio robustas y validaciones para evitar duplicados.
+\cite{bigquery2011, uuid2005}
+
+\section{Autenticación basada en roles}
+La separación por roles (admin, master, supervisor, operador, conductor) es un patrón establecido en sistemas multiusuario. La gestión de permisos basada en tablas de roles y permisos simplifica la evolución de la política de acceso sin modificar el código cliente.
+\cite{jwt2015}
+
+\section{Almacenamiento y arquitectura analítica}
+El uso de un almacén analítico en la nube (BigQuery en este caso) permite ejecutar consultas agregadas y reportes a escala. Sin embargo, este tipo de almacenamiento conlleva consideraciones de latencia y coste por consulta que deben considerarse en el diseño del prototipo.
+
+\section{Trabajos relacionados}
+Se debe incluir un resumen de implementaciones y artículos sobre plataformas de conciliación para transporte y sobre sistemas de registro de comprobantes digitales. Aquí se sugiere listar 4–6 trabajos recientes y comparar enfoques (automatización de conciliación, uso de identificación por referencia, y mecanismos de recuperación ante fallos).
+
+% Nota: sustituir las secciones anteriores por referencias bibliográficas concretas y ejemplos reales encontrados durante la revisión.
